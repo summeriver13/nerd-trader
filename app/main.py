@@ -3,6 +3,11 @@ import time
 from datetime import datetime
 
 import ccxt
+
+import matplotlib
+# 强制 Matplotlib 使用 Agg 后端（Agg 只渲染到文件，不需要屏幕）
+matplotlib.use('Agg')
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
