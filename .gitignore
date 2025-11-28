@@ -1,4 +1,4 @@
-png/
+*.png
 
 # --- Python ---
 # Virtual environment folders
