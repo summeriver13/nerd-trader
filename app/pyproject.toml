@@ -1,20 +1,17 @@
-[project]
+[tool.poetry]
 name = "cryptotrader"
 version = "0.1.0"
-description = ""
-authors = [
-    {name = "xia.jiang",email = "xia.jiang.work@outlook.com"}
-]
-readme = "README.md"
-requires-python = ">=3.12"
-dependencies = [
-    "ccxt (>=4.5.22,<5.0.0)",
-    "pandas (>=2.3.3,<3.0.0)",
-    "python-dotenv (>=1.2.1,<2.0.0)",
-    "matplotlib (>=3.10.7,<4.0.0)"
-]
+description = "量化交易机器人项目"
+authors = ["xia.jiang <xia.jiang.work@outlook.com>"]
+package-mode = false 
 
+[tool.poetry.dependencies]
+python = ">=3.12"
+ccxt = "^4.5.22"
+pandas = "^2.3.3"
+python-dotenv = "^1.2.1"
+matplotlib = "^3.10.7"
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
+requires = ["poetry-core>=2.0.0"]
 build-backend = "poetry.core.masonry.api"
