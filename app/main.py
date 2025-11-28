@@ -1,8 +1,10 @@
 import os
+import time
 from datetime import datetime
 
 import ccxt
-import matplotlib.pyplot as plt  # 引入画图库
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
@@ -25,6 +27,7 @@ class OkxTrader:
         passphrase = os.getenv("OKX_PASSPHRASE")
 
         # 2. 从环境变量获取代理配置
+        # 考虑到你在东京VPS，通常不需要代理，但保留该逻辑作为兼容性
         use_proxy = os.getenv("OKX_USE_PROXY", "false").lower() == "true"
         proxy_port = os.getenv("OKX_PROXY_PORT", "7890")
 
@@ -73,6 +76,7 @@ class OkxTrader:
             return ticker["last"]
         except Exception as e:
             print(f"❌ [获取行情失败] {e}")
+            return 0.0
 
     def get_account_balance(self, currency: str = "USDT"):
         """获取余额"""
@@ -149,27 +153,20 @@ def run_vectorized_backtest(df):
     print("\n⚡ 正在执行回测...")
 
     # 1. 计算市场基准收益 (Market Return)
-    # pct_change() = (现价 - 上一个价格) / 上一个价格
     df["market_return"] = df["close"].pct_change()
 
     # 2. 生成交易信号 (Signal)
     # 逻辑: 收盘价 > 20小时均线时持有 (1)，否则空仓 (0)
-    # astype(int) 会把 True 变成 1, False 变成 0
     df["signal"] = (df["close"] > df["MA20"]).astype(int)
 
     # 3. 计算策略收益 (Strategy Return)
-    # ⚠️ 关键点: .shift(1)
-    # 我们只能根据“昨天”收盘后的信号，在“今天”获得收益。
-    # 如果不移位，就是用了未来函数 (作弊)。
     df["strategy_return"] = df["market_return"] * df["signal"].shift(1)
 
     # 4. 计算资金曲线 (Equity Curve)
-    # 假设初始资金是 1，累乘收益率得到净值
     df["equity_curve"] = (1 + df["strategy_return"]).cumprod()
     df["benchmark_curve"] = (1 + df["market_return"]).cumprod()
 
     # --- 输出回测结果 ---
-    # fillna(0) 是为了防止第一行数据为空导致计算出错
     total_return = df["equity_curve"].iloc[-1] - 1
     benchmark_return = df["benchmark_curve"].iloc[-1] - 1
 
@@ -183,7 +180,7 @@ def run_vectorized_backtest(df):
     else:
         print("❌ 策略跑输了市场。(正常，震荡市均线策略通常会磨损)")
 
-    # --- 画图 ---
+    # --- 画图 (保存到文件) ---
     plt.figure(figsize=(12, 6))
     plt.plot(df.index, df["equity_curve"], label="Strategy (MA20)", color="red")
     plt.plot(
@@ -196,8 +193,15 @@ def run_vectorized_backtest(df):
     plt.title("Vectorized Backtest: MA20 Strategy")
     plt.legend()
     plt.grid(True)
-    # 必须调用 show() 才能弹出窗口
-    plt.show()
+
+    # 替换 plt.show() 为保存文件逻辑
+    current_time_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"backtest_result_{current_time_str}.png"
+    filepath = os.path.join(os.getcwd(), filename)
+
+    plt.savefig(filepath)
+    print(f"📊 回测图表已保存到: {filepath}")
+    plt.close() # 关闭图形，释放内存
 
 
 # --- 主程序入口 ---
@@ -208,15 +212,19 @@ if __name__ == "__main__":
         if trader.check_connection():
             symbol = "BTC/USDT"
 
-            # 1. 获取较长周期的历史数据 (为了回测效果，我们尝试取 300 条)
-            # 注意: OKX 普通 API 单次可能限制 100 或 300，如果报错请改回 100
+            # 1. 运行基础信息检查
+            trader.get_ticker_price(symbol)
+            trader.get_account_balance("USDT")
+            trader.get_order_book(symbol)
+
+            # 2. 拉取数据 (这里使用 300 条 K 线进行回测)
             df = trader.get_kline_data(symbol, "1h", limit=300)
 
-            # 2. 计算指标 & 运行回测
+            # 3. 计算指标 & 运行回测
             if df is not None:
                 df = trader.calculate_indicators(df)
 
-                # 运行回测函数
+                # 运行回测函数 (会生成 backtest_result_....png 文件)
                 run_vectorized_backtest(df)
 
                 # 打印最新的信号供参考
@@ -227,5 +235,7 @@ if __name__ == "__main__":
 
     except ValueError as e:
         print(e)
+        time.sleep(5) # 休息一下，防止循环崩溃
     except Exception as e:
         print(f"程序异常退出: {e}")
+        time.sleep(5)
