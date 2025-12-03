@@ -1,0 +1,23 @@
+{
+  // 强制使用虚拟环境的路径，解决导入问题
+  "python.defaultInterpreterPath": ".venv/bin/python", // 假设您的虚拟环境名称为 .venv
+
+  // ======== 代码格式化 (PEP8) ========
+  "editor.defaultFormatter": "ms-python.autopep8",
+  "python.formatting.provider": "autopep8",
+  "python.formatting.autopep8Args": [
+    "--max-line-length",
+    "120" // PEP8 默认 79，但现代开发中 120 更常见
+  ],
+  "editor.formatOnSave": true, // 保存时自动格式化
+
+  // ======== 静态代码检查 (Linter/Type Checking) ========
+  "python.languageServer": "Pylance",
+  "python.analysis.typeCheckingMode": "strict", // 启用严格类型检查 (推荐)
+  "python.analysis.extraPaths": ["./core", "./strategies", "./utils"],
+
+  // 启用基于 Pylance 的导入报告，解决 'ccxt' 无法解析的问题
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingImports": "warning" // 遇到缺失导入时显示警告而非错误
+  }
+}
