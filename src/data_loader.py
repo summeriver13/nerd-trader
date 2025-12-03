@@ -22,8 +22,10 @@ class MarketDataHandler:
         """
         self.exchange = exchange
         # 创建数据存储目录
-        self.data_dir = "data_storage"
+        # [修改点] 将默认存储路径改为 data/cache，符合工程结构
+        self.data_dir = os.path.join("data", "cache")
         if not os.path.exists(self.data_dir):
+            # makedirs 会自动创建多级目录 (data 和 cache)
             os.makedirs(self.data_dir)
 
     def prepare_data(

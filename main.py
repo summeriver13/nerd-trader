@@ -29,8 +29,6 @@ def run_strategy_for_symbol(symbol: str, data_handler: MarketDataHandler):
     result = engine.run(df)
 
     # 5. 画图
-    # 替换 / 为 _ 以防止文件名路径错误
-    safe_symbol = symbol.replace("/", "_")
     engine.plot(result, title=f"{symbol} Dual MA (9,30)")
 
     return {
