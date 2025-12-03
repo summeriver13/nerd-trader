@@ -26,6 +26,73 @@ class MarketDataHandler:
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
 
+    def prepare_data(
+        self,
+        symbol: str,
+        timeframe: str = "1h",
+        days_back: int = 365,
+        force_update: bool = False,
+    ) -> pd.DataFrame:
+        """
+        智能数据准备：优先读取本地，本地数据不足或过旧时自动更新
+        :param symbol: 交易对
+        :param timeframe: 周期
+        :param days_back: 需要回测的天数
+        :param force_update: 是否强制重新下载
+        """
+        safe_symbol = symbol.replace("/", "_")
+        filename = f"{safe_symbol}_{timeframe}.parquet"
+
+        # 1. 尝试加载本地
+        df = self.load_from_parquet(filename)
+
+        target_start_dt = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days_back)
+        need_download = False
+
+        # 2. 检查逻辑
+        if df is None or df.empty or force_update:
+            print("🌐 [数据] 本地无数据或强制更新，准备下载...")
+            need_download = True
+        else:
+            # 确保时区正确
+            if df.index.tz is None:  # type: ignore
+                df.index = df.index.tz_localize("UTC")  # type: ignore
+            else:
+                df.index = df.index.tz_convert("UTC")  # type: ignore
+
+            local_start = df.index[0]
+            local_end = df.index[-1]
+            now_utc = pd.Timestamp.now(tz="UTC")
+
+            # 检查长度: 留 24h buffer
+            if local_start > target_start_dt + pd.Timedelta(hours=24):
+                print(f"⚠️ [数据] 本地数据长度不足 (始于 {local_start})，需下载补充...")
+                need_download = True
+
+            # 检查时效: 如果数据滞后超过 24小时
+            if local_end < now_utc - pd.Timedelta(hours=24):
+                print(f"⚠️ [数据] 本地数据已过时 (止于 {local_end})，需增量更新...")
+                need_download = True
+
+        # 3. 下载流程
+        if need_download:
+            # type: ignore 忽略 NaTType 误报
+            since_str = target_start_dt.strftime("%Y-%m-%d %H:%M:%S")  # type: ignore
+            print(f"⬇️ 正在获取数据: {symbol} 自 {since_str}...")
+
+            # 这里简化处理：直接覆盖下载。
+            df_new = self.fetch_history_candles(symbol, timeframe, since_str)
+            df_new = self.clean_data(df_new, timeframe)
+            self.save_to_parquet(df_new, filename)
+            return df_new
+
+        # 逻辑上如果 df 为 None，上面的 need_download 会为 True 并返回 df_new
+        # 但类型检查器无法推断这一点，所以这里显式处理 None 的情况
+        if df is None:
+            return pd.DataFrame()
+
+        return df
+
     def fetch_history_candles(
         self, symbol: str, timeframe: str, since_str: str, limit_per_req: int = 100
     ) -> pd.DataFrame:
