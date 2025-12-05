@@ -147,7 +147,6 @@ def main():
         if col in df_summary.columns:
             df_summary[col] = df_summary[col].apply(lambda x: fmt.format(x))
 
-    # 打印 Markdown 表格 (此时不需要 floatfmt 了，因为已经是格式化好的字符串)
     print(df_summary.to_markdown(index=False))
 
 
