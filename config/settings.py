@@ -15,6 +15,7 @@ class ExchangeConfig:
     passphrase: str | None
     use_proxy: bool
     proxy_url: str | None
+    sandbox_mode: bool  # 新增：是否开启模拟盘
 
     def to_ccxt_config(self) -> dict[str, Any]:
         config: dict[str, Any] = {
@@ -22,13 +23,16 @@ class ExchangeConfig:
             "secret": self.secret,
             "password": self.passphrase,
             "enableRateLimit": True,
-            "options": {"defaultType": "swap"},
+            "options": {"defaultType": "swap"},  # 默认交易永续合约
         }
+
+        # 代理配置
         if self.use_proxy and self.proxy_url:
             config["proxies"] = {
                 "http": self.proxy_url,
                 "https": self.proxy_url,
             }
+
         return config
 
 
@@ -39,6 +43,8 @@ def load_config() -> ExchangeConfig:
         passphrase=os.getenv("OKX_PASSPHRASE"),
         use_proxy=os.getenv("OKX_USE_PROXY", "false").lower() == "true",
         proxy_url=f"http://127.0.0.1:{os.getenv('OKX_PROXY_PORT', '7890')}",
+        # 读取 SANDBOX 环境变量，默认为 False (实盘)
+        sandbox_mode=os.getenv("OKX_SANDBOX", "false").lower() == "true",
     )
 
 

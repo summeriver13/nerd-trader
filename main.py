@@ -149,6 +149,21 @@ def main():
 
     print(df_summary.to_markdown(index=False))
 
+    print("\n💡 分析提示:")
+    print("1. 如果[自适应]显著优于[通用]，说明该策略有效，但需要针对该币种单独调参。")
+    print(
+        "2. 如果[自适应]依然亏损或收益微薄，说明该策略逻辑(双均线)根本不适合该币种，建议放弃。"
+    )
+
+
+def main():
+    print("🚀 初始化量化系统...")
+    exchange = ccxt.okx(GLOBAL_CONFIG.to_ccxt_config())  # type: ignore
+    data_handler = MarketDataHandler(exchange)
+
+    # 运行研究实验
+    run_research_experiment(data_handler)
+
 
 if __name__ == "__main__":
     main()
