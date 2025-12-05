@@ -156,14 +156,5 @@ def main():
     )
 
 
-def main():
-    print("🚀 初始化量化系统...")
-    exchange = ccxt.okx(GLOBAL_CONFIG.to_ccxt_config())  # type: ignore
-    data_handler = MarketDataHandler(exchange)
-
-    # 运行研究实验
-    run_research_experiment(data_handler)
-
-
 if __name__ == "__main__":
     main()
