@@ -198,6 +198,27 @@ files = [
 ]
 
 [[package]]
+name = "build"
+version = "1.3.0"
+description = "A simple, correct Python build frontend"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "build-1.3.0-py3-none-any.whl", hash = "sha256:7145f0b5061ba90a1500d60bd1b13ca0a8a4cebdd0cc16ed8adf1c0e739f43b4"},
+    {file = "build-1.3.0.tar.gz", hash = "sha256:698edd0ea270bde950f53aed21f3a0135672206f3911e0176261a31e0e07b397"},
+]
+
+[package.dependencies]
+colorama = {version = "*", markers = "os_name == \"nt\""}
+packaging = ">=19.1"
+pyproject_hooks = "*"
+
+[package.extras]
+uv = ["uv (>=0.1.18)"]
+virtualenv = ["virtualenv (>=20.11) ; python_version < \"3.10\"", "virtualenv (>=20.17) ; python_version >= \"3.10\" and python_version < \"3.14\"", "virtualenv (>=20.31) ; python_version >= \"3.14\""]
+
+[[package]]
 name = "ccxt"
 version = "4.5.22"
 description = "A cryptocurrency trading API with more than 100 exchanges in JavaScript / TypeScript / Python / C# / PHP / Go"
@@ -516,6 +537,19 @@ files = [
     {file = "coincurve-21.0.0-cp39-cp39-win_amd64.whl", hash = "sha256:ef81ca24511a808ad0ebdb8fdaf9c5c87f12f935b3d117acccc6520ad671bcce"},
     {file = "coincurve-21.0.0-cp39-cp39-win_arm64.whl", hash = "sha256:6ec8e859464116a3c90168cd2bd7439527d4b4b5e328b42e3c8e0475f9b0bf71"},
     {file = "coincurve-21.0.0.tar.gz", hash = "sha256:8b37ce4265a82bebf0e796e21a769e56fdbf8420411ccbe3fafee4ed75b6a6e5"},
+]
+
+[[package]]
+name = "colorama"
+version = "0.4.6"
+description = "Cross-platform colored terminal text."
+optional = false
+python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,!=3.6.*,>=2.7"
+groups = ["main"]
+markers = "os_name == \"nt\""
+files = [
+    {file = "colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"},
+    {file = "colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44"},
 ]
 
 [[package]]
@@ -1286,6 +1320,31 @@ files = [
 ]
 
 [[package]]
+name = "narwhals"
+version = "2.13.0"
+description = "Extremely lightweight compatibility layer between dataframe libraries"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "narwhals-2.13.0-py3-none-any.whl", hash = "sha256:9b795523c179ca78204e3be53726da374168f906e38de2ff174c2363baaaf481"},
+    {file = "narwhals-2.13.0.tar.gz", hash = "sha256:ee94c97f4cf7cfeebbeca8d274784df8b3d7fd3f955ce418af998d405576fdd9"},
+]
+
+[package.extras]
+cudf = ["cudf (>=24.10.0)"]
+dask = ["dask[dataframe] (>=2024.8)"]
+duckdb = ["duckdb (>=1.1)"]
+ibis = ["ibis-framework (>=6.0.0)", "packaging", "pyarrow-hotfix", "rich"]
+modin = ["modin"]
+pandas = ["pandas (>=1.1.3)"]
+polars = ["polars (>=0.20.4)"]
+pyarrow = ["pyarrow (>=13.0.0)"]
+pyspark = ["pyspark (>=3.5.0)"]
+pyspark-connect = ["pyspark[connect] (>=3.5.0)"]
+sqlframe = ["sqlframe (>=3.22.0,!=3.39.3)"]
+
+[[package]]
 name = "numpy"
 version = "2.3.5"
 description = "Fundamental package for array computing in Python"
@@ -1603,6 +1662,30 @@ mic = ["olefile"]
 test-arrow = ["arro3-compute", "arro3-core", "nanoarrow", "pyarrow"]
 tests = ["check-manifest", "coverage (>=7.4.2)", "defusedxml", "markdown2", "olefile", "packaging", "pyroma (>=5)", "pytest", "pytest-cov", "pytest-timeout", "pytest-xdist", "trove-classifiers (>=2024.10.12)"]
 xmp = ["defusedxml"]
+
+[[package]]
+name = "plotly"
+version = "6.5.0"
+description = "An open-source interactive data visualization library for Python"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "plotly-6.5.0-py3-none-any.whl", hash = "sha256:5ac851e100367735250206788a2b1325412aa4a4917a4fe3e6f0bc5aa6f3d90a"},
+    {file = "plotly-6.5.0.tar.gz", hash = "sha256:d5d38224883fd38c1409bef7d6a8dc32b74348d39313f3c52ca998b8e447f5c8"},
+]
+
+[package.dependencies]
+narwhals = ">=1.15.1"
+packaging = "*"
+
+[package.extras]
+dev = ["plotly[dev-optional]"]
+dev-build = ["build", "jupyter", "plotly[dev-core]"]
+dev-core = ["pytest", "requests", "ruff (==0.11.12)"]
+dev-optional = ["anywidget", "colorcet", "fiona (<=1.9.6) ; python_version <= \"3.8\"", "geopandas", "inflect", "numpy", "orjson", "pandas", "pdfrw", "pillow", "plotly-geo", "plotly[dev-build]", "plotly[kaleido]", "polars[timezone]", "pyarrow", "pyshp", "pytz", "scikit-image", "scipy", "shapely", "statsmodels", "vaex ; python_version <= \"3.9\"", "xarray"]
+express = ["numpy"]
+kaleido = ["kaleido (>=1.1.0)"]
 
 [[package]]
 name = "propcache"
@@ -1969,6 +2052,18 @@ files = [
 diagrams = ["jinja2", "railroad-diagrams"]
 
 [[package]]
+name = "pyproject-hooks"
+version = "1.2.0"
+description = "Wrappers to call pyproject.toml-based build backend hooks."
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "pyproject_hooks-1.2.0-py3-none-any.whl", hash = "sha256:9e5c6bfa8dcc30091c74b0cf803c81fdd29d94f01992a7707bc97babb1141913"},
+    {file = "pyproject_hooks-1.2.0.tar.gz", hash = "sha256:1e859bd5c40fae9448642dd871adf459e5e2084186e8d2c2a79a824c970da1f8"},
+]
+
+[[package]]
 name = "python-dateutil"
 version = "2.9.0.post0"
 description = "Extensions to the standard Python datetime module"
@@ -2112,6 +2207,28 @@ doc = ["intersphinx_registry", "jupyterlite-pyodide-kernel", "jupyterlite-sphinx
 test = ["Cython", "array-api-strict (>=2.3.1)", "asv", "gmpy2", "hypothesis (>=6.30)", "meson", "mpmath", "ninja ; sys_platform != \"emscripten\"", "pooch", "pytest (>=8.0.0)", "pytest-cov", "pytest-timeout", "pytest-xdist", "scikit-umfpack", "threadpoolctl"]
 
 [[package]]
+name = "seaborn"
+version = "0.13.2"
+description = "Statistical data visualization"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "seaborn-0.13.2-py3-none-any.whl", hash = "sha256:636f8336facf092165e27924f223d3c62ca560b1f2bb5dff7ab7fad265361987"},
+    {file = "seaborn-0.13.2.tar.gz", hash = "sha256:93e60a40988f4d65e9f4885df477e2fdaff6b73a9ded434c1ab356dd57eefff7"},
+]
+
+[package.dependencies]
+matplotlib = ">=3.4,<3.6.1 || >3.6.1"
+numpy = ">=1.20,<1.24.0 || >1.24.0"
+pandas = ">=1.2"
+
+[package.extras]
+dev = ["flake8", "flit", "mypy", "pandas-stubs", "pre-commit", "pytest", "pytest-cov", "pytest-xdist"]
+docs = ["ipykernel", "nbconvert", "numpydoc", "pydata_sphinx_theme (==0.10.0rc2)", "pyyaml", "sphinx (<6.0.0)", "sphinx-copybutton", "sphinx-design", "sphinx-issues"]
+stats = ["scipy (>=1.7)", "statsmodels (>=0.12)"]
+
+[[package]]
 name = "setuptools"
 version = "80.9.0"
 description = "Easily download, build, install, upgrade, and uninstall Python packages"
@@ -2201,6 +2318,75 @@ scipy = ">=1.8,<1.9.2 || >1.9.2"
 build = ["cython (>=3.0.10)"]
 develop = ["colorama", "cython (>=3.0.10)", "cython (>=3.0.10,<4)", "flake8", "isort", "jinja2", "joblib", "matplotlib (>=3)", "pytest (>=7.3.0,<8)", "pytest-cov", "pytest-randomly", "pytest-xdist", "pywinpty ; os_name == \"nt\"", "setuptools_scm[toml] (>=8.0,<9.0)"]
 docs = ["ipykernel", "jupyter_client", "matplotlib", "nbconvert", "nbformat", "numpydoc", "pandas-datareader", "sphinx"]
+
+[[package]]
+name = "ta-lib"
+version = "0.6.8"
+description = "Python wrapper for TA-Lib"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "ta_lib-0.6.8-cp310-cp310-macosx_13_0_x86_64.whl", hash = "sha256:71506116eac0d3e3598d6325b4b818c3a0f6acb3222b24d30ad726e8c4bf7ea8"},
+    {file = "ta_lib-0.6.8-cp310-cp310-macosx_14_0_arm64.whl", hash = "sha256:b3b017d9103e7a7372a146773be32b184ff7330bd708d40b1f56f06a686756ed"},
+    {file = "ta_lib-0.6.8-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:6c1fd18e45c39d5a4be4b0d6a20c141e43fe46daeb1b2e2f304ebae7015ab6e6"},
+    {file = "ta_lib-0.6.8-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6c6a1e8f98de92e817491b50aa4d01d69a1b41a4ed3173747e8f16f0d4cf81cc"},
+    {file = "ta_lib-0.6.8-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:3d7333e907bff3e3997e54f89733ffa8d619842a3e1cd962bca34bdc11944c28"},
+    {file = "ta_lib-0.6.8-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:87c1cc1057d903b78a8257a7c5f497db6fd5284f5080392bd57b66031d7389a3"},
+    {file = "ta_lib-0.6.8-cp310-cp310-win32.whl", hash = "sha256:7a5cc6bf60791d8274edfdfe2dd7cec3f00f656dcc92e2b0a9af06c8b18ce6a6"},
+    {file = "ta_lib-0.6.8-cp310-cp310-win_amd64.whl", hash = "sha256:cce8de9d48289927ed18aaa420740efd52b2cd9289da32e3799afbb3a02822e8"},
+    {file = "ta_lib-0.6.8-cp310-cp310-win_arm64.whl", hash = "sha256:4aa0fe08383f3e5fc7d2f8cf9b42ac778f4d53fd75bcd2799a858225954eab89"},
+    {file = "ta_lib-0.6.8-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:f823d0f6b04a6797fbe253bcf91666e71a6b63c290683819650c68b2468ebe64"},
+    {file = "ta_lib-0.6.8-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:30de46b55873b51be945a09edf486afcc190dc47eff9fb5d2b12c9f7e3d743da"},
+    {file = "ta_lib-0.6.8-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:490e19a45cd3cdd6dfe6b46019f7ffe1103500750b41b51996a870e7c1c5f066"},
+    {file = "ta_lib-0.6.8-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a395524b0fafa10446d11e11acb4742e919523de58aac03b791f26d7a783bcf0"},
+    {file = "ta_lib-0.6.8-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:11a373c9308eae3bac2d56d37017f9ab63968cc074a8b95be879aae3d13133aa"},
+    {file = "ta_lib-0.6.8-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:282e49c766b5952dd8796f77d7ed3ae412cdd88e31f845b1fbbb86ac6cb7bebf"},
+    {file = "ta_lib-0.6.8-cp311-cp311-win32.whl", hash = "sha256:0a08a29690a922ba92a6cf42902a8a93c6fbda4cfed62c3c5b0471560ef60135"},
+    {file = "ta_lib-0.6.8-cp311-cp311-win_amd64.whl", hash = "sha256:c01809fb602e2fefc8cbfb3b603bb59d2a2eaee8708410896d48a835ba00e7c5"},
+    {file = "ta_lib-0.6.8-cp311-cp311-win_arm64.whl", hash = "sha256:a89734a7bcb2ea3b6fd600a74d6fbcdb8d3fa3f7917dbd978e039710b5509c9c"},
+    {file = "ta_lib-0.6.8-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:128ec92e6a0e9ff7a38edef80e3b74f15bb2ed1c531d5d3252c8dca22677651b"},
+    {file = "ta_lib-0.6.8-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:66a8e1c1e899d15a2f7510e43527fba22d895e7f6058d027db3e3837d88a69de"},
+    {file = "ta_lib-0.6.8-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5929c83bd8cb7572d1c17ffdbf0eac235bf3c4d53cde1950cf89d944eaf97525"},
+    {file = "ta_lib-0.6.8-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:094677b279a59c3f01c3aca8a889fda3523fd641a3805f69a2d642121b72e55e"},
+    {file = "ta_lib-0.6.8-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:e920c272cd9e70a6b10eae9203cc96845da142e1dd4482de9343dda3738a9862"},
+    {file = "ta_lib-0.6.8-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:d556d1c256b3700b60b6b061664a667b2e49d599c2772d46a9f2348f2dc4ab5c"},
+    {file = "ta_lib-0.6.8-cp312-cp312-win32.whl", hash = "sha256:2b369cabb48485fbf444beb3f5a878075367b99c2c86db2f796afeabebc749e0"},
+    {file = "ta_lib-0.6.8-cp312-cp312-win_amd64.whl", hash = "sha256:e781eeb65b2007af553389c8a7fb7bc53cb856118b0fcffb2c26b0f49561c686"},
+    {file = "ta_lib-0.6.8-cp312-cp312-win_arm64.whl", hash = "sha256:fa7e9f2e80a9535f9692e113d02b4268b5f88675a730d1b0ef0abeb74c9a4e80"},
+    {file = "ta_lib-0.6.8-cp313-cp313-macosx_13_0_x86_64.whl", hash = "sha256:6cf029b886cfb28a2701503b7c602b811f2daa45276bd6459b0c71e051deb497"},
+    {file = "ta_lib-0.6.8-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:ddf7453acd03b966624ebefdb38169b5bbbeea1a1a58c90b095667247f9de327"},
+    {file = "ta_lib-0.6.8-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:3c32fc0f546ceecc47dd45f33d72ab4a1e341b80d9081c2d77b100add5d49104"},
+    {file = "ta_lib-0.6.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:2bf714333788bf5175f2512b86d2ed129e89ae6f6c2923e8a297a1e3395e13b5"},
+    {file = "ta_lib-0.6.8-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:b3845e4c2fa32963fb7f384ebbaa2761b0e6b96145239bf80e956d4aff4b071c"},
+    {file = "ta_lib-0.6.8-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:4795e93d130c9b7fb661f0cead49752ae6a980437df74b99d5918026c212443e"},
+    {file = "ta_lib-0.6.8-cp313-cp313-win32.whl", hash = "sha256:691a62926ba09f2653ec0908554b3635497efb7751c5d46b916cd1ebbb1d3c25"},
+    {file = "ta_lib-0.6.8-cp313-cp313-win_amd64.whl", hash = "sha256:34e3b12407ddf99f6627435aa8a165f094339bb7dc33de92e1d7472e9f237304"},
+    {file = "ta_lib-0.6.8-cp313-cp313-win_arm64.whl", hash = "sha256:0ccd478ff5735831bf2a61d653466bfda8afadc26ad58ca6b1edb9e7521cc674"},
+    {file = "ta_lib-0.6.8-cp314-cp314-macosx_13_0_x86_64.whl", hash = "sha256:36b2a516fce57309840f5ef3fa2fd0c4449293fc72536a0400d2e1e26b414da8"},
+    {file = "ta_lib-0.6.8-cp314-cp314-macosx_14_0_arm64.whl", hash = "sha256:7993164e8e9f78ec31d38c47850ca6ba5451788b5b49a8a2dbb3322b36b5693b"},
+    {file = "ta_lib-0.6.8-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:613cf06313331f49dd7b85a5a24fbddb1156c9723b6921a231906241726e5aee"},
+    {file = "ta_lib-0.6.8-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ce2bc1ea01200b6d8130ab917296d05d77a1a571ec6c1ee25cfca6d55cd5db4a"},
+    {file = "ta_lib-0.6.8-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:a63a52221f8c73f82f4e00493351d987f594931198589287aee96f8da673cfd5"},
+    {file = "ta_lib-0.6.8-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:559326d8f3d904cd4aa61f6a392d5626f35eec6a9f6cc83bcddb0abf88c40516"},
+    {file = "ta_lib-0.6.8-cp314-cp314-win32.whl", hash = "sha256:f5b6174bf4bf9152e368561dff410203c6921e4dd2afbcda3283a95957158112"},
+    {file = "ta_lib-0.6.8-cp314-cp314-win_amd64.whl", hash = "sha256:1fb4028437201e19014e4e374272b739867c8a3eb655da46675ef4c2ff14b616"},
+    {file = "ta_lib-0.6.8-cp314-cp314-win_arm64.whl", hash = "sha256:bfad1202fb1f9140e3810cc607058395f59032d9128cc0d716900c78bea5f337"},
+    {file = "ta_lib-0.6.8-cp39-cp39-macosx_13_0_x86_64.whl", hash = "sha256:5bfd21b6acb32e20d4e279c34405a34e63da345be4b2b6eabd683e1a88857406"},
+    {file = "ta_lib-0.6.8-cp39-cp39-macosx_14_0_arm64.whl", hash = "sha256:d4601e2a8b46ffbf540601a4926fd6cc5aae8a13b36fdd467f1040f01f9edaed"},
+    {file = "ta_lib-0.6.8-cp39-cp39-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:a5100a4be91b7d4b7c8fe16a3600bd0951e10205eb1066b6873afd3996b51ee4"},
+    {file = "ta_lib-0.6.8-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:0e371d14b49e70caa973a234c8823341dd446f5c5d7acc826868bb42b272bdc0"},
+    {file = "ta_lib-0.6.8-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:98376c75bd6c103c74396953084a5e0798ffe476aecbfcc51ec6d100a685ac38"},
+    {file = "ta_lib-0.6.8-cp39-cp39-musllinux_1_2_x86_64.whl", hash = "sha256:f69bd42fd2515060af69b120668213121264bb7976b113954b6f9db327727c65"},
+    {file = "ta_lib-0.6.8-cp39-cp39-win32.whl", hash = "sha256:02388054c059945e5f02625f5075bac20a1803573cb43e7d096091027511961f"},
+    {file = "ta_lib-0.6.8-cp39-cp39-win_amd64.whl", hash = "sha256:b165f5e6de1ccc964e863bd2035807a4d3bad3e0481f9db2dc52034d6ad4f9de"},
+    {file = "ta_lib-0.6.8-cp39-cp39-win_arm64.whl", hash = "sha256:b6c6e4858d8c3f88e19b7aa94b6a7619108f0bee51da9fa67b0785a8b59955f9"},
+    {file = "ta_lib-0.6.8.tar.gz", hash = "sha256:3a9195299df9d7d2a6e9d16bebd6b706b0ea99e4b871864c4b034c2577e21a77"},
+]
+
+[package.dependencies]
+build = "*"
+numpy = "*"
 
 [[package]]
 name = "tabulate"
@@ -2407,4 +2593,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12"
-content-hash = "85214f5cca09d7c7a7838486597eda5b867ef939b3e16c173fb5deaf3bdd2916"
+content-hash = "a19ed6a7d2125094adda86b35994216a78703e54f55f8ceeb9ad1a2f00305bc7"
