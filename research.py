@@ -1,7 +1,7 @@
 """
 research.py
 科研控制台：问答式交互回测与参数优化
-[修复版] 强制按天数切片数据
+[修复版] 支持趋势+反转缝合怪策略
 """
 
 import sys
@@ -20,6 +20,11 @@ from src.research.engine import BacktestEngine  # noqa: E402
 
 # 导入策略
 from src.research.strategies.vector_dual_ma import DualMAStrategy  # noqa: E402
+
+# === [新增] 导入缝合怪策略 ===
+from src.research.strategies.vector_trend_reversion import (
+    TrendReversionStrategy,  # noqa: E402
+)
 from src.utils.data_loader import MarketDataHandler  # noqa: E402
 
 # 3. 策略映射表
@@ -38,8 +43,30 @@ STRATEGY_MAP = {
             # === 熊市参数 (防守) ===
             "bear_fast": 20,
             "bear_slow": 75,
-            "bear_adx_thresh": 100,
+            "bear_adx_thresh": 100,  # 熊市禁止趋势开仓
             "bear_atr_mult": 3.0,
+            # === 通用参数 ===
+            "atr_period": 14,
+            "adx_period": 14,
+        },
+    },
+    # === [新增] 注册新策略 ===
+    "2": {
+        "name": "趋势+反转缝合怪 (Trend + Reversion)",
+        "class": TrendReversionStrategy,
+        "default_params": {
+            # === 趋势判断 ===
+            "trend_period": 200,  # 牛熊分界线 (MA200)
+            # === 牛市趋势参数 ===
+            "bull_fast": 14,
+            "bull_slow": 25,
+            "bull_adx_thresh": 30,
+            "bull_atr_mult": 3.0,
+            # === 熊市抄底参数 ===
+            "bear_bb_period": 20,
+            "bear_bb_std": 2.0,
+            "bear_rsi_thresh": 30,  # RSI < 30 才抄底
+            "bear_stop_loss": 0.05,  # 抄底亏5%止损
             # === 通用参数 ===
             "atr_period": 14,
             "adx_period": 14,
@@ -102,24 +129,6 @@ def run_backtest(symbol, timeframe, strategy_conf, days, leverage=1.0):
             print("   ❌ 数据为空！")
             return
 
-        # === [核心修复] 强制切片逻辑 ===
-        # 无论 Loader 返回多少数据，我们只取用户要求的最后 N 天
-        required_bars = _calculate_required_bars(timeframe, days)
-
-        # 预留一点 Buffer (比如多取 100 根) 用于计算 MA/ADX 等指标的预热，防止刚开始的信号是 NaN
-        buffer_bars = 100
-        total_needed = required_bars + buffer_bars
-
-        if len(df) > total_needed:
-            print(
-                f"   ✂️ [自动切片] 原始数据 ({len(df)}条) -> 截取最后 {required_bars} 根K线 (+预热缓冲)"
-            )
-            df = df.tail(total_needed)
-        else:
-            print(
-                f"   ⚠️ [提示] 数据量 ({len(df)}) 少于理论需求 ({total_needed})，使用全部数据。"
-            )
-
         # 打印时间范围供确认
         print(f"   🔍 实际回测范围: {df.index[0]} ~ {df.index[-1]}")
 
@@ -168,7 +177,7 @@ def run_backtest(symbol, timeframe, strategy_conf, days, leverage=1.0):
 
 def run_optimization(symbol, timeframe, strategy_conf, days):
     """
-    [新增] 暴力网格搜索模式
+    暴力网格搜索模式
     """
     StrategyClass = strategy_conf["class"]
     strategy_name = strategy_conf["name"]
@@ -187,13 +196,6 @@ def run_optimization(symbol, timeframe, strategy_conf, days):
     if df is None or df.empty:
         print("❌ 数据为空")
         return
-
-    # === [核心修复] 优化模式也要切片 ===
-    required_bars = _calculate_required_bars(timeframe, days)
-    # 优化需要更多数据来确保统计显著性，但也得遵守用户的时间窗口
-    if len(df) > required_bars:
-        print(f"   ✂️ [自动切片] 截取最后 {days} 天用于优化...")
-        df = df.tail(required_bars)
 
     # 2. 定义搜索空间
     print("\n2. 定义搜索参数范围 (回车使用默认推荐值)...")
@@ -225,7 +227,7 @@ def run_optimization(symbol, timeframe, strategy_conf, days):
     # 3. 运行优化
     strategy = StrategyClass()
     if not hasattr(strategy, "optimize"):
-        print("❌ 该策略不支持 optimize 方法")
+        print("❌ 该策略不支持 optimize 方法 (复杂策略请手动调参)")
         return
 
     best_params = strategy.optimize(
