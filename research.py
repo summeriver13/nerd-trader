@@ -1,7 +1,7 @@
 """
 research.py
-科研控制台：问答式交互回测
-使用方法：直接运行 python research.py，然后根据提示输入
+科研控制台：问答式交互回测与参数优化
+[修复版] 强制按天数切片数据
 """
 
 import sys
@@ -22,51 +22,65 @@ from src.research.engine import BacktestEngine  # noqa: E402
 from src.research.strategies.vector_dual_ma import DualMAStrategy  # noqa: E402
 from src.utils.data_loader import MarketDataHandler  # noqa: E402
 
-# 3. 策略映射表 (已更新 ADX 参数)
+# 3. 策略映射表
 STRATEGY_MAP = {
     "1": {
-        "name": "双均线策略 (Dual MA + ADX)",
+        "name": "自适应双均线 (Adaptive Dual MA)",
         "class": DualMAStrategy,
         "default_params": {
-            "fast_period": 9,
-            "slow_period": 30,
-            "atr_multiplier": 5.0,
-            "adx_threshold": 25,  # 新增：默认 ADX 阈值
-            "adx_period": 14,  # 新增：默认 ADX 周期
+            # === 趋势判断 ===
+            "trend_period": 120,  # 牛熊分界线(半年线)
+            # === 牛市参数 (进攻) ===
+            "bull_fast": 14,
+            "bull_slow": 25,
+            "bull_adx_thresh": 30,
+            "bull_atr_mult": 3.0,
+            # === 熊市参数 (防守) ===
+            "bear_fast": 20,
+            "bear_slow": 75,
+            "bear_adx_thresh": 100,
+            "bear_atr_mult": 3.0,
+            # === 通用参数 ===
+            "atr_period": 14,
+            "adx_period": 14,
         },
     },
 }
 
 
 def customize_params(default_params: dict) -> dict:
-    """
-    交互式修改参数
-    自动根据默认值的类型 (int/float) 转换输入
-    """
     print("\n⚙️  参数设置 (直接回车保持默认):")
     new_params = default_params.copy()
-
     for key, default_val in default_params.items():
         while True:
             try:
                 user_input = input(f"   - {key} [默认 {default_val}]: ").strip()
-
-                # 如果用户直接回车，使用默认值
                 if not user_input:
                     break
-
-                # 智能类型转换
                 target_type = type(default_val)
                 new_params[key] = target_type(user_input)
-                break  # 输入有效，跳出循环
-
+                break
             except ValueError:
                 print(f"   ❌ 格式错误，请输入有效的 {type(default_val).__name__}")
-
     return new_params
 
 
-def run_backtest(symbol, timeframe, strategy_conf, days):
+def _calculate_required_bars(timeframe, days):
+    """辅助函数：计算需要的 K 线根数"""
+    bars_per_day = 1
+    if "m" in timeframe:
+        minutes = int(timeframe.replace("m", ""))
+        bars_per_day = 1440 // minutes
+    elif "h" in timeframe:
+        hours = int(timeframe.replace("h", ""))
+        bars_per_day = 24 // hours
+    elif "d" in timeframe:
+        bars_per_day = 1
+    return days * bars_per_day
+
+
+def run_backtest(symbol, timeframe, strategy_conf, days, leverage=1.0):
+    """单次回测模式"""
     StrategyClass = strategy_conf["class"]
     params = strategy_conf["default_params"]
     strategy_name = strategy_conf["name"]
@@ -74,111 +88,167 @@ def run_backtest(symbol, timeframe, strategy_conf, days):
     print(f"\n{'=' * 60}")
     print(f"🧪 启动回测 | 策略: {strategy_name} | 标的: {symbol} | 周期: {timeframe}")
     print(f"⚙️  当前参数: {params}")
+    print(f"⚖️  使用杠杆: {leverage}x")
+    print(f"📅 回测窗口: 过去 {days} 天")
     print(f"{'=' * 60}")
 
-    # --- 数据准备 ---
     print("1. 正在获取数据...")
     exchange = ccxt.okx(GLOBAL_CONFIG.to_ccxt_config())  # type: ignore
-
     loader = MarketDataHandler(exchange)
+
     try:
         df = loader.prepare_data(symbol, timeframe, days_back=days)
-
-        if df is not None and not df.empty:
-            # === [新增] 1. 计算理论需要的 K 线数量 ===
-            # 解析周期字符串 (e.g. '4h', '15m', '1d')
-            if "m" in timeframe:
-                minutes = int(timeframe.replace("m", ""))
-                bars_per_day = 1440 // minutes
-            elif "h" in timeframe:
-                hours = int(timeframe.replace("h", ""))
-                bars_per_day = 24 // hours
-            elif "d" in timeframe:
-                bars_per_day = 1
-            else:
-                bars_per_day = 1  # 默认兜底
-
-            required_bars = days * bars_per_day
-
-            # === [新增] 2. 执行切片逻辑 ===
-            # 如果当前数据量比需要的量多出 10% 以上，说明读取的是旧的长缓存
-            # 我们强制截取最后 N 条，保证回测窗口准确
-            if len(df) > required_bars * 1.1:
-                print(
-                    f"   ✂️ [自动切片] 缓存数据 ({len(df)}) 多于请求 ({required_bars})，正在截取最后 {days} 天..."
-                )
-                df = df.tail(required_bars)
-
-            # === [修改] 3. Debug 信息输出 (此时 df 已经是切片后的了) ===
-            start_ts = pd.Timestamp(str(df.index[0]))
-            end_ts = pd.Timestamp(str(df.index[-1]))
-
-            start_str = str(start_ts)[:10]
-            end_str = str(end_ts)[:10]
-
-            print(
-                f"   🔍 [数据检查] 范围: {start_str} ~ {end_str} | 总K线数: {len(df)}"
-            )
-
-            # 再次检查数据量是否过少 (防止数据本身就不够)
-            if len(df) < required_bars * 0.9:
-                print(
-                    f"   ⚠️ [警告] 数据量 ({len(df)}) 少于预期 ({required_bars})，可能是历史数据不足。"
-                )
-
-        else:
+        if df is None or df.empty:
             print("   ❌ 数据为空！")
             return
 
+        # === [核心修复] 强制切片逻辑 ===
+        # 无论 Loader 返回多少数据，我们只取用户要求的最后 N 天
+        required_bars = _calculate_required_bars(timeframe, days)
+
+        # 预留一点 Buffer (比如多取 100 根) 用于计算 MA/ADX 等指标的预热，防止刚开始的信号是 NaN
+        buffer_bars = 100
+        total_needed = required_bars + buffer_bars
+
+        if len(df) > total_needed:
+            print(
+                f"   ✂️ [自动切片] 原始数据 ({len(df)}条) -> 截取最后 {required_bars} 根K线 (+预热缓冲)"
+            )
+            df = df.tail(total_needed)
+        else:
+            print(
+                f"   ⚠️ [提示] 数据量 ({len(df)}) 少于理论需求 ({total_needed})，使用全部数据。"
+            )
+
+        # 打印时间范围供确认
+        print(f"   🔍 实际回测范围: {df.index[0]} ~ {df.index[-1]}")
+
     except Exception as e:
         print(f"❌ 数据获取失败: {e}")
-        import traceback
-
-        traceback.print_exc()
         return
 
-    # --- 策略计算 ---
     print("2. 计算策略信号...")
     strategy = StrategyClass(**params)
     df = strategy.calculate_indicators(df)
     df = strategy.generate_signals(df)
 
-    # --- 引擎运行 ---
     print("3. 执行回测...")
-    engine = BacktestEngine(initial_capital=10000)
+    engine = BacktestEngine(initial_capital=10000, leverage=leverage)
     result = engine.run(df)
 
     if not result:
         print("⚠️ 回测未生成结果 (可能是数据不足)")
         return
 
-    # --- 结果输出 ---
     print("\n" + "=" * 40)
     print("📊 回测结果摘要")
     print("=" * 40)
-
     bench_val = result.get("bench_ret", 0.0)
     print(f"💰 总收益率: {result['total_ret']:.2%} (基准: {bench_val:.2%})")
-
     print(f"📅 年化收益: {result['annual_ret']:.2%}")
     print(f"📉 最大回撤: {result['max_drawdown']:.2%}")
     print(f"⚡ 夏普比率: {result['sharpe_ratio']:.2f}")
     print(f"🔄 交易次数: {result['trade_count']}")
     print("=" * 40 + "\n")
 
-    # --- 绘图 ---
     plot_choice = input("是否生成图表? (y/n) [默认 y]: ").strip().lower()
     if plot_choice != "n":
-        # 文件名带上参数特征
         param_vals = [str(v) for v in params.values()]
         param_str = "_".join(param_vals)
-        save_name = f"{symbol.replace('/', '_')}_{timeframe}_{param_str}.png"
-
+        save_name = f"{symbol.replace('/', '_')}_{timeframe}_{days}d_{param_str}_lev{leverage}.png"
         save_path = PROJECT_ROOT / "data" / "results" / save_name
         save_path.parent.mkdir(parents=True, exist_ok=True)
-
         print(f"🖼️  正在绘图 -> {save_path}")
-        engine.plot(result, title=f"{symbol} {timeframe}", save_path=str(save_path))
+        engine.plot(
+            result,
+            title=f"{symbol} {timeframe} ({days} days)",
+            save_path=str(save_path),
+        )
+
+
+def run_optimization(symbol, timeframe, strategy_conf, days):
+    """
+    [新增] 暴力网格搜索模式
+    """
+    StrategyClass = strategy_conf["class"]
+    strategy_name = strategy_conf["name"]
+
+    print(f"\n{'=' * 60}")
+    print(f"🔥 启动暴力优化 | 策略: {strategy_name} | 标的: {symbol}")
+    print(f"📅 优化窗口: 过去 {days} 天")
+    print(f"{'=' * 60}")
+
+    # 1. 获取数据
+    print("1. 正在获取数据...")
+    exchange = ccxt.okx(GLOBAL_CONFIG.to_ccxt_config())  # type: ignore
+    loader = MarketDataHandler(exchange)
+
+    df = loader.prepare_data(symbol, timeframe, days_back=days)
+    if df is None or df.empty:
+        print("❌ 数据为空")
+        return
+
+    # === [核心修复] 优化模式也要切片 ===
+    required_bars = _calculate_required_bars(timeframe, days)
+    # 优化需要更多数据来确保统计显著性，但也得遵守用户的时间窗口
+    if len(df) > required_bars:
+        print(f"   ✂️ [自动切片] 截取最后 {days} 天用于优化...")
+        df = df.tail(required_bars)
+
+    # 2. 定义搜索空间
+    print("\n2. 定义搜索参数范围 (回车使用默认推荐值)...")
+
+    try:
+        f_start = input("   - 快线起始值 [默认 5]: ").strip() or 5
+        f_end = input("   - 快线结束值 [默认 30]: ").strip() or 30
+        fast_range = range(int(f_start), int(f_end), 3)
+
+        s_start = input("   - 慢线起始值 [默认 20]: ").strip() or 20
+        s_end = input("   - 慢线结束值 [默认 80]: ").strip() or 80
+        slow_range = range(int(s_start), int(s_end), 5)
+
+        atr_mult_range = [3.0, 4.0, 5.0, 6.0]
+        adx_thresh_range = [20, 25, 30]
+
+    except ValueError:
+        print("❌ 输入格式错误，使用默认范围...")
+        fast_range = range(5, 30, 3)
+        slow_range = range(20, 80, 5)
+        atr_mult_range = [3.0, 5.0]
+        adx_thresh_range = [20, 30]
+
+    total_combs = (
+        len(fast_range) * len(slow_range) * len(atr_mult_range) * len(adx_thresh_range)
+    )
+    print(f"\n⚡ 准备测试 {total_combs} 种参数组合，这可能需要几十秒...")
+
+    # 3. 运行优化
+    strategy = StrategyClass()
+    if not hasattr(strategy, "optimize"):
+        print("❌ 该策略不支持 optimize 方法")
+        return
+
+    best_params = strategy.optimize(
+        df,
+        fast_range=fast_range,
+        slow_range=slow_range,
+        atr_mult_range=atr_mult_range,
+        adx_thresh_range=adx_thresh_range,
+    )
+
+    # 4. 输出结果
+    print("\n" + "=" * 40)
+    print("🏆 优化完成！历史最优参数如下：")
+    print("=" * 40)
+    print(f"✅ 夏普比率 (Sharpe): {best_params.get('sharpe', 0):.2f}")
+
+    print("\n📝 推荐配置:")
+    for key, val in best_params.items():
+        if key not in ["sharpe", "net_ret"]:
+            print(f"  - {key}: {val}")
+
+    print("\n💡 建议：请记下这组参数，然后使用 [1] 单次回测 模式，")
+    print("   输入这组参数，看看具体的资金曲线长什么样。")
 
 
 def main():
@@ -187,56 +257,59 @@ def main():
 
     while True:
         try:
-            # 1. 选择币种
+            # 1. 基础设置
             symbol = (
                 input("\n请输入交易对 (例如 BTC/USDT) [默认 BTC/USDT]: ")
                 .strip()
                 .upper()
-            )
-            if not symbol:
-                symbol = "BTC/USDT"
-
-            # 2. 选择周期
+            ) or "BTC/USDT"
             timeframe = (
                 input("请输入K线周期 (例如 1h, 4h, 1d) [默认 4h]: ").strip().lower()
-            )
-            if not timeframe:
-                timeframe = "4h"
-
-            # 3. 选择天数
+            ) or "4h"
             days_str = input("回测天数 [默认 365]: ").strip()
             days = int(days_str) if days_str else 365
 
-            # 4. 选择策略
+            # 2. 选择策略
             print("\n请选择策略:")
             for key, val in STRATEGY_MAP.items():
                 print(f"  [{key}] {val['name']}")
-
-            strat_choice = input("请输入序号 [默认 1]: ").strip()
-            if not strat_choice:
-                strat_choice = "1"
-
+            strat_choice = (input("请输入序号 [默认 1]: ").strip()) or "1"
             strategy_conf = STRATEGY_MAP.get(strat_choice)
+
             if not strategy_conf:
                 print("❌ 无效的策略序号")
                 continue
 
-            # 参数自定义流程
-            current_conf = strategy_conf.copy()
-            # 必须深拷贝 params 字典，否则会修改全局默认值
-            current_conf["default_params"] = strategy_conf["default_params"].copy()
+            # 3. 选择模式 (回测 vs 优化)
+            print("\n请选择模式:")
+            print("  [1] 单次回测 (Backtest) - 看详情")
+            print("  [2] 暴力优化 (Optimization) - 找参数")
 
-            need_custom = input("是否修改策略参数? (y/n) [默认 n]: ").strip().lower()
-            if need_custom == "y":
-                new_params = customize_params(current_conf["default_params"])
-                current_conf["default_params"] = new_params
+            mode = (input("请输入序号 [默认 1]: ").strip()) or "1"
 
-            # 运行回测
-            run_backtest(symbol, timeframe, current_conf, days)
+            if mode == "1":
+                # === 单次回测流程 ===
+                current_conf = strategy_conf.copy()
+                current_conf["default_params"] = strategy_conf["default_params"].copy()
+
+                if input("是否修改策略参数? (y/n) [默认 n]: ").strip().lower() == "y":
+                    current_conf["default_params"] = customize_params(
+                        current_conf["default_params"]
+                    )
+
+                lev_str = input("请输入杠杆倍数 (例如 1, 2, 3) [默认 1]: ").strip()
+                leverage = float(lev_str) if lev_str else 1.0
+                if leverage <= 0:
+                    leverage = 1.0
+
+                run_backtest(symbol, timeframe, current_conf, days, leverage=leverage)
+
+            elif mode == "2":
+                # === 暴力优化流程 ===
+                run_optimization(symbol, timeframe, strategy_conf, days)
 
             # 继续吗？
-            cont = input("\n还要再测一次吗? (y/n) [默认 y]: ").strip().lower()
-            if cont == "n":
+            if input("\n还要再来一次吗? (y/n) [默认 y]: ").strip().lower() == "n":
                 print("👋 Bye!")
                 break
 

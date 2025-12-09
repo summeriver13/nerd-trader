@@ -18,9 +18,6 @@ sys.path.append(str(PROJECT_ROOT))
 from config.settings import GLOBAL_CONFIG  # noqa: E402
 from src.research.engine import BacktestEngine  # noqa: E402
 from src.research.strategies.base import BaseStrategy  # noqa: E402
-from src.research.strategies.vector_bollinger_mr import (
-    BollingerMRStrategy,  # noqa: E402
-)
 from src.research.strategies.vector_dual_ma import DualMAStrategy  # noqa: E402
 
 # noqa: E402

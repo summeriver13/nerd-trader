@@ -1,3 +1,9 @@
+"""
+src/utils/data_loader.py
+市场数据处理器
+修改点：在 prepare_data 返回前，根据 days_back 强制切片
+"""
+
 import os
 import time
 from datetime import datetime, timezone
@@ -31,6 +37,7 @@ class MarketDataHandler:
     ) -> pd.DataFrame:
         """
         智能数据准备：支持增量更新 (Incremental Update)
+        并且只返回请求的时间窗口数据
         """
         safe_symbol = symbol.replace("/", "_")
         filename = f"{safe_symbol}_{timeframe}.parquet"
@@ -76,7 +83,7 @@ class MarketDataHandler:
                 is_append_mode = True
                 download_start_dt = local_end  # 从本地最后一条开始下
 
-        # 3. 下载流程
+        # 3. 下载流程 (如果需要)
         if need_download:
             # 格式化时间字符串
             since_str = download_start_dt.strftime("%Y-%m-%d %H:%M:%S")  # type: ignore
@@ -94,17 +101,45 @@ class MarketDataHandler:
                 df_final = df_new
 
             # 统一清洗 (去重、排序、补全)
-            # 即使是拼接的，也要清洗以防止接缝处重复或乱序
             df_final = self.clean_data(df_final, timeframe)
 
-            # 保存
+            # 保存完整缓存到硬盘
             self.save_to_parquet(df_final, filename)
-            return df_final
 
-        if df is None:
+            # 更新内存中的 df
+            df = df_final
+
+        if df is None or df.empty:
             return pd.DataFrame()
 
-        return df
+        # ==========================================
+        # 4. [新增] 核心切片逻辑 (Slicing)
+        # 无论缓存有多大，只返回用户请求的 days_back
+        # ==========================================
+
+        # 确保时区一致 (再次检查，防止刚下载的数据没有时区)
+        if df.index.tz is None:  # type: ignore
+            df.index = df.index.tz_localize("UTC")  # type: ignore
+        else:
+            df.index = df.index.tz_convert("UTC")  # type: ignore
+
+        # 预留缓冲 (Buffer): 额外多取 5% 的天数，用于指标计算预热 (Warm-up)
+        # 例如请求 100天，实际返回 105天，防止 MA30 在第1天是 NaN
+        buffer_days = int(days_back * 0.05) + 1
+        cutoff_dt = pd.Timestamp.now(tz="UTC") - pd.Timedelta(
+            days=days_back + buffer_days
+        )
+
+        # 执行切片
+        df_sliced = df[df.index >= cutoff_dt].copy()
+
+        # 如果切片后数据量变少了，打印提示
+        if len(df_sliced) < len(df):
+            print(
+                f"✂️ [DataHandler] 缓存总量 {len(df)} -> 截取近 {days_back} 天 ({len(df_sliced)} 条)"
+            )
+
+        return df_sliced  # type: ignore
 
     def fetch_history_candles(
         self, symbol: str, timeframe: str, since_str: str, limit_per_req: int = 100
@@ -135,7 +170,6 @@ class MarketDataHandler:
                 retries = 0
 
                 if not ohlcv:
-                    # print("⚠️ [下载] 未获取到更多数据")
                     break
 
                 last_ts = ohlcv[-1][0]
@@ -143,8 +177,8 @@ class MarketDataHandler:
                     break
 
                 all_candles.extend(ohlcv)
-                # 减少打印频率，每 500 条打印一次
-                if len(all_candles) % 500 == 0:
+                # 减少打印频率，每 1000 条打印一次
+                if len(all_candles) % 1000 == 0:
                     print(f"   已获取 {len(all_candles)} 条...")
 
                 current_since = last_ts + 1
