@@ -1,12 +1,4 @@
-"""
-src/research/engine.py
-向量化回测引擎 (Vectorized Backtest Engine)
-修改点：
-1. 修复了 leverage 未参与计算的 Bug
-2. 增加了爆仓 (Liquidation) 检测逻辑
-"""
-
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,82 +6,90 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# 年化系数 (加密货币通常按 365 天计算)
+# 引入我们刚才写的 Domain
+from src.research.domains.base import MarketDomain
+
+# 年化系数
 ANNUAL_DAYS = 365
 
 
 class BacktestEngine:
     """
-    轻量级向量化回测引擎 (支持杠杆)
+    轻量级向量化回测引擎 (支持多市场 Domain + 杠杆)
     """
 
     def __init__(
         self,
+        domain: MarketDomain,  # 注入市场规则
         initial_capital: float = 10000.0,
-        fee_rate: float = 0.0005,  # 万5手续费
-        slippage: float = 0.0005,  # 万5滑点
-        leverage: float = 1.0,  # [关键] 杠杆倍数
+        leverage: float = 1.0,
     ):
+        self.domain = domain
         self.initial_capital = initial_capital
-        self.fee_rate = fee_rate
-        self.slippage = slippage
         self.leverage = leverage
 
     def run(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         执行回测
         :param df: 必须包含 'close' 和 'signal' 列的 DataFrame
-                   signal: 1(持多), 0(空仓), -1(持空)
         """
         if df.empty:
             print("⚠️ [回测引擎] 数据为空，跳过回测。")
             return {}
 
-        # 1. 检查必要列
         if "close" not in df.columns or "signal" not in df.columns:
             raise ValueError("Dataframe must contain 'close' and 'signal' columns")
 
         df = df.copy()
 
+        # 1. 信号预处理 (由 Domain 处理)
+        # 使用 cast 强制告诉检查器：df["signal"] 取出来的一定是 Series
+        raw_signal = cast(pd.Series, df["signal"])
+        df["signal"] = self.domain.adjust_signal(raw_signal)
+
         # 2. 计算持仓 (Position)
-        # 信号产生的下一根K线生效 (避免未来函数)
+        # 信号产生的下一根K线生效
         df["pos"] = df["signal"].shift(1).fillna(0)
 
         # 3. 计算持仓变化 (Trades)
-        # diff() 计算仓位变化量，abs() 取绝对值
-        df["pos_change"] = df["pos"].diff().abs().fillna(0)
+        # 原始变化量 (用于判断方向)
+        raw_pos_change = df["pos"].diff().fillna(0)
+        df["pos_change"] = raw_pos_change.abs()
 
         # 4. 计算基准收益 (Market Return)
         df["pct_change"] = df["close"].pct_change().fillna(0)
 
         # 5. 计算策略收益 (Strategy Return)
-        # === [核心修复] ===
         # 策略收益 = 持仓 * 市场涨跌幅 * 杠杆倍数
-        # 如果不开杠杆，self.leverage 为 1.0，结果不变
         df["strategy_raw_ret"] = df["pos"] * df["pct_change"] * self.leverage
 
-        # 6. 计算交易成本 (Cost)
-        # === [核心修复] ===
-        # 成本 = 仓位变动 * (费率+滑点) * 杠杆倍数
-        # 杠杆放大了交易的名义价值，手续费自然也要放大
-        total_cost_rate = self.fee_rate + self.slippage
-        df["cost"] = df["pos_change"] * total_cost_rate * self.leverage
+        # 6. 计算交易成本 (Cost) - 委托 Domain 计算
+        # ------------------------------------------------------------------
+        # 6.1 计算成交名义金额 (Notional Value)
+        # 简化模型：基于初始本金估算
+        trade_notional = df["pos_change"] * self.initial_capital * self.leverage
+
+        # 6.2 识别卖出行为 (用于印花税)
+        is_sell_mask = raw_pos_change < 0
+
+        # 6.3 调用 Domain 获取费用详情 (绝对金额)
+        cost_obj = self.domain.calculate_cost(trade_notional, is_sell_mask)
+
+        # 6.4 将绝对费用转换为收益率扣减
+        # Cost Rate = 总费用 / 初始本金
+        df["cost"] = cost_obj.total / self.initial_capital
+        # ------------------------------------------------------------------
 
         # 7. 计算净收益 (Net Return)
         df["net_ret"] = df["strategy_raw_ret"] - df["cost"]
 
         # 8. 计算资金曲线 (Equity Curve)
-        # 使用累乘计算复利
         df["equity_curve"] = (1 + df["net_ret"]).cumprod() * self.initial_capital
 
-        # === [新增] 爆仓检测 ===
-        # 如果资金曲线曾跌破或等于 0，视为爆仓
+        # === 爆仓检测 ===
         if (df["equity_curve"] <= 0).any():
-            # 找到第一个归零的索引
             bust_idx = df[df["equity_curve"] <= 0].index[0]
             print(f"💀 [严重警告] 策略在 {bust_idx} 发生爆仓(归零)！")
-
-            # 将该时间点之后的所有资金强制归零
             df.loc[bust_idx:, "equity_curve"] = 0
             df.loc[bust_idx:, "net_ret"] = 0
 
@@ -97,42 +97,31 @@ class BacktestEngine:
 
         # 9. 计算回撤 (Drawdown)
         df["peak"] = df["equity_curve"].cummax()
-
-        # 避免除零错误 (如果开局就爆仓，peak可能为0)
         df["drawdown"] = np.where(
             df["peak"] > 0,
             (df["equity_curve"] - df["peak"]) / df["peak"],
-            -1.0,  # 爆仓回撤为 -100%
+            -1.0,
         )
-        # 保持 Series 格式
         df["drawdown"] = pd.Series(df["drawdown"], index=df.index)
 
         return self._calculate_metrics(df)
 
     def _calculate_metrics(self, df: pd.DataFrame) -> dict[str, Any]:
         """计算核心绩效指标"""
-        # 总收益率
         total_ret = (df["equity_curve"].iloc[-1] / self.initial_capital) - 1
-
-        # 基准收益率
         bench_ret = (df["benchmark_curve"].iloc[-1] / self.initial_capital) - 1
 
-        # 时间跨度 (天)
         days = (df.index[-1] - df.index[0]).days
         if days <= 0:
             days = 1
 
-        # 年化收益率 (CAGR)
-        # 处理 total_ret <= -1 (爆仓) 的情况，避免复数报错
         if total_ret <= -1:
             annual_ret = -1.0
         else:
             annual_ret = (1 + total_ret) ** (ANNUAL_DAYS / days) - 1
 
-        # 最大回撤
         max_drawdown = df["drawdown"].min()
 
-        # 夏普比率 (Sharpe Ratio)
         bars_per_year = len(df) / (days / ANNUAL_DAYS)
         volatility = df["net_ret"].std()
 
@@ -141,12 +130,10 @@ class BacktestEngine:
         else:
             sharpe_ratio = (df["net_ret"].mean() / volatility) * np.sqrt(bars_per_year)
 
-        # 卡尔玛比率 (Calmar Ratio)
         calmar_ratio = 0.0
         if max_drawdown != 0:
             calmar_ratio = annual_ret / abs(max_drawdown)
 
-        # 交易次数
         trade_count = df["pos_change"].sum()
 
         return {
@@ -169,19 +156,15 @@ class BacktestEngine:
         title: str = "Backtest Result",
         save_path: Optional[str] = None,
     ):
-        """
-        绘制回测图表 (Matplotlib 静态图)
-        """
+        """绘制 Matplotlib 静态图"""
         equity = result["equity_curve"]
         benchmark = result["benchmark_curve"]
         drawdown = result["drawdown_curve"]
 
         plt.style.use("bmh")
-
         fig = plt.figure(figsize=(14, 10))
         gs = fig.add_gridspec(2, 1, height_ratios=[3, 1])
 
-        # 子图1：资金曲线对比
         ax1 = fig.add_subplot(gs[0])
         ax1.plot(
             equity.index,
@@ -209,7 +192,6 @@ class BacktestEngine:
         ax1.grid(True, linestyle="--", alpha=0.5)
         ax1.set_ylabel("Equity")
 
-        # 子图2：水下回撤图
         ax2 = fig.add_subplot(gs[1], sharex=ax1)
         ax2.fill_between(drawdown.index, drawdown, 0, color="red", alpha=0.3)
         ax2.plot(drawdown.index, drawdown, color="red", linewidth=0.5)
@@ -232,9 +214,7 @@ class BacktestEngine:
         title: str = "Backtest Result",
         save_path: Optional[str] = None,
     ):
-        """
-        生成交互式 HTML 研报 (Plotly)
-        """
+        """生成 Plotly 交互式图表"""
         df = result["df"]
         equity = result["equity_curve"]
         benchmark = result["benchmark_curve"]

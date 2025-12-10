@@ -1,14 +1,15 @@
 """
 research.py
 科研控制台：问答式交互回测与参数优化
-[修复版] 支持趋势+反转缝合怪策略
+[UX Optimized] 体验优化版
+1. 新增：标的快捷预设菜单 (Presets)
+2. 优化：参数输入流程
 """
 
 import sys
 from pathlib import Path
 
 import ccxt
-import pandas as pd
 
 # 1. 路径补丁
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -16,16 +17,38 @@ sys.path.append(str(PROJECT_ROOT))
 
 # 2. 导入模块
 from config.settings import GLOBAL_CONFIG  # noqa: E402
+from src.research.domains.crypto import CryptoDomain  # noqa: E402
+from src.research.domains.stock_cn import StockCNDomain  # noqa: E402
 from src.research.engine import BacktestEngine  # noqa: E402
 
 # 导入策略
 from src.research.strategies.vector_dual_ma import DualMAStrategy  # noqa: E402
-
-# === [新增] 导入缝合怪策略 ===
-from src.research.strategies.vector_trend_reversion import (
+from src.research.strategies.vector_trend_reversion import (  # noqa: E402
     TrendReversionStrategy,  # noqa: E402
 )
+from src.research.strategies.vector_value import ValueStrategy  # noqa: E402
 from src.utils.data_loader import MarketDataHandler  # noqa: E402
+
+# === [新增] 标的预设菜单 ===
+SYMBOL_PRESETS = {
+    "Crypto": {
+        "c1": ("BTC/USDT", "比特币 (Bitcoin)"),
+        "c2": ("ETH/USDT", "以太坊 (Ethereum)"),
+    },
+    "A股-ETF (免税)": {
+        "e1": ("513100", "纳指 ETF (美股牛市)"),
+        "e2": ("510300", "沪深300 ETF (大盘)"),
+        "e3": ("159915", "创业板 ETF (成长)"),
+        "e4": ("512880", "证券 ETF (波动/牛市旗手)"),
+        "e5": ("510880", "红利 ETF (高股息)"),
+    },
+    "A股-个股": {
+        "s1": ("600519", "贵州茅台 (消费/核心资产)"),
+        "s2": ("600036", "招商银行 (低估值/价值)"),
+        "s3": ("601088", "中国神华 (煤炭/高分红/PB策略)"),
+        "s4": ("601127", "赛力斯 (新能源/高波动)"),
+    },
+}
 
 # 3. 策略映射表
 STRATEGY_MAP = {
@@ -33,43 +56,44 @@ STRATEGY_MAP = {
         "name": "自适应双均线 (Adaptive Dual MA)",
         "class": DualMAStrategy,
         "default_params": {
-            # === 趋势判断 ===
-            "trend_period": 120,  # 牛熊分界线(半年线)
-            # === 牛市参数 (进攻) ===
-            "bull_fast": 14,
-            "bull_slow": 25,
-            "bull_adx_thresh": 30,
+            "trend_period": 120,
+            "bull_fast": 10,
+            "bull_slow": 30,
+            "bull_adx_thresh": 25,
             "bull_atr_mult": 3.0,
-            # === 熊市参数 (防守) ===
             "bear_fast": 20,
-            "bear_slow": 75,
-            "bear_adx_thresh": 100,  # 熊市禁止趋势开仓
+            "bear_slow": 60,
+            "bear_adx_thresh": 100,
             "bear_atr_mult": 3.0,
-            # === 通用参数 ===
             "atr_period": 14,
             "adx_period": 14,
         },
     },
-    # === [新增] 注册新策略 ===
     "2": {
         "name": "趋势+反转缝合怪 (Trend + Reversion)",
         "class": TrendReversionStrategy,
         "default_params": {
-            # === 趋势判断 ===
-            "trend_period": 200,  # 牛熊分界线 (MA200)
-            # === 牛市趋势参数 ===
-            "bull_fast": 14,
-            "bull_slow": 25,
-            "bull_adx_thresh": 30,
+            "trend_period": 200,
+            "bull_fast": 10,
+            "bull_slow": 30,
+            "bull_adx_thresh": 25,
             "bull_atr_mult": 3.0,
-            # === 熊市抄底参数 ===
             "bear_bb_period": 20,
             "bear_bb_std": 2.0,
-            "bear_rsi_thresh": 30,  # RSI < 30 才抄底
-            "bear_stop_loss": 0.05,  # 抄底亏5%止损
-            # === 通用参数 ===
+            "bear_rsi_thresh": 30,
+            "bear_stop_loss": 0.05,
             "atr_period": 14,
             "adx_period": 14,
+        },
+    },
+    "3": {
+        "name": "低估值择时 (PE/PB Valuation)",
+        "class": ValueStrategy,
+        "default_params": {
+            "factor_name": "pe",
+            "buy_threshold": 15.0,
+            "sell_threshold": 25.0,
+            "stop_loss_pct": 0.15,
         },
     },
 }
@@ -92,22 +116,15 @@ def customize_params(default_params: dict) -> dict:
     return new_params
 
 
-def _calculate_required_bars(timeframe, days):
-    """辅助函数：计算需要的 K 线根数"""
-    bars_per_day = 1
-    if "m" in timeframe:
-        minutes = int(timeframe.replace("m", ""))
-        bars_per_day = 1440 // minutes
-    elif "h" in timeframe:
-        hours = int(timeframe.replace("h", ""))
-        bars_per_day = 24 // hours
-    elif "d" in timeframe:
-        bars_per_day = 1
-    return days * bars_per_day
+def get_data_loader(symbol: str) -> MarketDataHandler:
+    if "/" in symbol:
+        exchange = ccxt.okx(GLOBAL_CONFIG.to_ccxt_config())  # type: ignore
+        return MarketDataHandler(exchange)
+    else:
+        return MarketDataHandler(None)
 
 
 def run_backtest(symbol, timeframe, strategy_conf, days, leverage=1.0):
-    """单次回测模式"""
     StrategyClass = strategy_conf["class"]
     params = strategy_conf["default_params"]
     strategy_name = strategy_conf["name"]
@@ -120,33 +137,64 @@ def run_backtest(symbol, timeframe, strategy_conf, days, leverage=1.0):
     print(f"{'=' * 60}")
 
     print("1. 正在获取数据...")
-    exchange = ccxt.okx(GLOBAL_CONFIG.to_ccxt_config())  # type: ignore
-    loader = MarketDataHandler(exchange)
+    loader = get_data_loader(symbol)
 
     try:
         df = loader.prepare_data(symbol, timeframe, days_back=days)
         if df is None or df.empty:
-            print("   ❌ 数据为空！")
+            print("   ❌ 数据为空！(请检查代码拼写/网络/Tushare积分)")
             return
-
-        # 打印时间范围供确认
         print(f"   🔍 实际回测范围: {df.index[0]} ~ {df.index[-1]}")
-
     except Exception as e:
         print(f"❌ 数据获取失败: {e}")
         return
 
+    is_crypto = "/" in symbol
+    market_type = "crypto" if is_crypto else "stock_cn"
+
     print("2. 计算策略信号...")
+    params["market_type"] = market_type
     strategy = StrategyClass(**params)
     df = strategy.calculate_indicators(df)
     df = strategy.generate_signals(df)
 
     print("3. 执行回测...")
-    engine = BacktestEngine(initial_capital=10000, leverage=leverage)
+
+    if is_crypto:
+        print("   🌐 识别为 Crypto 市场 (万5手续费)")
+        domain = CryptoDomain(fee_rate=0.0005, slippage=0.0005)
+        initial_capital = 10000.0
+    else:
+        is_etf = (
+            symbol.startswith("159")
+            or symbol.startswith("51")
+            or symbol.startswith("588")
+        )
+        if is_etf:
+            print(f"   📈 识别为 A股 ETF ({symbol}) -> [免印花税!]")
+            domain = StockCNDomain(
+                commission_rate=0.0002,
+                min_commission=0.0,
+                stamp_duty=0.0,
+                slippage=0.001,
+            )
+        else:
+            print(f"   🇨🇳 识别为 A股 股票 ({symbol}) -> [含印花税]")
+            domain = StockCNDomain(
+                commission_rate=0.00025,
+                min_commission=5.0,
+                stamp_duty=0.0005,
+                slippage=0.001,
+            )
+        initial_capital = 200000.0
+
+    engine = BacktestEngine(
+        domain=domain, initial_capital=initial_capital, leverage=leverage
+    )
     result = engine.run(df)
 
     if not result:
-        print("⚠️ 回测未生成结果 (可能是数据不足)")
+        print("⚠️ 回测未生成结果")
         return
 
     print("\n" + "=" * 40)
@@ -157,7 +205,12 @@ def run_backtest(symbol, timeframe, strategy_conf, days, leverage=1.0):
     print(f"📅 年化收益: {result['annual_ret']:.2%}")
     print(f"📉 最大回撤: {result['max_drawdown']:.2%}")
     print(f"⚡ 夏普比率: {result['sharpe_ratio']:.2f}")
-    print(f"🔄 交易次数: {result['trade_count']}")
+    print(f"🔄 交易次数: {result['trade_count']:.0f}")
+
+    if "cost" in result["df"].columns:
+        total_cost = result["df"]["cost"].sum() * engine.initial_capital
+        print(f"💸 交易成本: {total_cost:.2f} 元 (佣金+印花税)")
+
     print("=" * 40 + "\n")
 
     plot_choice = input("是否生成图表? (y/n) [默认 y]: ").strip().lower()
@@ -176,58 +229,47 @@ def run_backtest(symbol, timeframe, strategy_conf, days, leverage=1.0):
 
 
 def run_optimization(symbol, timeframe, strategy_conf, days):
-    """
-    暴力网格搜索模式
-    """
+    """暴力网格搜索模式"""
     StrategyClass = strategy_conf["class"]
     strategy_name = strategy_conf["name"]
 
     print(f"\n{'=' * 60}")
     print(f"🔥 启动暴力优化 | 策略: {strategy_name} | 标的: {symbol}")
-    print(f"📅 优化窗口: 过去 {days} 天")
     print(f"{'=' * 60}")
 
-    # 1. 获取数据
     print("1. 正在获取数据...")
-    exchange = ccxt.okx(GLOBAL_CONFIG.to_ccxt_config())  # type: ignore
-    loader = MarketDataHandler(exchange)
-
+    loader = get_data_loader(symbol)
     df = loader.prepare_data(symbol, timeframe, days_back=days)
+
     if df is None or df.empty:
         print("❌ 数据为空")
         return
 
-    # 2. 定义搜索空间
+    market_type = "crypto" if "/" in symbol else "stock_cn"
+
     print("\n2. 定义搜索参数范围 (回车使用默认推荐值)...")
-
     try:
-        f_start = input("   - 快线起始值 [默认 5]: ").strip() or 5
-        f_end = input("   - 快线结束值 [默认 30]: ").strip() or 30
-        fast_range = range(int(f_start), int(f_end), 3)
-
-        s_start = input("   - 慢线起始值 [默认 20]: ").strip() or 20
-        s_end = input("   - 慢线结束值 [默认 80]: ").strip() or 80
-        slow_range = range(int(s_start), int(s_end), 5)
-
-        atr_mult_range = [3.0, 4.0, 5.0, 6.0]
-        adx_thresh_range = [20, 25, 30]
-
+        # 这里只给出一个通用的模板，具体策略可能会覆盖 optimize 方法自定义范围
+        # 对于 PE 策略，我们可能需要不同的范围，但这里作为 Demo 保持原样
+        f_start = input("   - 快线/买入阈值 [默认 5]: ").strip() or 5
+        f_end = input("   - 慢线/卖出阈值 [默认 30]: ").strip() or 30
+        fast_range = range(int(f_start), int(f_end), 5)
+        # ... 这里简化处理，直接调用策略自带的 optimize 默认逻辑
+        # 实际情况中，应该根据 strategy_name 动态决定让用户输什么参数
+        slow_range = range(20, 80, 10)
+        atr_mult_range = [3.0]
+        adx_thresh_range = [0, 10, 25]  # 默认加入0适应ETF
     except ValueError:
-        print("❌ 输入格式错误，使用默认范围...")
-        fast_range = range(5, 30, 3)
-        slow_range = range(20, 80, 5)
-        atr_mult_range = [3.0, 5.0]
-        adx_thresh_range = [20, 30]
+        fast_range = range(5, 30, 5)
+        slow_range = range(20, 80, 10)
+        atr_mult_range = [3.0]
+        adx_thresh_range = [0, 10, 25]
 
-    total_combs = (
-        len(fast_range) * len(slow_range) * len(atr_mult_range) * len(adx_thresh_range)
-    )
-    print(f"\n⚡ 准备测试 {total_combs} 种参数组合，这可能需要几十秒...")
+    print("\n⚡ 开始优化...")
 
-    # 3. 运行优化
     strategy = StrategyClass()
     if not hasattr(strategy, "optimize"):
-        print("❌ 该策略不支持 optimize 方法 (复杂策略请手动调参)")
+        print("❌ 该策略不支持 optimize 方法")
         return
 
     best_params = strategy.optimize(
@@ -236,43 +278,67 @@ def run_optimization(symbol, timeframe, strategy_conf, days):
         slow_range=slow_range,
         atr_mult_range=atr_mult_range,
         adx_thresh_range=adx_thresh_range,
+        market_type=market_type,
     )
 
-    # 4. 输出结果
     print("\n" + "=" * 40)
     print("🏆 优化完成！历史最优参数如下：")
     print("=" * 40)
     print(f"✅ 夏普比率 (Sharpe): {best_params.get('sharpe', 0):.2f}")
-
     print("\n📝 推荐配置:")
     for key, val in best_params.items():
         if key not in ["sharpe", "net_ret"]:
             print(f"  - {key}: {val}")
 
-    print("\n💡 建议：请记下这组参数，然后使用 [1] 单次回测 模式，")
-    print("   输入这组参数，看看具体的资金曲线长什么样。")
+
+def select_symbol_ui():
+    """
+    [新增] 优化的标的选择界面
+    """
+    print("\n🎯 请选择回测标的:")
+
+    # 建立一个扁平的映射表用于查找: {'e1': '513100', ...}
+    quick_map = {}
+
+    for category, items in SYMBOL_PRESETS.items():
+        print(f"\n--- {category} ---")
+        for key, (code, desc) in items.items():
+            print(f"  [{key}] {desc}")
+            quick_map[key] = code
+
+    user_input = input("\n请输入 [序号] 或直接输入 [代码] (默认 e1): ").strip()
+
+    if not user_input:
+        return quick_map["e1"]  # 默认纳指
+
+    # 如果用户输入的是快捷键 (如 's1')
+    if user_input in quick_map:
+        selected_code = quick_map[user_input]
+        print(f"✅ 已选择: {selected_code}")
+        return selected_code
+
+    # 否则假设用户输入的是自定义代码
+    return user_input.upper()
 
 
 def main():
-    print("🚀 欢迎来到量化实验室 (Simple CLI)")
+    print("🚀 欢迎来到量化实验室 (Unified Lab)")
     print("-" * 40)
 
     while True:
         try:
-            # 1. 基础设置
-            symbol = (
-                input("\n请输入交易对 (例如 BTC/USDT) [默认 BTC/USDT]: ")
-                .strip()
-                .upper()
-            ) or "BTC/USDT"
-            timeframe = (
-                input("请输入K线周期 (例如 1h, 4h, 1d) [默认 4h]: ").strip().lower()
-            ) or "4h"
-            days_str = input("回测天数 [默认 365]: ").strip()
-            days = int(days_str) if days_str else 365
+            # 1. 标的选择 (新 UI)
+            symbol = select_symbol_ui()
 
-            # 2. 选择策略
-            print("\n请选择策略:")
+            timeframe = (
+                input("\n请输入K线周期 (e.g. 1h, 4h, 1d) [默认 1d]: ").strip().lower()
+            ) or "1d"
+
+            days_str = input("回测天数 [默认 730 (2年)]: ").strip()
+            days = int(days_str) if days_str else 730
+
+            # 2. 策略选择
+            print("\n♟️ 请选择策略:")
             for key, val in STRATEGY_MAP.items():
                 print(f"  [{key}] {val['name']}")
             strat_choice = (input("请输入序号 [默认 1]: ").strip()) or "1"
@@ -282,35 +348,33 @@ def main():
                 print("❌ 无效的策略序号")
                 continue
 
-            # 3. 选择模式 (回测 vs 优化)
-            print("\n请选择模式:")
-            print("  [1] 单次回测 (Backtest) - 看详情")
-            print("  [2] 暴力优化 (Optimization) - 找参数")
-
+            # 3. 模式选择
+            print("\n🔧 请选择模式:")
+            print("  [1] 单次回测 (Backtest)")
+            print("  [2] 暴力优化 (Optimization)")
             mode = (input("请输入序号 [默认 1]: ").strip()) or "1"
 
             if mode == "1":
-                # === 单次回测流程 ===
                 current_conf = strategy_conf.copy()
                 current_conf["default_params"] = strategy_conf["default_params"].copy()
 
+                # 询问是否修改参数
                 if input("是否修改策略参数? (y/n) [默认 n]: ").strip().lower() == "y":
                     current_conf["default_params"] = customize_params(
                         current_conf["default_params"]
                     )
 
-                lev_str = input("请输入杠杆倍数 (例如 1, 2, 3) [默认 1]: ").strip()
-                leverage = float(lev_str) if lev_str else 1.0
-                if leverage <= 0:
-                    leverage = 1.0
+                # 杠杆设置 (仅 Crypto)
+                leverage = 1.0
+                if "/" in symbol:
+                    lev_str = input("请输入杠杆倍数 [默认 1]: ").strip()
+                    leverage = float(lev_str) if lev_str else 1.0
 
                 run_backtest(symbol, timeframe, current_conf, days, leverage=leverage)
 
             elif mode == "2":
-                # === 暴力优化流程 ===
                 run_optimization(symbol, timeframe, strategy_conf, days)
 
-            # 继续吗？
             if input("\n还要再来一次吗? (y/n) [默认 y]: ").strip().lower() == "n":
                 print("👋 Bye!")
                 break

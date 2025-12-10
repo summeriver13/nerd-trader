@@ -1,13 +1,11 @@
 """
 src/research/strategies/vector_dual_ma.py
 自适应双均线策略 - 向量化回测版 (Vectorized)
-核心改进:
-1. 引入"市场状态识别" (Regime Switching): 基于长均线(MA120)判断牛熊
-2. 牛市使用激进参数只做多，熊市使用稳健参数多空双吃
-3. 动态调整 ADX 阈值和止损幅度
+[最终架构适配版]
+修改点:
+1. 适配 BaseStrategy 基类，移除重复的市场判断逻辑
+2. 直接调用 self.can_short 控制空头权限
 """
-
-import itertools
 
 import numpy as np
 import pandas as pd
@@ -22,14 +20,16 @@ class DualMAStrategy(BaseStrategy):
 
     def __init__(
         self,
+        # === 0. 市场适配 ===
+        market_type: str = "crypto",  # 接收并传给父类
         # === 趋势判断 ===
-        trend_period: int = 120,  # 比如 120周期(半年线)作为牛熊分界
-        # === 牛市参数 (激进/进攻) ===
+        trend_period: int = 120,
+        # === 牛市参数 ===
         bull_fast: int = 14,
         bull_slow: int = 25,
         bull_adx_thresh: int = 30,
         bull_atr_mult: float = 3.0,
-        # === 熊市参数 (稳健/防守) ===
+        # === 熊市参数 ===
         bear_fast: int = 20,
         bear_slow: int = 75,
         bear_adx_thresh: int = 20,
@@ -38,6 +38,9 @@ class DualMAStrategy(BaseStrategy):
         atr_period: int = 14,
         adx_period: int = 14,
     ):
+        # 1. 初始化父类 (父类会自动设置 self.can_short, self.max_leverage)
+        super().__init__(market_type=market_type)
+
         self.trend_period = trend_period
 
         self.bull_fast = bull_fast
@@ -58,23 +61,25 @@ class DualMAStrategy(BaseStrategy):
             return df
         df = df.sort_index()
 
-        # 1. 计算长期趋势线 (牛熊分界)
+        # 1. 长期趋势
         df["MA_Trend"] = df["close"].rolling(self.trend_period).mean()
 
-        # 2. 计算两套均线系统
-        # 牛市激进组
+        # 2. 均线组
         df["Bull_Fast"] = df["close"].rolling(self.bull_fast).mean()
         df["Bull_Slow"] = df["close"].rolling(self.bull_slow).mean()
-        # 熊市稳健组
         df["Bear_Fast"] = df["close"].rolling(self.bear_fast).mean()
         df["Bear_Slow"] = df["close"].rolling(self.bear_slow).mean()
 
-        # 3. ATR & ADX 计算 (通用)
+        # 3. ATR & ADX
         prev_close = df["close"].shift(1)
-        tr1 = df["high"] - df["low"]
-        tr2 = (df["high"] - prev_close).abs()
-        tr3 = (df["low"] - prev_close).abs()
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        tr = pd.concat(
+            [
+                df["high"] - df["low"],
+                (df["high"] - prev_close).abs(),
+                (df["low"] - prev_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
         df["ATR"] = tr.rolling(self.atr_period).mean()
 
         # ADX
@@ -92,13 +97,7 @@ class DualMAStrategy(BaseStrategy):
 
         sum_di = pd.Series(plus_di + minus_di, index=df.index).replace(0, np.nan)
         dx = 100 * (abs(plus_di - minus_di) / sum_di)
-
-        df["ADX"] = (
-            pd.Series(dx, index=df.index)
-            .fillna(0)
-            .ewm(alpha=alpha, adjust=False)
-            .mean()
-        )
+        df["ADX"] = dx.fillna(0).ewm(alpha=alpha, adjust=False).mean()  # type: ignore
 
         return df
 
@@ -170,22 +169,18 @@ class DualMAStrategy(BaseStrategy):
         record_trades=False,
         timestamps=None,
     ):
-        """
-        自适应核心逻辑循环
-        """
         length = len(close_arr)
         signals = np.zeros(length)
         returns = np.zeros(length)
         trade_logs = []
 
-        position = 0  # 0:空仓, 1:多头, -1:空头
+        position = 0
         stop_price = 0.0
         extreme_price = 0.0
         entry_price = 0.0
         entry_idx = 0
 
         for i in range(1, length):
-            # 基础数据检查
             if (
                 np.isnan(trend_ma_arr[i])
                 or np.isnan(bull_slow[i])
@@ -196,32 +191,30 @@ class DualMAStrategy(BaseStrategy):
             prev_close = close_arr[i - 1]
             bar_return = 0.0
 
-            # === 1. 市场状态识别 (Regime Detection) ===
-            # 如果收盘价在长期均线之上 -> 牛市 (Bull)
+            # === 1. 市场状态识别 ===
             is_bull_market = close_arr[i] > trend_ma_arr[i]
 
-            # 根据状态选择参数
             if is_bull_market:
                 curr_fast = bull_fast[i]
                 curr_slow = bull_slow[i]
                 curr_adx_thresh = bull_adx_thresh
                 curr_atr_mult = bull_atr_mult
-                allow_short = False  # [牛市不做空]
+                allow_short = False  # 牛市死叉仅平仓，不做空
             else:
                 curr_fast = bear_fast[i]
                 curr_slow = bear_slow[i]
                 curr_adx_thresh = bear_adx_thresh
                 curr_atr_mult = bear_atr_mult
-                allow_short = True  # [熊市允许做空]
+                # [关键简化] 直接读取基类属性，无需再判断 market_type
+                allow_short = self.can_short
 
             exit_reason = ""
             exit_price = 0.0
 
             # === 2. 持仓管理 ===
-            if position == 1:  # 持有多头
+            if position == 1:
                 bar_return = (close_arr[i] - prev_close) / prev_close
-
-                # 止损检查
+                # 止损
                 if low_arr[i] < stop_price:
                     position = 0
                     exit_reason = "Long_StopLoss"
@@ -231,21 +224,18 @@ class DualMAStrategy(BaseStrategy):
                         else stop_price
                     )
                     bar_return = (exit_price - prev_close) / prev_close
-
-                # 死叉反转
+                # 死叉平仓
                 elif curr_fast < curr_slow:
                     position = 0
                     exit_reason = "Long_DeadCross"
                     exit_price = close_arr[i]
-
-                    # 如果允许做空 且 趋势够强 -> 反手开空
+                    # 反手开空 (仅当允许做空时)
                     if allow_short and adx_arr[i] > curr_adx_thresh:
                         position = -1
                         entry_price = close_arr[i]
                         entry_idx = i
                         extreme_price = low_arr[i]
                         stop_price = extreme_price + (curr_atr_mult * atr_arr[i])
-
                 # 移动止损
                 else:
                     if high_arr[i] > extreme_price:
@@ -253,10 +243,9 @@ class DualMAStrategy(BaseStrategy):
                         new_stop = extreme_price - (curr_atr_mult * atr_arr[i])
                         stop_price = max(stop_price, new_stop)
 
-            elif position == -1:  # 持有空头
+            elif position == -1:
                 bar_return = -1 * (close_arr[i] - prev_close) / prev_close
-
-                # 止损检查
+                # 止损
                 if high_arr[i] > stop_price:
                     position = 0
                     exit_reason = "Short_StopLoss"
@@ -266,21 +255,18 @@ class DualMAStrategy(BaseStrategy):
                         else stop_price
                     )
                     bar_return = -1 * (exit_price - prev_close) / prev_close
-
-                # 金叉反转
+                # 金叉平仓
                 elif curr_fast > curr_slow:
                     position = 0
                     exit_reason = "Short_GoldenCross"
                     exit_price = close_arr[i]
-
-                    # 反手开多 (如果 ADX 达标)
+                    # 反手开多
                     if adx_arr[i] > curr_adx_thresh:
                         position = 1
                         entry_price = close_arr[i]
                         entry_idx = i
                         extreme_price = high_arr[i]
                         stop_price = extreme_price - (curr_atr_mult * atr_arr[i])
-
                 # 移动止损
                 else:
                     if low_arr[i] < extreme_price:
@@ -289,17 +275,14 @@ class DualMAStrategy(BaseStrategy):
                         stop_price = min(stop_price, new_stop)
 
             # === 3. 空仓开单 ===
-            else:  # position == 0
+            else:
                 if adx_arr[i] > curr_adx_thresh:
-                    # 金叉开多
                     if curr_fast > curr_slow:
                         position = 1
                         entry_price = close_arr[i]
                         entry_idx = i
                         extreme_price = high_arr[i]
                         stop_price = extreme_price - (curr_atr_mult * atr_arr[i])
-
-                    # 死叉开空 (仅在允许做空时)
                     elif allow_short and (curr_fast < curr_slow):
                         position = -1
                         entry_price = close_arr[i]
@@ -307,10 +290,7 @@ class DualMAStrategy(BaseStrategy):
                         extreme_price = low_arr[i]
                         stop_price = extreme_price + (curr_atr_mult * atr_arr[i])
 
-            # 记录数据
             signals[i] = position
-            if position != 0:
-                pass  # 占位符
             returns[i] = bar_return
 
             if record_trades and position == 0 and exit_reason:
@@ -330,8 +310,6 @@ class DualMAStrategy(BaseStrategy):
             return trade_logs
         return signals, returns
 
-    # 简单的 Optimize 接口 (暂时只优化 Trend Period，因为参数太多了)
     def optimize(self, df: pd.DataFrame, **kwargs) -> dict:
         print("⚠️ 自适应策略参数较为复杂，暂不支持全自动网格搜索。")
-        print("建议使用默认的 '黄金参数' 组合。")
         return {}

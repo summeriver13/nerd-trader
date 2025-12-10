@@ -1,9 +1,10 @@
 """
 src/research/strategies/vector_trend_reversion.py
-趋势+反转缝合怪策略 (Trend + Reversion) [非对称凯利版]
+趋势+反转缝合怪策略 (Trend + Reversion) [最终架构适配版]
 核心改进:
-1. 非对称凯利 (Asymmetric Kelly): 牛市放大仓位(至少满仓)，熊市缩小仓位(最多1倍)
-2. 动态调整开仓杠杆
+1. 适配 BaseStrategy，自动识别 A股/Crypto 规则
+2. 杠杆逻辑升级：取 "策略设定上限" 和 "市场物理上限" 的较小值
+3. 熊市做空逻辑受 self.can_short 控制
 """
 
 import numpy as np
@@ -19,6 +20,8 @@ class TrendReversionStrategy(BaseStrategy):
 
     def __init__(
         self,
+        # === 0. 市场适配 ===
+        market_type: str = "crypto",  # 接收并传给父类
         # === 1. 市场状态判断 ===
         trend_period: int = 200,
         # === 2. 牛市趋势参数 ===
@@ -34,12 +37,15 @@ class TrendReversionStrategy(BaseStrategy):
         bear_stop_loss: float = 0.05,
         # === 4. 资金管理 (凯利公式) ===
         kelly_window: int = 20,  # 回溯最近多少笔交易来计算
-        max_leverage: float = 2.0,  # 全局杠杆上限 (风控锁)
+        max_leverage: float = 2.0,  # 策略期望的最大杠杆
         min_leverage: float = 0.5,  # 杠杆下限
         # === 通用参数 ===
         atr_period: int = 14,
         adx_period: int = 14,
     ):
+        # 1. 初始化父类 (获取 self.can_short, self.max_leverage 等市场规则)
+        super().__init__(market_type=market_type)
+
         self.trend_period = trend_period
 
         self.bull_fast = bull_fast
@@ -54,8 +60,15 @@ class TrendReversionStrategy(BaseStrategy):
         self.bear_stop_loss = bear_stop_loss
 
         self.kelly_window = kelly_window
-        self.max_leverage = max_leverage
-        self.min_leverage = min_leverage
+
+        # === [关键修改] 杠杆双重锁 ===
+        # 策略设定的上限 vs 市场允许的物理上限，取较小值
+        # Crypto: min(2.0, 100.0) -> 2.0
+        # A股:    min(2.0, 1.0)   -> 1.0 (自动被压制为满仓)
+        self.effective_max_lev = min(max_leverage, self.max_leverage)
+
+        # 最小杠杆也不能超过最大杠杆
+        self.effective_min_lev = min(min_leverage, self.effective_max_lev)
 
         self.atr_period = atr_period
         self.adx_period = adx_period
@@ -141,8 +154,9 @@ class TrendReversionStrategy(BaseStrategy):
             self.bear_stop_loss,
             # 凯利参数
             self.kelly_window,
-            self.max_leverage,
-            self.min_leverage,
+            # [关键] 传入计算后的有效杠杆
+            self.effective_max_lev,
+            self.effective_min_lev,
             # 时间戳
             timestamps=df.index,
         )
@@ -171,18 +185,18 @@ class TrendReversionStrategy(BaseStrategy):
             self.bear_rsi_thresh,
             self.bear_stop_loss,
             self.kelly_window,
-            self.max_leverage,
-            self.min_leverage,
+            self.effective_max_lev,
+            self.effective_min_lev,
             record_trades=True,
             timestamps=df.index,
         )  # type: ignore
 
     def _calculate_kelly_leverage(self, trade_history, window, max_lev, min_lev):
         """
-        计算半凯利杠杆 (Base Half-Kelly)
+        计算半凯利杠杆
         """
         if len(trade_history) < 5:
-            return 1.0
+            return 1.0  # 初始默认满仓/1倍
 
         recent_trades = trade_history[-window:]
         pnls = [t["pnl"] for t in recent_trades]
@@ -203,15 +217,15 @@ class TrendReversionStrategy(BaseStrategy):
             return max_lev
         b_ratio = avg_win / avg_loss
 
+        # 半凯利公式
         kelly_f = (win_rate * b_ratio - (1 - win_rate)) / b_ratio
         half_kelly = kelly_f / 2
 
         if half_kelly < 0:
             final_lev = min_lev
         else:
-            # 注意：这里我们返回 raw value，具体的 limit 逻辑放到 loop 里根据牛熊去定
-            # 但为了防止计算出极端值，这里先做一个宽松的 clip
-            final_lev = np.clip(half_kelly, min_lev, max_lev * 2.0)
+            # 限制在 min 和 max 之间
+            final_lev = np.clip(half_kelly, min_lev, max_lev)
 
         return final_lev
 
@@ -269,6 +283,7 @@ class TrendReversionStrategy(BaseStrategy):
                 bar_return = ((close_arr[i] - prev_close) / prev_close) * position
 
                 if strategy_mode == "Bull_Trend":
+                    # 牛市止损：跌破 ATR 移动止损线
                     if low_arr[i] < stop_price:
                         position = 0.0
                         exit_reason = "Bull_StopLoss"
@@ -280,17 +295,20 @@ class TrendReversionStrategy(BaseStrategy):
                         bar_return = (
                             (exit_price - prev_close) / prev_close
                         ) * current_leverage
+                    # 牛市止盈：均线死叉
                     elif ma_fast[i] < ma_slow[i]:
                         position = 0.0
                         exit_reason = "Bull_DeadCross"
                         exit_price = close_arr[i]
                     else:
+                        # 移动止损上移
                         if high_arr[i] > extreme_price:
                             extreme_price = high_arr[i]
                             new_stop = extreme_price - (bull_atr_mult * atr[i])
                             stop_price = max(stop_price, new_stop)
 
                 elif strategy_mode == "Bear_Reversion":
+                    # 熊市止损：固定百分比
                     if low_arr[i] < stop_price:
                         position = 0.0
                         exit_reason = "Bear_StopLoss"
@@ -302,6 +320,7 @@ class TrendReversionStrategy(BaseStrategy):
                         bar_return = (
                             (exit_price - prev_close) / prev_close
                         ) * current_leverage
+                    # 熊市止盈：回归布林带中轨
                     elif high_arr[i] > bb_mid[i]:
                         position = 0.0
                         exit_reason = "Bear_TakeProfit"
@@ -309,6 +328,7 @@ class TrendReversionStrategy(BaseStrategy):
                         bar_return = (
                             (exit_price - prev_close) / prev_close
                         ) * current_leverage
+                    # 熊市时间止损：持仓太久不涨就跑
                     elif (i - entry_idx) > 18:
                         position = 0.0
                         exit_reason = "Bear_TimeStop"
@@ -323,10 +343,8 @@ class TrendReversionStrategy(BaseStrategy):
                 # --- A. 牛市 ---
                 if is_bull_regime:
                     if (ma_fast[i] > ma_slow[i]) and (adx[i] > bull_adx_thresh):
-                        # === [非对称凯利核心逻辑] ===
-                        # 1. 牛市放大：在凯利建议基础上 * 1.5
-                        # 2. 满仓保底：至少开 1.0 倍 (只要出信号，绝不轻仓)
-                        # 3. 物理封顶：不能超过 max_lev (比如 2.0)
+                        # 尝试放大仓位，但不能超过 effective_max_lev
+                        # A股中，max_lev 已经是 1.0 了，所以 min(1.5, 1.0) = 1.0
                         aggressive_lev = max(suggested_lev * 1.5, 1.0)
                         current_leverage = min(aggressive_lev, max_lev)
 
@@ -340,15 +358,18 @@ class TrendReversionStrategy(BaseStrategy):
 
                 # --- B. 熊市 ---
                 else:
+                    # 抄底信号：跌破下轨且 RSI 超卖
                     is_oversold = (low_arr[i] < bb_lower[i]) and (rsi[i] < 30)
-                    is_confirmed = close_arr[i] > bb_lower[i]
+                    is_confirmed = close_arr[i] > bb_lower[i]  # 收盘收回下轨内
 
                     if is_oversold and is_confirmed:
-                        # === [非对称凯利核心逻辑] ===
-                        # 熊市保守：强制限制在 1.0 倍以下
-                        bear_lev = min(suggested_lev, 1.0)
+                        # [关键] 熊市里，A股不能做空，只能做多抄底
+                        # 这里的逻辑是做多，所以完全合法
 
-                        current_leverage = bear_lev
+                        # 熊市仓位保守：建议值和 1.0 取小
+                        bear_lev = min(suggested_lev, 1.0)
+                        current_leverage = min(bear_lev, max_lev)
+
                         position = current_leverage
 
                         strategy_mode = "Bear_Reversion"
@@ -361,8 +382,7 @@ class TrendReversionStrategy(BaseStrategy):
 
             if position == 0 and exit_reason:
                 raw_pnl = (exit_price - entry_price) / entry_price
-                if "Short" in exit_reason:
-                    raw_pnl *= -1
+                # 移除了 Short 相关逻辑，因为此策略只做多
 
                 trade_logs.append(
                     {

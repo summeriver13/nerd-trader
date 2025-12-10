@@ -1,32 +1,346 @@
 """
 src/utils/data_loader.py
-市场数据处理器
-修改点：在 prepare_data 返回前，根据 days_back 强制切片
+[Fundamental Update]
+全能数据加载器：支持 Crypto + A股股票 + A股ETF
+✅ 新增：Baostock 接口现在会拉取 PE (市盈率) 和 PB (市净率) 数据
+✅ 兼容：ETF 识别与免税逻辑保持不变
 """
 
-import os
 import time
-from datetime import datetime, timezone
+from abc import ABC, abstractmethod
+from datetime import datetime
+from pathlib import Path
+from typing import cast
 
 import ccxt
 import pandas as pd
 
+# 尝试导入数据源库
+try:
+    import tushare as ts
+except ImportError:
+    ts = None
+try:
+    import akshare as ak
+except ImportError:
+    ak = None
+try:
+    import baostock as bs
+except ImportError:
+    bs = None
+
+from config.settings import GLOBAL_CONFIG
+
+
+class BaseDataSource(ABC):
+    @abstractmethod
+    def fetch_bars(
+        self, symbol: str, timeframe: str, start_dt: datetime, end_dt: datetime
+    ) -> pd.DataFrame:
+        pass
+
+    def normalize_symbol(self, symbol: str) -> str:
+        return symbol
+
+    def is_etf(self, symbol: str) -> bool:
+        """
+        [ETF 核心逻辑] 简单判断是否为 ETF 代码
+        15/16: 深市 ETF/LOF
+        51/56/58: 沪市 ETF/科创板ETF
+        """
+        s = symbol.split(".")[0]
+        return s.startswith(("51", "56", "58", "15", "16"))
+
+
+class CCXTSource(BaseDataSource):
+    def __init__(self, exchange: ccxt.Exchange):
+        self.exchange = exchange
+
+    def fetch_bars(
+        self, symbol: str, timeframe: str, start_dt: datetime, end_dt: datetime
+    ) -> pd.DataFrame:
+        if not self.exchange:
+            return pd.DataFrame()
+
+        since_ts = int(start_dt.timestamp() * 1000)
+        end_ts = int(end_dt.timestamp() * 1000)
+        all_candles = []
+        limit = 100
+
+        print(f"⬇️ [CCXT] 获取 {symbol} ({timeframe}) ...")
+
+        while since_ts < end_ts:
+            try:
+                ohlcv = self.exchange.fetch_ohlcv(
+                    symbol, timeframe, since=since_ts, limit=limit
+                )
+                if not ohlcv:
+                    break
+
+                last_ts = ohlcv[-1][0]
+                if last_ts <= since_ts:
+                    break
+
+                all_candles.extend(ohlcv)
+                since_ts = last_ts + 1
+                time.sleep(self.exchange.rateLimit / 1000)
+            except Exception as e:
+                print(f"   ❌ CCXT Error: {e}")
+                time.sleep(3)
+                continue
+
+        if not all_candles:
+            return pd.DataFrame()
+
+        cols = ["timestamp", "open", "high", "low", "close", "volume"]
+        df = pd.DataFrame(all_candles, columns=pd.Index(cols))
+
+        df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+        result = df.set_index("datetime")[["open", "high", "low", "close", "volume"]]
+        return cast(pd.DataFrame, result)
+
+
+class TushareSource(BaseDataSource):
+    def __init__(self):
+        token = getattr(GLOBAL_CONFIG, "TUSHARE_TOKEN", "")
+        if ts and token and token != "你的Tushare_Token_填在这里":
+            ts.set_token(token)
+            self.pro = ts.pro_api()
+        else:
+            self.pro = None
+
+    def normalize_symbol(self, symbol: str) -> str:
+        # Tushare 格式: 600519.SH, 512880.SH, 159915.SZ
+        symbol = symbol.strip().upper()
+        if "." in symbol:
+            return symbol
+        if symbol.startswith(("5", "6")):
+            return f"{symbol}.SH"
+        if symbol.startswith(("0", "1", "3")):
+            return f"{symbol}.SZ"
+        if symbol.startswith(("4", "8")):
+            return f"{symbol}.BJ"
+        return symbol
+
+    def fetch_bars(
+        self, symbol: str, timeframe: str, start_dt: datetime, end_dt: datetime
+    ) -> pd.DataFrame:
+        if ts is None or self.pro is None:
+            return pd.DataFrame()
+        if timeframe != "1d":
+            return pd.DataFrame()
+
+        ts_code = self.normalize_symbol(symbol)
+        start_str = start_dt.strftime("%Y%m%d")
+        end_str = end_dt.strftime("%Y%m%d")
+
+        asset_type = "E"
+        if self.is_etf(symbol):
+            asset_type = "FD"
+
+        print(f"⬇️ [Tushare] 获取 {ts_code} (QFQ, Asset={asset_type}) ...")
+        try:
+            df = ts.pro_bar(
+                ts_code=ts_code,
+                adj="qfq",
+                asset=asset_type,
+                start_date=start_str,
+                end_date=end_str,
+            )
+            if df is None or df.empty:
+                return pd.DataFrame()
+
+            df = df.rename(columns={"trade_date": "datetime", "vol": "volume"})
+            df["datetime"] = pd.to_datetime(df["datetime"])
+            df = df.set_index("datetime").sort_index()
+
+            dti = cast(pd.DatetimeIndex, df.index)
+            df.index = dti.tz_localize("UTC")
+
+            # Tushare pro_bar 默认不带 PE/PB，需要额外调用 daily_basic
+            # 这里保持原样，只返回价格数据
+            result = df[["open", "high", "low", "close", "volume"]]
+            return cast(pd.DataFrame, result)
+        except Exception as e:
+            print(f"   ❌ Tushare Error: {e}")
+            return pd.DataFrame()
+
+
+class AkShareSource(BaseDataSource):
+    def normalize_symbol(self, symbol: str) -> str:
+        return symbol.split(".")[0]
+
+    def fetch_bars(
+        self, symbol: str, timeframe: str, start_dt: datetime, end_dt: datetime
+    ) -> pd.DataFrame:
+        if not ak:
+            return pd.DataFrame()
+
+        code = self.normalize_symbol(symbol)
+        start_str = start_dt.strftime("%Y%m%d")
+        end_str = end_dt.strftime("%Y%m%d")
+
+        period = "daily" if timeframe == "1d" else "weekly" if timeframe == "1w" else ""
+        if not period:
+            return pd.DataFrame()
+
+        print(f"⬇️ [AkShare] 获取 {code} (QFQ) ...")
+        try:
+            if self.is_etf(code):
+                df = ak.fund_etf_hist_em(
+                    symbol=code,
+                    period=period,
+                    start_date=start_str,
+                    end_date=end_str,
+                    adjust="qfq",
+                )
+            else:
+                df = ak.stock_zh_a_hist(
+                    symbol=code,
+                    period=period,
+                    start_date=start_str,
+                    end_date=end_str,
+                    adjust="qfq",
+                )
+
+            if df.empty:
+                return pd.DataFrame()
+
+            rename_map = {
+                "日期": "datetime",
+                "开盘": "open",
+                "最高": "high",
+                "最低": "low",
+                "收盘": "close",
+                "成交量": "volume",
+            }
+            df = df.rename(columns=rename_map)
+            df["datetime"] = pd.to_datetime(df["datetime"])
+            df = df.set_index("datetime").sort_index()
+
+            dti = cast(pd.DatetimeIndex, df.index)
+            df.index = dti.tz_localize("UTC")
+
+            result = df[["open", "high", "low", "close", "volume"]]
+            return cast(pd.DataFrame, result)
+        except Exception as e:
+            print(f"   ❌ AkShare Error: {e}")
+            return pd.DataFrame()
+
+
+class BaostockSource(BaseDataSource):
+    def normalize_symbol(self, symbol: str) -> str:
+        code = symbol.lower().split(".")[0]
+        if code.startswith(("5", "6")):
+            return f"sh.{code}"
+        return f"sz.{code}"
+
+    def fetch_bars(
+        self, symbol: str, timeframe: str, start_dt: datetime, end_dt: datetime
+    ) -> pd.DataFrame:
+        if bs is None:
+            return pd.DataFrame()
+
+        bs_code = self.normalize_symbol(symbol)
+        freq_map = {"1d": "d", "5m": "5", "15m": "15", "30m": "30", "1h": "60"}
+        freq = freq_map.get(timeframe, "")
+        if not freq:
+            return pd.DataFrame()
+
+        # === [新增] 只有日线才去拉取 PE/PB ===
+        if timeframe == "1d":
+            # peTTM: 滚动市盈率, pbMRQ: 市净率
+            fields = "date,open,high,low,close,volume,peTTM,pbMRQ"
+        else:
+            fields = "date,time,open,high,low,close,volume"
+
+        print(f"⬇️ [Baostock] 获取 {bs_code} ({timeframe}) + 估值数据 ...")
+        try:
+            bs.login()
+            rs = bs.query_history_k_data_plus(
+                bs_code,
+                fields,
+                start_date=start_dt.strftime("%Y-%m-%d"),
+                end_date=end_dt.strftime("%Y-%m-%d"),
+                frequency=freq,
+                adjustflag="2",
+            )
+
+            if rs is None:
+                bs.logout()
+                return pd.DataFrame()
+
+            data_list = []
+            while (rs.error_code == "0") & rs.next():
+                data_list.append(rs.get_row_data())
+            bs.logout()
+
+            if not data_list:
+                return pd.DataFrame()
+
+            df = pd.DataFrame(data_list, columns=pd.Index(rs.fields))
+
+            # 1. 基础价格转数字
+            price_cols = ["open", "high", "low", "close", "volume"]
+            df[price_cols] = df[price_cols].apply(pd.to_numeric)
+
+            # 2. [新增] 财务指标转数字并重命名
+            # Baostock 返回 peTTM, pbMRQ -> 我们统一改为 pe, pb
+            if "peTTM" in df.columns:
+                df["pe"] = pd.to_numeric(df["peTTM"], errors="coerce")
+            if "pbMRQ" in df.columns:
+                df["pb"] = pd.to_numeric(df["pbMRQ"], errors="coerce")
+
+            # 3. 时间处理
+            if "time" in df.columns and df["time"].iloc[0]:
+                df["datetime"] = pd.to_datetime(df["time"], format="%Y%m%d%H%M%S000")
+            else:
+                df["datetime"] = pd.to_datetime(df["date"])
+
+            df = df.set_index("datetime").sort_index()
+
+            dti = cast(pd.DatetimeIndex, df.index)
+            df.index = dti.tz_localize("UTC")
+
+            # 4. [新增] 动态返回列
+            # 如果有 pe/pb 则一起返回，否则只返回价格
+            final_cols = ["open", "high", "low", "close", "volume"]
+            if "pe" in df.columns:
+                final_cols.append("pe")
+            if "pb" in df.columns:
+                final_cols.append("pb")
+
+            return cast(pd.DataFrame, df[final_cols])
+
+        except Exception as e:
+            print(f"   ❌ Baostock Error: {e}")
+            return pd.DataFrame()
+
 
 class MarketDataHandler:
-    """
-    市场数据处理器：负责数据的获取、清洗、存储和加载
-    遵循 ETL (Extract, Transform, Load) 原则
-    """
-
     def __init__(self, exchange: ccxt.Exchange | None = None):
-        """
-        :param exchange: ccxt 交易所实例
-        """
         self.exchange = exchange
-        # 统一使用 data/cache 目录
-        self.data_dir = os.path.join("data", "cache")
-        if not os.path.exists(self.data_dir):
-            os.makedirs(self.data_dir)
+        self.data_root = Path("data") / "storage"
+
+        if self.exchange:
+            self.primary_source = CCXTSource(self.exchange)
+            self.fallback_sources = []
+        else:
+            self.primary_source = TushareSource()
+            # [调整顺序] 将 Baostock 提到 AkShare 之前
+            # 因为现在我们更想用 Baostock 的 PE/PB 数据来做基本面测试
+            self.fallback_sources = [BaostockSource(), AkShareSource()]
+
+    def _get_file_path(self, symbol: str, timeframe: str) -> Path:
+        if self.exchange:
+            market = "crypto"
+            source = getattr(self.exchange, "id", "ccxt_unknown")
+        else:
+            market = "stock_cn"
+            source = "combined"
+
+        safe_symbol = symbol.replace("/", "-").upper()
+        return self.data_root / market / source / timeframe / f"{safe_symbol}.parquet"
 
     def prepare_data(
         self,
@@ -35,228 +349,132 @@ class MarketDataHandler:
         days_back: int = 365,
         force_update: bool = False,
     ) -> pd.DataFrame:
-        """
-        智能数据准备：支持增量更新 (Incremental Update)
-        并且只返回请求的时间窗口数据
-        """
-        safe_symbol = symbol.replace("/", "_")
-        filename = f"{safe_symbol}_{timeframe}.parquet"
-
-        # 1. 尝试加载本地
-        df = self.load_from_parquet(filename)
+        file_path = self._get_file_path(symbol, timeframe)
+        df = self.load_from_parquet(file_path)
 
         target_start_dt = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days_back)
+        download_start_dt: datetime = cast(datetime, target_start_dt)
+
         now_utc = pd.Timestamp.now(tz="UTC")
-
         need_download = False
-        is_append_mode = False  # 标记是否为追加模式
-        download_start_dt = target_start_dt  # 默认下载起点
+        is_append = False
 
-        # 2. 检查逻辑
         if df is None or df.empty or force_update:
-            print(f"🌐 [数据] {symbol} 本地无数据或强制更新...")
             need_download = True
-            is_append_mode = False
-            download_start_dt = target_start_dt
         else:
-            # 确保时区正确
-            if df.index.tz is None:  # type: ignore
-                df.index = df.index.tz_localize("UTC")  # type: ignore
+            dti = cast(pd.DatetimeIndex, df.index)
+            if dti.tz is None:
+                df.index = dti.tz_localize("UTC")
             else:
-                df.index = df.index.tz_convert("UTC")  # type: ignore
+                df.index = dti.tz_convert("UTC")
 
-            local_start = df.index[0]
-            local_end = df.index[-1]
+            dti = cast(pd.DatetimeIndex, df.index)
+            last_dt = dti[-1]
 
-            # 情况 A: 本地数据历史不够 (头部缺失) -> 全量重新下载
-            # 允许 24h 的误差缓冲
-            if local_start > target_start_dt + pd.Timedelta(hours=24):
-                print(f"⚠️ [数据] 历史数据不足 (始于 {local_start}), 需全量重新下载...")
+            if last_dt < now_utc - pd.Timedelta(hours=24):
+                print(f"⚠️ [数据] 数据已过时 (止于 {last_dt}), 准备增量更新...")
                 need_download = True
-                is_append_mode = False
-                download_start_dt = target_start_dt
+                is_append = True
+                download_start_dt = cast(datetime, last_dt)
 
-            # 情况 B: 本地数据已过时 (尾部缺失) -> 增量下载
-            elif local_end < now_utc - pd.Timedelta(hours=24):
-                print(f"⚠️ [数据] 数据已过时 (止于 {local_end}), 准备增量更新...")
-                need_download = True
-                is_append_mode = True
-                download_start_dt = local_end  # 从本地最后一条开始下
-
-        # 3. 下载流程 (如果需要)
         if need_download:
-            # 格式化时间字符串
-            since_str = download_start_dt.strftime("%Y-%m-%d %H:%M:%S")  # type: ignore
-            print(f"⬇️ 正在获取: {symbol} 自 {since_str}...")
+            df_new = self._fetch_from_sources(
+                symbol, timeframe, download_start_dt, now_utc
+            )
 
-            # 下载新数据片段
-            df_new = self.fetch_history_candles(symbol, timeframe, since_str)
+            if not df_new.empty:
+                if is_append and df is not None:
+                    # 只有当新旧数据的列一致时才能合并
+                    # 如果旧数据没有 PE 而新数据有，可能会产生 NaN，Pandas 会自动处理
+                    print(f"🔗 [合并] 旧({len(df)}) + 新({len(df_new)})")
+                    df_final = pd.concat([df, df_new])
+                else:
+                    df_final = df_new
 
-            if is_append_mode and df is not None:
-                # [优化] 增量合并: 旧数据 + 新数据
-                print(f"🔗 [合并] 拼接旧数据({len(df)}) + 新数据({len(df_new)})")
-                df_final = pd.concat([df, df_new])
+                df_final = self.clean_data(df_final, timeframe)
+                self.save_to_parquet(df_final, file_path)
+                df = df_final
             else:
-                # 全量覆盖
-                df_final = df_new
-
-            # 统一清洗 (去重、排序、补全)
-            df_final = self.clean_data(df_final, timeframe)
-
-            # 保存完整缓存到硬盘
-            self.save_to_parquet(df_final, filename)
-
-            # 更新内存中的 df
-            df = df_final
+                print("⚠️ 未能获取到新数据")
 
         if df is None or df.empty:
             return pd.DataFrame()
 
-        # ==========================================
-        # 4. [新增] 核心切片逻辑 (Slicing)
-        # 无论缓存有多大，只返回用户请求的 days_back
-        # ==========================================
-
-        # 确保时区一致 (再次检查，防止刚下载的数据没有时区)
-        if df.index.tz is None:  # type: ignore
-            df.index = df.index.tz_localize("UTC")  # type: ignore
+        dti = cast(pd.DatetimeIndex, df.index)
+        if dti.tz is None:
+            df.index = dti.tz_localize("UTC")
         else:
-            df.index = df.index.tz_convert("UTC")  # type: ignore
+            df.index = dti.tz_convert("UTC")
 
-        # 预留缓冲 (Buffer): 额外多取 5% 的天数，用于指标计算预热 (Warm-up)
-        # 例如请求 100天，实际返回 105天，防止 MA30 在第1天是 NaN
         buffer_days = int(days_back * 0.05) + 1
         cutoff_dt = pd.Timestamp.now(tz="UTC") - pd.Timedelta(
             days=days_back + buffer_days
         )
 
-        # 执行切片
-        df_sliced = df[df.index >= cutoff_dt].copy()
+        result = df[df.index >= cutoff_dt].copy()
+        return cast(pd.DataFrame, result)
 
-        # 如果切片后数据量变少了，打印提示
-        if len(df_sliced) < len(df):
-            print(
-                f"✂️ [DataHandler] 缓存总量 {len(df)} -> 截取近 {days_back} 天 ({len(df_sliced)} 条)"
-            )
-
-        return df_sliced  # type: ignore
-
-    def fetch_history_candles(
-        self, symbol: str, timeframe: str, since_str: str, limit_per_req: int = 100
+    def _fetch_from_sources(
+        self, symbol: str, timeframe: str, start: datetime, end: datetime
     ) -> pd.DataFrame:
-        """
-        循环分页拉取历史 K 线数据
-        """
-        if not self.exchange:
-            raise ValueError("❌ 错误: 未初始化交易所实例，无法下载数据")
+        # 动态调整策略：如果是请求日线，优先尝试 Baostock 以获取 PE/PB
+        if timeframe == "1d" and not self.exchange:
+            # 临时将 Baostock 提权，为了获取估值数据
+            sources = [BaostockSource(), self.primary_source] + [
+                s for s in self.fallback_sources if not isinstance(s, BaostockSource)
+            ]
+        else:
+            sources = [self.primary_source] + self.fallback_sources
 
-        # 转换开始时间为时间戳 (毫秒)
-        since_dt = datetime.strptime(since_str, "%Y-%m-%d %H:%M:%S")
-        since_dt = since_dt.replace(tzinfo=timezone.utc)
-        since_ts = int(since_dt.timestamp() * 1000)
-
-        all_candles = []
-        current_since = since_ts
-        now_ts = int(time.time() * 1000)
-
-        max_retries = 5
-        retries = 0
-
-        while current_since < now_ts:
-            try:
-                ohlcv = self.exchange.fetch_ohlcv(
-                    symbol, timeframe, since=current_since, limit=limit_per_req
-                )
-                retries = 0
-
-                if not ohlcv:
-                    break
-
-                last_ts = ohlcv[-1][0]
-                if last_ts <= current_since:
-                    break
-
-                all_candles.extend(ohlcv)
-                # 减少打印频率，每 1000 条打印一次
-                if len(all_candles) % 1000 == 0:
-                    print(f"   已获取 {len(all_candles)} 条...")
-
-                current_since = last_ts + 1
-                time.sleep(self.exchange.rateLimit / 1000)
-
-            except Exception as e:
-                retries += 1
-                print(f"❌ [下载异常] {e}, 重试 ({retries}/{max_retries})...")
-                if retries > max_retries:
-                    print("❌ 达到最大重试次数，停止下载")
-                    break
-                time.sleep(3)
+        for source in sources:
+            if isinstance(source, TushareSource) and timeframe != "1d":
+                continue
+            if isinstance(source, AkShareSource) and timeframe not in ["1d", "1w"]:
                 continue
 
-        if not all_candles:
-            return pd.DataFrame()
+            df = source.fetch_bars(symbol, timeframe, start, end)
+            if not df.empty:
+                return df
 
-        df = pd.DataFrame(
-            all_candles,
-            columns=["timestamp", "open", "high", "low", "close", "volume"],  # type: ignore
-        )
-        df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
-        df.set_index("datetime", inplace=True)
+        return pd.DataFrame()
 
-        print(f"✅ [下载] 本次拉取完成! 共 {len(df)} 条")
-        return df
-
-    def clean_data(self, df: pd.DataFrame, timeframe_str: str = "1h") -> pd.DataFrame:
-        """
-        标准数据清洗流程
-        """
+    def clean_data(self, df: pd.DataFrame, timeframe_str: str) -> pd.DataFrame:
         if df.empty:
             return df
-
-        # [优化] 显式拷贝，防止 SettingWithCopyWarning
         df = df.copy()
-
-        # 1. 去重 (保留最后一次出现的)
         df = df[~df.index.duplicated(keep="last")]  # type: ignore
-
-        # 2. 排序
         df = df.sort_index()
 
-        # 3. 频率转换映射
-        pd_freq = self._convert_to_pandas_freq(timeframe_str)
+        if self.exchange is None:
+            return df
 
-        # 4. 处理时间缺失 (Resample & Reindex)
+        pd_freq = self._convert_to_pandas_freq(timeframe_str)
         full_idx = pd.date_range(
             start=df.index.min(), end=df.index.max(), freq=pd_freq, tz="UTC"
         )
-
         if len(full_idx) != len(df):
-            # print(f"⚠️ [清洗] 补全时间断点: {len(full_idx) - len(df)} 行")
             df = df.reindex(full_idx)
-
-            # 填充逻辑
             df["close"] = df["close"].ffill()
             df["open"] = df["open"].fillna(df["close"])
             df["high"] = df["high"].fillna(df["close"])
             df["low"] = df["low"].fillna(df["close"])
             df["volume"] = df["volume"].fillna(0)
-            df["timestamp"] = df.index.astype("int64") // 10**6
+            # PE/PB 也要前向填充 (基本面数据变化慢)
+            if "pe" in df.columns:
+                df["pe"] = df["pe"].ffill()
+            if "pb" in df.columns:
+                df["pb"] = df["pb"].ffill()
 
-        # 5. 逻辑错误修复 (High < Low)
-        mask_error = df["high"] < df["low"]
-        if mask_error.any():
-            # print(f"⚠️ [清洗] 修复 {mask_error.sum()} 行 High < Low 异常")
-            temp = df.loc[mask_error, "high"].copy()
-            df.loc[mask_error, "high"] = df.loc[mask_error, "low"]
-            df.loc[mask_error, "low"] = temp
+        mask = df["high"] < df["low"]
+        if mask.any():
+            t = df.loc[mask, "high"].copy()
+            df.loc[mask, "high"] = df.loc[mask, "low"]
+            df.loc[mask, "low"] = t
 
-        df = df.dropna()
-        return df
+        result = df.dropna()
+        return cast(pd.DataFrame, result)
 
     def _convert_to_pandas_freq(self, timeframe: str) -> str:
-        """
-        将 CCXT/交易所的周期字符串转换为 Pandas 兼容的 freq 字符串
-        """
         mapping = {
             "1m": "1min",
             "3m": "3min",
@@ -274,23 +492,18 @@ class MarketDataHandler:
         }
         return mapping.get(timeframe, timeframe)
 
-    def save_to_parquet(self, df: pd.DataFrame, filename: str):
-        path = os.path.join(self.data_dir, filename)
-        if "timestamp" in df.columns:
-            df["timestamp"] = df["timestamp"].astype("int64")
+    def save_to_parquet(self, df: pd.DataFrame, file_path: Path):
         try:
-            df.to_parquet(path)
-            # print(f"💾 [存储] {path}")
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            df.copy().to_parquet(file_path)
         except Exception as e:
             print(f"❌ [存储失败] {e}")
 
-    def load_from_parquet(self, filename: str) -> pd.DataFrame | None:
-        path = os.path.join(self.data_dir, filename)
-        if not os.path.exists(path):
+    def load_from_parquet(self, file_path: Path) -> pd.DataFrame | None:
+        if not file_path.exists():
             return None
         try:
-            df = pd.read_parquet(path)
-            return df
+            return pd.read_parquet(file_path)
         except Exception as e:
             print(f"❌ [读取失败] {e}")
             return None

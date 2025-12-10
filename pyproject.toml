@@ -18,6 +18,10 @@ statsmodels = "^0.14.5"
 ta-lib = "^0.6.8"
 plotly = "^6.5.0"
 seaborn = "^0.13.2"
+akshare = "^1.17.93"
+tushare = "^1.4.24"
+baostock = "^0.8.9"
+tqdm = "^4.67.1"
 
 [build-system]
 requires = ["poetry-core>=2.0.0"]
