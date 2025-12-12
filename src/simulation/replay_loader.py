@@ -1,79 +1,83 @@
-"""
-src/simulation/replay_loader.py
-历史数据加载器：负责读取文件并转换为标准的 TickData/BarData 生成器
-"""
-
 from datetime import datetime
-from typing import Iterator
+from typing import Iterator, Union
 
 import pandas as pd
 
-from src.core.types import TickData
+# 假设你有 BarData，如果没有，建议在 types.py 里加上
+from src.core.types import BarData, TickData
 
 
 class ReplayLoader:
-    """
-    回放数据加载器
-    支持 Parquet, CSV 等格式，统一产出 TickData
-    """
-
-    def __init__(self, file_path: str, symbol: str = "UNKNOWN"):
+    def __init__(self, file_path: str, symbol: str = "UNKNOWN", is_bar: bool = True):
+        """
+        :param is_bar: True 表示加载的是 K线数据(OHLC)，False 表示逐笔成交数据(Tick)
+        """
         self.file_path = file_path
         self.symbol = symbol
+        self.is_bar = is_bar
 
-    def load_parquet(self) -> Iterator[TickData]:
-        """
-        读取 Parquet 并生成 TickData 流
-        使用 yield 关键字，节省内存 (Generator)
-        """
+    def load_parquet(self) -> Iterator[Union[TickData, BarData]]:
         try:
             df = pd.read_parquet(self.file_path)
-            # 确保排序
-            if "datetime" in df.columns:
-                df = df.sort_values("datetime")
-            else:
+            # 兼容：如果 Parquet 里索引是 datetime，就不用 sort_values
+            if isinstance(df.index, pd.DatetimeIndex):
                 df = df.sort_index()
+            elif "datetime" in df.columns:
+                df = df.sort_values("datetime")
 
-            print(f"Loader: 已加载 {len(df)} 条数据，准备回放...")
+            print(
+                f"Loader: 已加载 {len(df)} 条数据 (模式: {'Bar' if self.is_bar else 'Tick'})"
+            )
 
-            # 遍历并转换
             for row in df.itertuples():
-                yield self._row_to_tick(row)
+                if self.is_bar:
+                    yield self._row_to_bar(row)
+                else:
+                    yield self._row_to_tick(row)
 
         except FileNotFoundError:
             print(f"Error: 文件未找到 {self.file_path}")
             return
 
-    def _row_to_tick(self, row) -> TickData:
-        """
-        [私有方法] 将 Pandas 的一行转换为标准 TickData
-        这里处理所有的 字段映射 和 类型转换 脏活
-        """
-        # 1. 解析时间
-        dt_val = getattr(row, "datetime", None)
-        if dt_val is None:
-            dt_val = getattr(row, "Index", None)
+    def _row_to_bar(self, row) -> BarData:
+        """解析 K线数据 (保留 OHLC)"""
+        dt_val = getattr(row, "datetime", getattr(row, "Index", datetime.now()))
+        if not isinstance(dt_val, datetime):
+            dt_val = pd.to_datetime(dt_val).to_pydatetime()
 
-        if dt_val is None:
-            final_dt = datetime.now()
-        else:
-            final_dt = pd.to_datetime(dt_val).to_pydatetime()
-
-        # 2. 解析价格 (兼容不同的列名)
-        # 优先找 close，找不到找 last_price，再找不到找 price
-        price = getattr(
-            row, "close", getattr(row, "last_price", getattr(row, "price", 0.0))
+        return BarData(
+            gateway_name="BACKTEST",
+            symbol=getattr(row, "symbol", self.symbol),
+            exchange="MOCK",
+            datetime=dt_val,
+            interval="1m",  # 假设是1分钟，可作为参数传入
+            open_price=float(getattr(row, "open", 0)),
+            high_price=float(getattr(row, "high", 0)),
+            low_price=float(getattr(row, "low", 0)),
+            close_price=float(getattr(row, "close", 0)),
+            volume=float(getattr(row, "volume", 0)),
         )
 
+    def _row_to_tick(self, row) -> TickData:
+        """解析 Tick 数据"""
+        dt_val = getattr(row, "datetime", getattr(row, "Index", datetime.now()))
+        if not isinstance(dt_val, datetime):
+            dt_val = pd.to_datetime(dt_val).to_pydatetime()
+
+        # 优先找 last_price, 其次 close
+        price = getattr(row, "last_price", getattr(row, "close", 0.0))
         vol = float(getattr(row, "volume", 0))
 
         return TickData(
             gateway_name="BACKTEST",
             symbol=getattr(row, "symbol", self.symbol),
             exchange="MOCK",
-            datetime=final_dt,
+            datetime=dt_val,
             last_price=float(price),
             volume=vol,
+            # 模拟盘口：直接用最新价填充
             bid_price_1=float(price),
             ask_price_1=float(price),
+            bid_volume_1=vol,
+            ask_volume_1=vol,
         )

@@ -1,53 +1,53 @@
-"""
-src/simulation/mock_gateway.py
-仿真网关：伪装成一个交易所，拦截策略的订单请求
-Refactored: Integrated MatchingEngine AND AccountManager
-"""
-
 from datetime import datetime as dt
+from typing import Union
 
 from src.core.event import Event, EventEngine, EventType
 from src.core.interfaces import GatewayBase
 from src.core.types import (
+    BarData,  # [新增] 需要支持 BarData
     OrderData,
     OrderRequest,
     Status,
     TickData,
 )
 
-# [新增] 导入账户管理器
-from src.simulation.account import AccountManager
-from src.simulation.matching import MatchingEngine
+# [修改] 不再导入具体的实现类，而是导入抽象基类用于类型提示
+from src.simulation.base.account import BaseAccount
+from src.simulation.base.matching import BaseMatchingEngine
 
 
 class MockGateway(GatewayBase):
     """
-    仿真网关
-    职责：
-    1. 作为策略和撮合引擎之间的桥梁
-    2. 将 OrderRequest 转换为 OrderData
-    3. 将撮合引擎产生的 TradeData 推送给 EventEngine
-    4. [新增] 维护本地账户资金状态
+    仿真网关 (重构版)
+    核心变化：不再自己创建 Engine/Account，而是通过外部注入。
     """
 
     def __init__(
         self,
         event_engine: EventEngine,
         gateway_name: str = "BACKTEST",
-        slippage: float = 0.0,
-        initial_balance: float = 100000.0,  # [新增] 初始资金参数
+        # [新增] 依赖注入参数
+        matching_engine: BaseMatchingEngine | None = None,
+        account_manager: BaseAccount | None = None,
     ):
         super().__init__(event_engine, gateway_name)
 
-        # 撮合引擎：负责订单成交
-        self.matcher = MatchingEngine(slippage=slippage)
+        # [校验] 必须注入具体的实现
+        if not matching_engine or not account_manager:
+            raise ValueError(
+                "MockGateway 初始化失败：必须注入具体的 matching_engine 和 account_manager"
+            )
 
-        # [新增] 账户管理器：负责资金结算
-        self.account = AccountManager(initial_balance=initial_balance)
+        # 接收外部注入的组件
+        self.matcher = matching_engine
+        self.account = account_manager
 
     def connect(self):
         """模拟连接"""
-        self.write_log("仿真网关连接成功")
+        self.write_log(f"仿真网关 [{self.gateway_name}] 连接成功")
+        self.write_log(f"加载撮合引擎: {type(self.matcher).__name__}")
+        self.write_log(f"加载账户系统: {type(self.account).__name__}")
+
         # 模拟连接后推送一次初始资金状态
         self.query_account()
 
@@ -79,17 +79,16 @@ class MockGateway(GatewayBase):
 
         # 2. 推送订单状态 (已受理)
         self.on_event(EventType.ORDER, order)
-        self.write_log(
-            f"收到订单: {req.direction.value} {req.type.value} {req.price}@{req.volume}"
-        )
+        # self.write_log(f"收到订单: {req.direction.value} {req.type.value} {req.price}@{req.volume}")
 
-        # 3. 转交给撮合引擎
+        # 3. 转交给撮合引擎 (多态调用)
         self.matcher.add_order(order)
 
         return orderid
 
     def cancel_order(self, orderid: str, symbol: str):
         """撤单"""
+        # 调用基类的 cancel_order 接口
         cancelled_order = self.matcher.cancel_order(orderid)
 
         if cancelled_order:
@@ -100,18 +99,36 @@ class MockGateway(GatewayBase):
             self.write_log(f"撤单失败，订单不存在或已成交: {orderid}")
 
     def process_tick(self, tick: TickData):
-        """
-        外部驱动 Tick
-        """
+        """处理 Tick 数据"""
         # 1. 推送行情给策略
         self.on_event(EventType.TICK, tick)
+        # 2. 触发撮合
+        self._process_matching(tick)
 
-        # 2. 调用撮合引擎进行撮合
-        trades = self.matcher.match(tick)
+    def process_bar(self, bar: BarData):
+        """
+        [新增] 处理 Bar 数据
+        为了支持 '尾盘抓强' 策略，引擎可能会推送 BarData
+        """
+        # 1. 推送行情给策略 (如果策略订阅的是 Bar 事件，需在 EventEngine 注册 BAR 类型)
+        # 这里为了简化，有些框架会统一用 TICK 事件，或者增加 BAR 事件
+        # 假设我们增加了 EventType.BAR
+        # self.on_event(EventType.BAR, bar)
 
-        # 3. 处理成交结果
+        # 暂时用 Tick 兼容，或者策略自行处理 on_bar
+        # 在这里我们主要关注撮合
+        self._process_matching(bar)
+
+    def _process_matching(self, data: Union[TickData, BarData]):
+        """
+        [内部方法] 统一撮合与结算逻辑
+        """
+        # 1. 调用撮合引擎 (多态：具体是 Stock 还是 Crypto 由注入的 matcher 决定)
+        trades = self.matcher.match(data)
+
+        # 2. 处理成交结果
         for trade in trades:
-            # [新增] 账户结算：扣钱/加仓
+            # 账户结算 (多态：具体是 T+1 还是 T+0 由注入的 account 决定)
             self.account.on_trade(trade)
 
             # 推送订单完成状态
@@ -122,7 +139,7 @@ class MockGateway(GatewayBase):
                 direction=trade.direction,
                 status=Status.ALLTRADED,
                 traded=trade.volume,
-                price=0,
+                price=trade.price,  # 成交均价
                 volume=trade.volume,
             )
             self.on_event(EventType.ORDER, finished_order)
@@ -132,17 +149,13 @@ class MockGateway(GatewayBase):
             self.write_log(f"订单成交: {trade.symbol} {trade.price}@{trade.volume}")
 
     def query_account(self):
-        """
-        [实现] 查询账户资金
-        """
-        # 简单打印当前余额
-        # 在实盘中这里会构造 AccountData 并推送
+        """查询账户资金"""
+        # 调用 BaseAccount 的 balance 属性
         self.write_log(f"当前可用余额: {self.account.balance:,.2f}")
 
     def query_position(self):
-        """
-        [实现] 查询持仓
-        """
+        """查询持仓"""
+        # 调用 BaseAccount 的 positions 属性
         for symbol, pos in self.account.positions.items():
             if pos.volume != 0:
                 self.write_log(f"持仓 {symbol}: {pos.volume}@{pos.avg_price:.2f}")
