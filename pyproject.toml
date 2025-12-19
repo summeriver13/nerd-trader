@@ -22,6 +22,7 @@ akshare = "^1.17.93"
 tushare = "^1.4.24"
 baostock = "^0.8.9"
 tqdm = "^4.67.1"
+lightweight-charts = "^2.1"
 
 [build-system]
 requires = ["poetry-core>=2.0.0"]

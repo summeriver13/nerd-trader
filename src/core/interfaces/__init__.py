@@ -1,11 +1,11 @@
 """
 src/core/interfaces/__init__.py
 定义 Gateway 和 Strategy 的标准接口
-Refactored: 使用 StrategyContext 替代 IEngine
+Refactored: 使用 StrategyContext 替代 IEngine，支持期货及全市场选股预留
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Protocol, runtime_checkable
+from typing import Any, Dict, List, Protocol, runtime_checkable
 
 from ..event import Event, EventEngine, EventType
 from ..types import (
@@ -20,8 +20,8 @@ from ..types import (
 )
 
 
-# --- [重命名] 定义策略上下文协议 ---
-# StrategyContext 定义了策略运行所需的外部环境能力
+# --- 定义策略上下文协议 ---
+# StrategyContext 定义了策略运行所需的外部环境能力 (依赖倒置原则)
 @runtime_checkable
 class StrategyContext(Protocol):
     def send_order(self, req: OrderRequest, gateway_name: str) -> str: ...
@@ -31,6 +31,8 @@ class StrategyContext(Protocol):
     def write_log(self, msg: str, strategy_name: str): ...
 
     def query_account(self): ...
+
+    def query_position(self): ...
 
 
 class GatewayBase(ABC):
@@ -81,9 +83,9 @@ class GatewayBase(ABC):
 class StrategyBase(ABC):
     """
     策略抽象基类
+    支持：CTA (单标的择时) / Alpha (多标的选股 - 预留) / HFT (Tick级)
     """
 
-    # [变更] engine -> context
     def __init__(self, context: StrategyContext, strategy_name: str, settings: dict):
         self.context = context  # 策略运行的上下文环境
         self.strategy_name = strategy_name
@@ -113,11 +115,25 @@ class StrategyBase(ABC):
 
     @abstractmethod
     def on_tick(self, tick: TickData):
-        """Tick行情推送 (必须实现)"""
+        """
+        Tick行情推送 (必须实现)
+        适用于: 高频策略, CTA策略
+        """
         pass
 
     def on_bar(self, bar: BarData):
-        """K线行情推送 (可选实现)"""
+        """
+        单标的K线行情推送 (可选实现)
+        适用于: 基于K线的CTA策略
+        """
+        pass
+
+    def on_bars(self, bars: Dict[str, BarData]):
+        """
+        [预留] 全市场K线切片推送
+        适用于: 截面选股策略 (Alpha)
+        当 Engine 支持时间对齐时，会调用此接口
+        """
         pass
 
     # --- 交易回调 ---
@@ -139,10 +155,7 @@ class StrategyBase(ABC):
         volume: float,
         order_type: OrderType = OrderType.LIMIT,
     ) -> str:
-        """
-        买入开仓
-        :return: 本地订单号 (orderid)
-        """
+        """买入开仓 (股票/期货做多)"""
         req = OrderRequest(
             symbol=symbol,
             direction=Direction.LONG,
@@ -151,7 +164,6 @@ class StrategyBase(ABC):
             price=price,
             volume=volume,
         )
-        # [变更] 使用 self.context
         return self.context.send_order(req, self.strategy_name)
 
     def sell(
@@ -161,9 +173,7 @@ class StrategyBase(ABC):
         volume: float,
         order_type: OrderType = OrderType.LIMIT,
     ) -> str:
-        """
-        卖出平仓
-        """
+        """卖出平仓 (股票卖出/期货平多)"""
         req = OrderRequest(
             symbol=symbol,
             direction=Direction.SHORT,
@@ -174,14 +184,46 @@ class StrategyBase(ABC):
         )
         return self.context.send_order(req, self.strategy_name)
 
+    def short(
+        self,
+        symbol: str,
+        price: float,
+        volume: float,
+        order_type: OrderType = OrderType.LIMIT,
+    ) -> str:
+        """[期货专用] 卖出开仓 (做空)"""
+        req = OrderRequest(
+            symbol=symbol,
+            direction=Direction.SHORT,
+            offset=Offset.OPEN,
+            type=order_type,
+            price=price,
+            volume=volume,
+        )
+        return self.context.send_order(req, self.strategy_name)
+
+    def cover(
+        self,
+        symbol: str,
+        price: float,
+        volume: float,
+        order_type: OrderType = OrderType.LIMIT,
+    ) -> str:
+        """[期货专用] 买入平仓 (平空)"""
+        req = OrderRequest(
+            symbol=symbol,
+            direction=Direction.LONG,
+            offset=Offset.CLOSE,
+            type=order_type,
+            price=price,
+            volume=volume,
+        )
+        return self.context.send_order(req, self.strategy_name)
+
     def cancel_order(self, orderid: str):
-        """
-        撤单
-        """
+        """撤单"""
         self.context.cancel_order(orderid, self.strategy_name)
 
     def write_log(self, msg: str):
-        """
-        记录日志
-        """
+        """记录日志"""
         self.context.write_log(msg, self.strategy_name)

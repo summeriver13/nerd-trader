@@ -1,121 +1,165 @@
 """
 src/core/types/__init__.py
-Refactored: Added 'type' field to OrderData
+定义系统基础数据类型 (Enums, Dataclasses)
+Refactored: 增加 turnover, open_interest 字段支持，完善 Enum 定义
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime as dt
-from enum import StrEnum
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+
+# --- 枚举常量 ---
 
 
-# ... (枚举定义部分保持不变) ...
-class Direction(StrEnum):
-    LONG = "LONG"
-    SHORT = "SHORT"
+class Direction(Enum):
+    """交易方向"""
+
+    LONG = "多"
+    SHORT = "空"
+    NET = "净"
 
 
-class Offset(StrEnum):
-    OPEN = "OPEN"
-    CLOSE = "CLOSE"
-    CLOSETODAY = "CLOSETODAY"
-    NONE = "NONE"
+class Offset(Enum):
+    """开平仓"""
+
+    NONE = ""
+    OPEN = "开"
+    CLOSE = "平"
+    CLOSETODAY = "平今"
+    CLOSEYESTERDAY = "平昨"
 
 
-class OrderType(StrEnum):
-    LIMIT = "LIMIT"
-    MARKET = "MARKET"
+class Status(Enum):
+    """订单状态"""
+
+    SUBMITTING = "提交中"
+    NOTTRADED = "未成交"
+    PARTTRADED = "部分成交"
+    ALLTRADED = "全部成交"
+    CANCELLED = "已撤销"
+    REJECTED = "拒单"
 
 
-class Status(StrEnum):
-    SUBMITTING = "SUBMITTING"
-    NOTTRADED = "NOTTRADED"
-    PARTTRADED = "PARTTRADED"
-    ALLTRADED = "ALLTRADED"
-    CANCELLED = "CANCELLED"
-    REJECTED = "REJECTED"
+class OrderType(Enum):
+    """订单类型"""
+
+    LIMIT = "限价"
+    MARKET = "市价"
+    STOP = "止损"
+    FAK = "FAK"  # FillAndKill
+    FOK = "FOK"  # FillOrKill
 
 
-# ... (BaseData, TickData, BarData, OrderRequest 保持不变) ...
+class Exchange(Enum):
+    """交易所 (示例)"""
+
+    SSE = "SSE"  # 上交所
+    SZSE = "SZSE"  # 深交所
+    CFFEX = "CFFEX"  # 中金所
+    SHFE = "SHFE"  # 上期所
+    DCE = "DCE"  # 大商所
+    CZCE = "CZCE"  # 郑商所
+    INE = "INE"  # 能源中心
+    BINANCE = "BINANCE"
+    OKX = "OKX"
+    MOCK = "MOCK"  # 模拟盘
 
 
-@dataclass(slots=True)
+class Interval(Enum):
+    """K线周期"""
+
+    MINUTE = "1m"
+    HOUR = "1h"
+    DAILY = "d"
+    WEEKLY = "w"
+    TICK = "tick"
+
+
+# --- 基础数据类 ---
+
+
+@dataclass
 class BaseData:
+    """基础数据类"""
+
     gateway_name: str
     symbol: str
-    exchange: str = ""
+    exchange: str | Exchange
+    datetime: datetime
 
 
-@dataclass(slots=True)
+@dataclass
 class TickData(BaseData):
-    datetime: dt = field(default_factory=dt.now)
-    last_price: float = 0.0
-    volume: float = 0.0
-    bid_price_1: float = 0.0
-    bid_volume_1: float = 0.0
-    ask_price_1: float = 0.0
-    ask_volume_1: float = 0.0
+    """Tick 数据"""
+
+    name: str = ""
+    volume: float = 0
+    turnover: float = 0
+    open_interest: float = 0
+    last_price: float = 0
+    last_volume: float = 0
+    limit_up: float = 0
+    limit_down: float = 0
+
+    # 盘口深度 (简版只给一档，需要的可以自行扩充)
+    bid_price_1: float = 0
+    bid_volume_1: float = 0
+    ask_price_1: float = 0
+    ask_volume_1: float = 0
 
 
-@dataclass(slots=True)
+@dataclass
 class BarData(BaseData):
-    datetime: dt | None = None
-    interval: str = ""
-    open_price: float = 0.0
-    high_price: float = 0.0
-    low_price: float = 0.0
-    close_price: float = 0.0
-    volume: float = 0.0
+    """K线数据"""
+
+    interval: str | Interval = Interval.MINUTE
+    volume: float = 0
+    open_price: float = 0
+    high_price: float = 0
+    low_price: float = 0
+    close_price: float = 0
+
+    # [新增] 修复报错的关键字段
+    turnover: float = 0  # 成交额
+    open_interest: float = 0  # 持仓量
 
 
-@dataclass(slots=True)
-class OrderRequest:
-    symbol: str
-    direction: Direction
-    type: OrderType
-    volume: float
-    price: float = 0.0
-    offset: Offset = Offset.NONE
-
-    def create_order_id(self, gateway_name: str) -> str:
-        return f"{gateway_name}_{self.symbol}_{dt.now().strftime('%H%M%S%f')}"
-
-
-# --- [修改] 给 OrderData 增加 type 字段 ---
-@dataclass(slots=True)
+@dataclass
 class OrderData(BaseData):
-    """订单数据"""
+    """订单数据 (回报)"""
 
     orderid: str = ""
-    direction: Direction = Direction.LONG
-    # [新增] 必须加上这个字段，撮合引擎才能判断是市价单还是限价单
     type: OrderType = OrderType.LIMIT
+    direction: Direction = Direction.LONG
     offset: Offset = Offset.NONE
-    price: float = 0.0
-    volume: float = 0.0
-    traded: float = 0.0
+    price: float = 0
+    volume: float = 0
+    traded: float = 0
     status: Status = Status.SUBMITTING
-    datetime: dt | None = None
+    time: str = ""
 
 
-@dataclass(slots=True)
+@dataclass
 class TradeData(BaseData):
-    """成交数据"""
+    """成交数据 (回报)"""
 
     orderid: str = ""
     tradeid: str = ""
     direction: Direction = Direction.LONG
     offset: Offset = Offset.NONE
-    price: float = 0.0
-    volume: float = 0.0
-    datetime: dt | None = None
+    price: float = 0
+    volume: float = 0
+    time: str = ""
 
 
-@dataclass(slots=True)
-class PositionData(BaseData):
-    """持仓数据"""
+@dataclass
+class OrderRequest:
+    """发单请求"""
 
-    direction: Direction = Direction.LONG
-    volume: float = 0.0
-    frozen: float = 0.0
-    price: float = 0.0
-    pnl: float = 0.0
+    symbol: str
+    direction: Direction
+    offset: Offset
+    type: OrderType
+    volume: float
+    price: float = 0
+    exchange: str | Exchange = Exchange.MOCK
