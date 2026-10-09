@@ -61,7 +61,7 @@ def main():
     # 2. 初始化模拟引擎
     print(">>> 正在初始化模拟引擎...")
     engine = SimulationEngine(
-        start_date="2024-01-01", data_path=DATA_FILE, symbol=SYMBOL
+        start_date="2024-01-01", data_path=DATA_FILE, symbols=SYMBOL
     )
 
     # 3. 策略配置

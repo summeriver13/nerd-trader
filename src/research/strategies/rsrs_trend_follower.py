@@ -21,7 +21,6 @@ class RSRSTrendStrategy(BaseStrategy):
 
     def __init__(
         self,
-        market_type: str = "a_share",
         rsrs_n: int = 18,
         rsrs_m: int = 600,
         buy_threshold: float = 0.7,
@@ -30,7 +29,7 @@ class RSRSTrendStrategy(BaseStrategy):
         atr_period: int = 14,
         stop_loss_mult: float = 2.5,
     ) -> None:
-        super().__init__(market_type=market_type)
+        super().__init__()
         self.rsrs_n = rsrs_n
         self.rsrs_m = rsrs_m
         self.buy_threshold = buy_threshold
@@ -220,62 +219,3 @@ class RSRSTrendStrategy(BaseStrategy):
                 signals[i] = position
 
         return trade_logs if record_trades else (signals, None)
-
-    def optimize(
-        self,
-        df: pd.DataFrame,
-        buy_range: list[float] | None = None,
-        stop_mult_range: list[float] | None = None,
-        **kwargs: Any,
-    ) -> dict[str, Any]:
-        """
-        RSRS 专用网格搜索优化方法。
-        """
-        # 1. 定义搜索范围
-        b_range = buy_range or [0.6, 0.7, 0.8, 0.9, 1.0]
-        s_range = stop_mult_range or [2.0, 2.5, 3.0]
-
-        best_sharpe = -np.inf
-        best_params: dict[str, Any] = {}
-
-        # 2. 预计算指标 (优化：只需计算一次，循环内只跑仿真)
-        df_ind = self.calculate_indicators(df)
-        close_arr = df_ind["close"].to_numpy()
-        high_arr = df_ind["high"].to_numpy()
-        low_arr = df_ind["low"].to_numpy()
-        rsrs_z = df_ind["RSRS_Zscore"].to_numpy()
-        atr = df_ind["ATR"].to_numpy()
-
-        print(f"🔥 开始 RSRS 网格搜索 (共 {len(b_range) * len(s_range)} 组组合)...")
-
-        for b_t in b_range:
-            for s_m in s_range:
-                # 3. 快速仿真逻辑
-                signals, _ = self._run_simulation_logic(
-                    close_arr,
-                    high_arr,
-                    low_arr,
-                    rsrs_z,
-                    atr,
-                    buy_t=b_t,
-                    sell_t=self.sell_threshold,
-                    stop_mult=s_m,
-                    max_lev=self.effective_max_lev,
-                )
-
-                # 4. 简易夏普计算 (这里需对接你的 Engine 逻辑)
-                # 假设通过 signals 计算日收益率并求夏普
-                daily_rets = np.diff(close_arr) / close_arr[:-1] * signals[:-1]
-                if np.std(daily_rets) == 0:
-                    continue
-                sharpe = np.mean(daily_rets) / np.std(daily_rets) * np.sqrt(242)
-
-                if sharpe > best_sharpe:
-                    best_sharpe = sharpe
-                    best_params = {
-                        "sharpe": sharpe,
-                        "buy_threshold": b_t,
-                        "stop_loss_mult": s_m,
-                    }
-
-        return best_params

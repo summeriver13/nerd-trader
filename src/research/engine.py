@@ -134,7 +134,28 @@ class BacktestEngine:
         if max_drawdown != 0:
             calmar_ratio = annual_ret / abs(max_drawdown)
 
-        trade_count = df["pos_change"].sum()
+        # 索提诺：下行偏差用 MAR=0 的标准定义（全样本取 min(r,0) 的均方根）
+        downside_gap = np.minimum(df["net_ret"].to_numpy(), 0.0)
+        downside_dev = float(np.sqrt((downside_gap**2).mean()))
+        sortino_ratio = 0.0
+        if downside_dev:
+            sortino_ratio = (df["net_ret"].mean() / downside_dev) * np.sqrt(
+                bars_per_year
+            )
+
+        # 交易质量：一个回合 = 一段连续的非零持仓
+        pos = df["pos"]
+        segment = (pos != pos.shift()).cumsum()
+        active = pos != 0
+        trade_ret = (
+            df[active]
+            .groupby(segment[active])["net_ret"]
+            .apply(lambda r: float((1 + r).prod() - 1))
+        )
+        hold_bars = df[active].groupby(segment[active]).size()
+
+        gross_gain = float(trade_ret[trade_ret > 0].sum())
+        gross_loss = abs(float(trade_ret[trade_ret < 0].sum()))
 
         return {
             "total_ret": total_ret,
@@ -142,8 +163,14 @@ class BacktestEngine:
             "annual_ret": annual_ret,
             "max_drawdown": max_drawdown,
             "sharpe_ratio": sharpe_ratio,
+            "sortino_ratio": sortino_ratio,
             "calmar_ratio": calmar_ratio,
-            "trade_count": trade_count,
+            "trade_count": int(len(trade_ret)),
+            "order_count": float(df["pos_change"].sum()),
+            "win_rate": float((trade_ret > 0).mean()) if len(trade_ret) else 0.0,
+            "profit_factor": gross_gain / gross_loss if gross_loss else 0.0,
+            "avg_hold_bars": float(hold_bars.mean()) if len(hold_bars) else 0.0,
+            "total_cost": float(df["cost"].sum() * self.initial_capital),
             "equity_curve": df["equity_curve"],
             "benchmark_curve": df["benchmark_curve"],
             "drawdown_curve": df["drawdown"],
@@ -185,8 +212,11 @@ class BacktestEngine:
         ax1.set_title(
             f"{title}\n"
             f"Total Return: {result['total_ret']:.2%} | "
+            f"Calmar: {result['calmar_ratio']:.2f} | "
             f"Sharpe: {result['sharpe_ratio']:.2f} | "
-            f"MaxDD: {result['max_drawdown']:.2%}"
+            f"Sortino: {result['sortino_ratio']:.2f} | "
+            f"MaxDD: {result['max_drawdown']:.2%} | "
+            f"WinRate: {result['win_rate']:.1%}"
         )
         ax1.legend(loc="upper left")
         ax1.grid(True, linestyle="--", alpha=0.5)

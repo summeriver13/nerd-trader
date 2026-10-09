@@ -20,8 +20,6 @@ class DualMAStrategy(BaseStrategy):
 
     def __init__(
         self,
-        # === 0. 市场适配 ===
-        market_type: str = "crypto",  # 接收并传给父类
         # === 趋势判断 ===
         trend_period: int = 120,
         # === 牛市参数 ===
@@ -39,7 +37,7 @@ class DualMAStrategy(BaseStrategy):
         adx_period: int = 14,
     ):
         # 1. 初始化父类 (父类会自动设置 self.can_short, self.max_leverage)
-        super().__init__(market_type=market_type)
+        super().__init__()
 
         self.trend_period = trend_period
 
@@ -205,7 +203,7 @@ class DualMAStrategy(BaseStrategy):
                 curr_slow = bear_slow[i]
                 curr_adx_thresh = bear_adx_thresh
                 curr_atr_mult = bear_atr_mult
-                # [关键简化] 直接读取基类属性，无需再判断 market_type
+                # [关键简化] 直接读取基类属性
                 allow_short = self.can_short
 
             exit_reason = ""
@@ -310,6 +308,3 @@ class DualMAStrategy(BaseStrategy):
             return trade_logs
         return signals, returns
 
-    def optimize(self, df: pd.DataFrame, **kwargs) -> dict:
-        print("⚠️ 自适应策略参数较为复杂，暂不支持全自动网格搜索。")
-        return {}

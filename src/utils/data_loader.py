@@ -18,7 +18,6 @@ import pandas as pd
 # 内部模块导入
 from .data_sources.base import BaseDataSource
 from .data_sources.crypto import CCXTSource
-from .data_sources.stock_cn import AkShareSource, BaostockSource, TushareSource
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -28,7 +27,6 @@ SymbolStr: TypeAlias = str
 TimeFrameStr: TypeAlias = str
 
 # 常量定义
-A_SHARE_BUFFER_FACTOR: Final[float] = 1.5
 UTC_TZ: Final[str] = "UTC"
 
 
@@ -38,29 +36,16 @@ class MarketDataHandler:
     职责：
     1. 动态计算指标计算所需的历史预热数据量。
     2. 管理本地 Parquet 缓存磁盘持久化。
-    3. 在多个数据源之间执行回退逻辑（Fallback）。
+    3. 调度数据源拉取缺失区间。
     """
 
-    def __init__(self, exchange: ccxt.Exchange | None = None) -> None:
+    def __init__(self, exchange: ccxt.Exchange) -> None:
         self.exchange = exchange
         self.data_root: Final[Path] = Path("data") / "storage"
 
-        # 根据市场类型初始化不同的调度策略
-        if self.exchange:
-            self.sources: list[BaseDataSource] = [CCXTSource(self.exchange)]
-            self.market_label: Final[str] = "crypto"
-            self.source_label: Final[str] = str(
-                getattr(self.exchange, "id", "unknown_cex")
-            )
-        else:
-            # A股：Baostock优先(提供估值)，Tushare稳定，AkShare兜底
-            self.sources: list[BaseDataSource] = [
-                BaostockSource(),
-                TushareSource(),
-                AkShareSource(),
-            ]
-            self.market_label: Final[str] = "stock_cn"
-            self.source_label: Final[str] = "combined"
+        self.sources: list[BaseDataSource] = [CCXTSource(exchange)]
+        self.market_label: Final[str] = "crypto"
+        self.source_label: Final[str] = str(getattr(exchange, "id", "unknown_cex"))
 
     def _get_file_path(self, symbol: SymbolStr, timeframe: TimeFrameStr) -> Path:
         """生成标准化的本地持久化路径。"""
@@ -87,17 +72,13 @@ class MarketDataHandler:
         file_path = self._get_file_path(symbol, timeframe)
         df_local = self._load_local(file_path)
 
-        # 1. 统筹当前时间与目标范围
+        # 1. 统筹当前时间与目标范围（对齐到 K 线网格：数据源只返回网格点上的 Bar，
+        # 不对齐会把「同日稍晚」误判成历史深度不足，导致每次运行都全量重下）
         now_utc = pd.Timestamp.now(tz=UTC_TZ)
-        is_crypto = self.exchange is not None
-
-        # 针对 A 股非交易日进行冗余计算
-        actual_buffer = (
-            required_buffer
-            if is_crypto
-            else int(required_buffer * A_SHARE_BUFFER_FACTOR)
-        )
-        target_start_dt = now_utc - pd.Timedelta(days=days_back + actual_buffer)
+        bar_seconds = self.exchange.parse_timeframe(timeframe)
+        target_start_dt = (
+            now_utc - pd.Timedelta(days=days_back + required_buffer)
+        ).ceil(freq=f"{bar_seconds}s")
 
         need_fetch = False
         fetch_start = cast(datetime, target_start_dt)
@@ -107,18 +88,19 @@ class MarketDataHandler:
             need_fetch = True
         else:
             # 情况 A: 本地数据起始时间太晚，无法覆盖预热期
-            if df_local.index[0] > target_start_dt:
+            local_index = cast(pd.DatetimeIndex, df_local.index)
+            if local_index[0] > target_start_dt:
                 logger.info(
-                    f"[{symbol}] 本地历史深度不足 ({df_local.index[0].date()}), 执行全量同步"
+                    f"[{symbol}] 本地历史深度不足 ({local_index[0].date()}), 执行全量同步"
                 )
                 need_fetch = True
 
             # 情况 B: 本地数据最新时间太早，需要增量更新
-            elif df_local.index[-1] < now_utc - pd.Timedelta(hours=24):
+            elif local_index[-1] < now_utc - pd.Timedelta(hours=24):
                 logger.info(f"[{symbol}] 数据已过时, 准备增量更新...")
                 need_fetch = True
                 # 增量更新从本地最后一条数据开始，避免空洞
-                fetch_start = cast(datetime, df_local.index[-1])
+                fetch_start = cast(datetime, local_index[-1])
 
         # 3. 抓取与合并流程
         if need_fetch:
@@ -148,13 +130,9 @@ class MarketDataHandler:
     def _fetch_from_sources(
         self, symbol: SymbolStr, timeframe: TimeFrameStr, start: datetime, end: datetime
     ) -> pd.DataFrame:
-        """顺序遍历数据源链，实现 Fallback。"""
+        """顺序遍历数据源链。"""
         for source in self.sources:
             try:
-                # 逻辑解耦：在 Source 内部处理频率兼容性，此处仅执行调度
-                if isinstance(source, TushareSource) and timeframe != "1d":
-                    continue
-
                 df = source.fetch_bars(symbol, timeframe, start, end)
                 if not df.empty:
                     return df
@@ -171,11 +149,12 @@ class MarketDataHandler:
             df = pd.read_parquet(path)
             if not df.empty:
                 # 确保索引为时区感知的 DatetimeIndex
-                df.index = pd.to_datetime(df.index)
-                if df.index.tz is None:
-                    df.index = df.index.tz_localize(UTC_TZ)
+                index = pd.to_datetime(df.index)
+                if index.tz is None:
+                    index = index.tz_localize(UTC_TZ)
                 else:
-                    df.index = df.index.tz_convert(UTC_TZ)
+                    index = index.tz_convert(UTC_TZ)
+                df.index = index
             return df
         except Exception as e:
             logger.error(f"本地缓存读取失败 {path.name}: {e}")
@@ -200,4 +179,4 @@ class MarketDataHandler:
         except Exception as e:
             logger.error(f"持久化至本地失败 {path.name}: {e}")
 
-        return cleaned_df
+        return cast(pd.DataFrame, cleaned_df)

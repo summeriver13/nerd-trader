@@ -2,7 +2,7 @@
 src/research/strategies/vector_trend_reversion.py
 趋势+反转缝合怪策略 (Trend + Reversion) [最终架构适配版]
 核心改进:
-1. 适配 BaseStrategy，自动识别 A股/Crypto 规则
+1. 适配 BaseStrategy 的 Crypto 市场规则
 2. 杠杆逻辑升级：取 "策略设定上限" 和 "市场物理上限" 的较小值
 3. 熊市做空逻辑受 self.can_short 控制
 """
@@ -20,8 +20,6 @@ class TrendReversionStrategy(BaseStrategy):
 
     def __init__(
         self,
-        # === 0. 市场适配 ===
-        market_type: str = "crypto",  # 接收并传给父类
         # === 1. 市场状态判断 ===
         trend_period: int = 200,
         # === 2. 牛市趋势参数 ===
@@ -44,7 +42,7 @@ class TrendReversionStrategy(BaseStrategy):
         adx_period: int = 14,
     ):
         # 1. 初始化父类 (获取 self.can_short, self.max_leverage 等市场规则)
-        super().__init__(market_type=market_type)
+        super().__init__()
 
         self.trend_period = trend_period
 
@@ -62,9 +60,7 @@ class TrendReversionStrategy(BaseStrategy):
         self.kelly_window = kelly_window
 
         # === [关键修改] 杠杆双重锁 ===
-        # 策略设定的上限 vs 市场允许的物理上限，取较小值
-        # Crypto: min(2.0, 100.0) -> 2.0
-        # A股:    min(2.0, 1.0)   -> 1.0 (自动被压制为满仓)
+        # 策略设定的上限 vs 交易所允许的物理上限，取较小值
         self.effective_max_lev = min(max_leverage, self.max_leverage)
 
         # 最小杠杆也不能超过最大杠杆
@@ -344,7 +340,6 @@ class TrendReversionStrategy(BaseStrategy):
                 if is_bull_regime:
                     if (ma_fast[i] > ma_slow[i]) and (adx[i] > bull_adx_thresh):
                         # 尝试放大仓位，但不能超过 effective_max_lev
-                        # A股中，max_lev 已经是 1.0 了，所以 min(1.5, 1.0) = 1.0
                         aggressive_lev = max(suggested_lev * 1.5, 1.0)
                         current_leverage = min(aggressive_lev, max_lev)
 
@@ -363,8 +358,7 @@ class TrendReversionStrategy(BaseStrategy):
                     is_confirmed = close_arr[i] > bb_lower[i]  # 收盘收回下轨内
 
                     if is_oversold and is_confirmed:
-                        # [关键] 熊市里，A股不能做空，只能做多抄底
-                        # 这里的逻辑是做多，所以完全合法
+                        # [关键] 熊市只做多抄底，不做空
 
                         # 熊市仓位保守：建议值和 1.0 取小
                         bear_lev = min(suggested_lev, 1.0)
@@ -398,6 +392,3 @@ class TrendReversionStrategy(BaseStrategy):
             return trade_logs
         return signals, returns
 
-    def optimize(self, df, **kwargs):
-        print("⚠️ 混合策略参数过于复杂，建议使用默认经验参数。")
-        return {}

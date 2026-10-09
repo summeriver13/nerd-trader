@@ -11,17 +11,15 @@ Refactored: 支持依赖注入，同时提供默认的简易撮合与账户管�
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Union
+from typing import Dict, Union
 
-from src.core.event import Event, EventEngine, EventType
+from src.core.event import EventEngine, EventType
 from src.core.interfaces import GatewayBase
 from src.core.types import (
     BarData,
     Direction,
-    Offset,
     OrderData,
     OrderRequest,
-    OrderType,
     Status,
     TickData,
     TradeData,

@@ -1,8 +1,6 @@
 import numpy as np
 import pandas as pd
 
-# 假设你的 BaseStrategy 定义在 src.strategies.base
-# 如果找不到，请确保该文件存在或调整路径
 from src.research.strategies.base import BaseStrategy
 from src.utils.statistics import calculate_z_score
 

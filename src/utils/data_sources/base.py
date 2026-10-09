@@ -17,8 +17,3 @@ class BaseDataSource(ABC):
     def normalize_symbol(self, symbol: str) -> str:
         """符号标准化"""
         return symbol
-
-    def is_etf(self, symbol: str) -> bool:
-        """ETF 识别逻辑"""
-        s = symbol.split(".")[0]
-        return s.startswith(("51", "56", "58", "15", "16"))

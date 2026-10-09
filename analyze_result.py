@@ -3,12 +3,25 @@ analyze_result.py
 读取回测生成的 CSV，计算资金曲线和绩效指标
 """
 
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
 
-# 1. 自动查找最新的结果文件
+# 1. 解析参数：初始资金必须与引擎配置一致，否则收益率与回撤会失真
+parser = argparse.ArgumentParser(
+    description="从 data/results 最新成交 CSV 估算资金曲线与绩效"
+)
+parser.add_argument(
+    "--capital",
+    type=float,
+    default=1_000_000.0,
+    help="初始资金，默认 1000000 与 run.py 的引擎配置一致",
+)
+args = parser.parse_args()
+
+# 2. 自动查找最新的结果文件
 results_dir = Path("data/results")
 # 按修改时间排序，找最新的 csv
 csv_files = sorted(results_dir.glob("trades_*.csv"), key=lambda x: x.stat().st_mtime)
@@ -25,8 +38,7 @@ df = pd.read_csv(latest_csv)
 df["datetime"] = pd.to_datetime(df["datetime"])
 
 # 3. 计算盈亏 (简化版：逐笔对冲计算)
-# 假设初始资金 100,000
-initial_balance = 100000.0
+initial_balance = args.capital
 df["pnl"] = 0.0
 df["balance"] = initial_balance
 

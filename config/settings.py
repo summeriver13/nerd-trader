@@ -23,6 +23,8 @@ class ExchangeConfig:
             "secret": self.secret,
             "password": self.passphrase,
             "enableRateLimit": True,
+            # 单次请求超时（毫秒）：没有超时会把抓取循环挂死
+            "timeout": 20000,
             "options": {"defaultType": "swap"},  # 默认交易永续合约
         }
 
