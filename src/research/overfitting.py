@@ -16,6 +16,8 @@ from itertools import combinations
 from statistics import NormalDist
 
 import numpy as np
+
+from src.analytics.metrics import MIN_OBSERVATIONS, sharpe_ratio
 import pandas as pd
 
 EULER_MASCHERONI = 0.5772156649015329
@@ -24,20 +26,9 @@ PBO_THRESHOLD = 0.50  # 过拟合概率门槛
 DEFAULT_BLOCKS = 10  # CSCV 分块数（须为偶数）
 MIN_BLOCKS = 4
 MIN_BARS_PER_BLOCK = 60
-MIN_OBSERVATIONS = 2
 MIN_CANDIDATES = 2
 
 _NORMAL = NormalDist()
-
-
-def sharpe_ratio(returns: pd.Series | np.ndarray) -> float:
-    """非年化夏普（逐根收益均值 / 标准差），DSR 与 PBO 统一用它。"""
-    arr = np.asarray(returns, dtype=float)
-    arr = arr[np.isfinite(arr)]
-    if arr.size < MIN_OBSERVATIONS:
-        return 0.0
-    sd = float(arr.std(ddof=1))
-    return float(arr.mean() / sd) if sd > 0 else 0.0
 
 
 def expected_max_sharpe(variance_of_sharpe: float, trials: int) -> float:
@@ -48,8 +39,7 @@ def expected_max_sharpe(variance_of_sharpe: float, trials: int) -> float:
     z_last = _NORMAL.inv_cdf(1 - 1 / (trials * math.e))
     weight = EULER_MASCHERONI
     return float(
-        math.sqrt(variance_of_sharpe)
-        * ((1 - weight) * z_first + weight * z_last)
+        math.sqrt(variance_of_sharpe) * ((1 - weight) * z_first + weight * z_last)
     )
 
 
@@ -138,9 +128,15 @@ def probability_of_backtest_overfitting(
     for combo in combinations(range(effective), half):
         chosen = set(combo)
         in_sample = np.concatenate([rows[i] for i in range(effective) if i in chosen])
-        out_sample = np.concatenate([rows[i] for i in range(effective) if i not in chosen])
-        is_sharpe = np.array([sharpe_ratio(values[in_sample, j]) for j in range(frame.shape[1])])
-        oos_sharpe = np.array([sharpe_ratio(values[out_sample, j]) for j in range(frame.shape[1])])
+        out_sample = np.concatenate(
+            [rows[i] for i in range(effective) if i not in chosen]
+        )
+        is_sharpe = np.array(
+            [sharpe_ratio(values[in_sample, j]) for j in range(frame.shape[1])]
+        )
+        oos_sharpe = np.array(
+            [sharpe_ratio(values[out_sample, j]) for j in range(frame.shape[1])]
+        )
         winner = int(np.argmax(is_sharpe))
         rank = int((oos_sharpe <= oos_sharpe[winner]).sum())  # 1..N
         percentile = rank / (frame.shape[1] + 1)
@@ -194,10 +190,11 @@ def print_overfitting(
             "若历史上还试过其他参数/窗口，请用 --trials 声明真实试验次数。"
         )
     else:
-        print(f"试验集合 = {len(series_map)} 个候选，声明的历史试验次数 N={report.trials}。")
+        print(
+            f"试验集合 = {len(series_map)} 个候选，声明的历史试验次数 N={report.trials}。"
+        )
     print(
-        f"{'策略':<26}{'夏普(非年化)':>13}{'零假设期望最大':>15}"
-        f"{'DSR':>9}{'判定':>7}"
+        f"{'策略':<26}{'夏普(非年化)':>13}{'零假设期望最大':>15}{'DSR':>9}{'判定':>7}"
     )
     print("-" * 118)
     for test in report.sharpe_tests:

@@ -4,6 +4,8 @@ src/strategies/dual_ma.py
 Refactored: Pass 0 as price for Market Orders to ensure execution
 """
 
+from typing import Any
+
 from src.core.interfaces import StrategyBase, StrategyContext
 from src.core.types import BarData, OrderData, OrderType, TickData, TradeData
 from src.core.utility import ArrayManager, BarGenerator
@@ -15,14 +17,20 @@ class DualMaStrategy(StrategyBase):
     """
 
     parameters = ["fast_window", "slow_window", "fixed_size"]
-    variables = ["fast_ma", "slow_ma", "pos"]
 
-    def __init__(self, context: StrategyContext, strategy_name: str, settings: dict):
+    def __init__(
+        self, context: StrategyContext, strategy_name: str, settings: dict[str, Any]
+    ) -> None:
         super().__init__(context, strategy_name, settings)
 
-        self.fast_window = settings.get("fast_window", 10)
-        self.slow_window = settings.get("slow_window", 20)
-        self.fixed_size = settings.get("fixed_size", 1.0)
+        # 参数缺一个就报错，不用 .get 静默回退：写错键名会直接停，而不是悄悄变回 1 份仓位
+        missing = [key for key in self.parameters if key not in settings]
+        if missing:
+            raise ValueError(f"{strategy_name} 缺少必需参数: {missing}")
+
+        self.fast_window = settings["fast_window"]
+        self.slow_window = settings["slow_window"]
+        self.fixed_size = settings["fixed_size"]
 
         self.fast_ma = 0.0
         self.slow_ma = 0.0
@@ -68,9 +76,9 @@ class DualMaStrategy(StrategyBase):
                 self.pos += self.fixed_size
 
             elif cross_below:
-                self.write_log("死叉 -> 卖出")
-                # [修改] 价格传 0
-                self.sell(bar.symbol, 0, self.fixed_size, OrderType.MARKET)
+                self.write_log("死叉 -> 开空")
+                # [修改] 价格传 0，确保作为市价单成交
+                self.short(bar.symbol, 0, self.fixed_size, OrderType.MARKET)
                 self.pos -= self.fixed_size
 
         elif self.pos > 0:
@@ -82,9 +90,9 @@ class DualMaStrategy(StrategyBase):
 
         elif self.pos < 0:
             if cross_over:
-                self.write_log("金叉平仓")
-                # [修改] 价格传 0
-                self.buy(bar.symbol, 0, abs(self.pos), OrderType.MARKET)
+                self.write_log("金叉 -> 平空")
+                # [修改] 价格传 0，确保作为市价单成交
+                self.cover(bar.symbol, 0, abs(self.pos), OrderType.MARKET)
                 self.pos = 0
 
     def on_order(self, order: OrderData):

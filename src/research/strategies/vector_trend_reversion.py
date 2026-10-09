@@ -10,7 +10,7 @@ src/research/strategies/vector_trend_reversion.py
 import numpy as np
 import pandas as pd
 
-from src.research.strategies.base import BaseStrategy
+from src.research.strategies.base import BaseStrategy, EWM_CONVERGENCE_MULT
 
 
 class TrendReversionStrategy(BaseStrategy):
@@ -68,6 +68,19 @@ class TrendReversionStrategy(BaseStrategy):
 
         self.atr_period = atr_period
         self.adx_period = adx_period
+
+    @property
+    def warmup_bars(self) -> int:
+        """最长滚动窗口 + ADX 的 EWM 收敛余量"""
+        longest = max(
+            self.trend_period,
+            self.bull_slow,
+            self.bear_bb_period,
+            self.bear_rsi_period,
+            self.kelly_window,
+            self.atr_period,
+        )
+        return longest + EWM_CONVERGENCE_MULT * self.adx_period
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         if df is None or df.empty:
@@ -391,4 +404,3 @@ class TrendReversionStrategy(BaseStrategy):
         if record_trades:
             return trade_logs
         return signals, returns
-

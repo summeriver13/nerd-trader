@@ -13,7 +13,8 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-ANNUAL_DAYS = 365
+from src.analytics.metrics import ANNUAL_DAYS
+
 DEFAULT_VOL_TARGET = 0.40
 DEFAULT_VOL_LOOKBACK = 30
 DEFAULT_REBALANCE_BARS = 7  # 日线上一周调一次，避免每日再平衡吃掉收益
@@ -30,7 +31,9 @@ class VolatilityTarget:
 
     def exposure(self, close: pd.Series) -> pd.Series:
         """按滚动实现波动率给出仓位系数（0 ~ max_exposure）。"""
-        realized = close.pct_change().rolling(self.lookback).std() * np.sqrt(ANNUAL_DAYS)
+        realized = close.pct_change().rolling(self.lookback).std() * np.sqrt(
+            ANNUAL_DAYS
+        )
         scale = (self.target_vol / realized.replace(0.0, np.nan)).clip(
             lower=0.0, upper=self.max_exposure
         )

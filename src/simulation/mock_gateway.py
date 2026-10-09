@@ -9,7 +9,6 @@ Refactored: 支持依赖注入，同时提供默认的简易撮合与账户管�
 """
 
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Union
 
@@ -20,17 +19,15 @@ from src.core.types import (
     Direction,
     OrderData,
     OrderRequest,
+    OrderType,
+    PositionData,
     Status,
     TickData,
     TradeData,
 )
 
 
-@dataclass
-class PositionData:
-    symbol: str
-    volume: float = 0
-    avg_price: float = 0.0
+DEFAULT_INITIAL_CAPITAL = 1_000_000.0
 
 
 class MockGateway(GatewayBase):
@@ -44,6 +41,7 @@ class MockGateway(GatewayBase):
         self,
         event_engine: EventEngine,
         gateway_name: str = "BACKTEST",
+        initial_capital: float = DEFAULT_INITIAL_CAPITAL,
         # [可选] 未来扩展：支持外部注入
         matching_engine=None,
         account_manager=None,
@@ -55,23 +53,29 @@ class MockGateway(GatewayBase):
         self.active_orders: Dict[str, OrderData] = {}  # orderid -> OrderData
 
         # 资金与持仓
-        self.balance = 1_000_000.0  # 默认 100万
+        self.balance = initial_capital
         self.positions: Dict[str, PositionData] = defaultdict(
             lambda: PositionData(symbol="")
         )
+        self.last_price: Dict[str, float] = {}  # symbol -> 最新价，供 mark-to-market 用
+        self.subscribed: set[str] = set()  # 已订阅标的（回测里默认全订阅，仅作记录）
 
         # 2. 注入组件 (暂留接口，如果传入则使用外部逻辑，目前使用内部逻辑)
         self.matcher = matching_engine
         self.account = account_manager
 
-    def connect(self):
+    def connect(self) -> None:
         """连接"""
         self.write_log(f"仿真网关 [{self.gateway_name}] 启动成功")
         self.write_log(f"初始资金: {self.balance:,.2f}")
 
-    def subscribe(self, symbol: str):
-        """订阅"""
-        pass  # 回测模式下默认全订阅
+    def close(self) -> None:
+        """断开（回测里只记录，真实网关在此释放连接与订阅）"""
+        self.write_log(f"仿真网关 [{self.gateway_name}] 已断开")
+
+    def subscribe(self, symbol: str) -> None:
+        """订阅行情"""
+        self.subscribed.add(symbol)
 
     def send_order(self, req: OrderRequest) -> str:
         """发送订单"""
@@ -100,37 +104,47 @@ class MockGateway(GatewayBase):
 
         return orderid
 
-    def cancel_order(self, orderid: str, symbol: str):
-        """撤单"""
+    def cancel_order(self, orderid: str) -> None:
+        """撤单：标的不必传，从本地订单里查"""
         if orderid in self.active_orders:
             order = self.active_orders.pop(orderid)
             order.status = Status.CANCELLED
             order.time = datetime.now().strftime("%H:%M:%S")
             self.on_event(EventType.ORDER, order)
-            self.write_log(f"订单已撤销: {orderid}")
+            self.write_log(f"订单已撤销: {orderid} ({order.symbol})")
         else:
             self.write_log(f"撤单失败: 订单 {orderid} 不存在或已完结")
 
     def process_tick(self, tick: TickData):
         """处理 Tick 行情"""
-        # 1. 推送行情
+        # 1. 更新最新价并推送行情
+        self.last_price[tick.symbol] = tick.last_price
         self.on_event(EventType.TICK, tick)
 
         # 2. 撮合
-        self._cross_limit_order(tick)
+        self._match_orders(tick)
 
     def process_bar(self, bar: BarData):
         """处理 Bar 行情"""
-        # 1. 推送行情 (如有需要)
-        # self.on_event(EventType.BAR, bar)
+        # 1. 记录最新价，供 mark-to-market 估值
+        self.last_price[bar.symbol] = bar.close_price
 
-        # 2. 撮合
-        self._cross_limit_order(bar)
+        # 2. 先撮合：此时挂着的订单来自上一根 K 线，只能用本根开盘价成交，避免前视
+        self._match_orders(bar)
 
-    def _cross_limit_order(self, data: Union[TickData, BarData]):
+        # 3. 再推送给策略：策略本根做出的决策留给下一根 K 线成交
+        self.on_event(EventType.BAR, bar)
+
+    def equity_value(self) -> float:
+        """账户权益 = 现金 + 持仓市值（按各标的最新价 mark-to-market）"""
+        return self.balance + sum(
+            pos.volume * self.last_price.get(symbol, 0.0)
+            for symbol, pos in self.positions.items()
+        )
+
+    def _match_orders(self, data: Union[TickData, BarData]):
         """
-        [核心撮合逻辑]
-        基于当前行情撮合限价单
+        [核心撮合逻辑] 基于当前行情撮合限价单与市价单
         """
         if not self.active_orders:
             return
@@ -139,11 +153,13 @@ class MockGateway(GatewayBase):
         if isinstance(data, TickData):
             buy_cross_price = data.ask_price_1 if data.ask_price_1 else data.last_price
             sell_cross_price = data.bid_price_1 if data.bid_price_1 else data.last_price
+            market_price = data.last_price
             current_time = data.datetime
         else:
             # BarData: 使用 High/Low 进行更精确的撮合
             buy_cross_price = data.low_price  # 买单只要最低价低于限价即可成交
             sell_cross_price = data.high_price  # 卖单只要最高价高于限价即可成交
+            market_price = data.open_price  # 市价单以本根开盘价成交
             current_time = data.datetime
 
         traded_orders = []
@@ -157,8 +173,13 @@ class MockGateway(GatewayBase):
             is_traded = False
             trade_price = 0.0
 
+            # 市价单：无条件按当前可得价格成交
+            if order.type == OrderType.MARKET:
+                is_traded = True
+                trade_price = market_price
+
             # 买入 (Buy): 如果 当前价格 <= 订单价格
-            if order.direction == Direction.LONG:
+            elif order.direction == Direction.LONG:
                 if order.price >= buy_cross_price:
                     is_traded = True
                     # 为了模拟真实，如果 Bar 的 Open 价格也满足，可以用 Open 价成交，这里简化为限价成交
@@ -224,11 +245,13 @@ class MockGateway(GatewayBase):
             pos.volume -= trade.volume
             # 卖出通常不更新持仓均价，只结算盈亏，这里简化处理
 
-    def query_account(self):
+    def query_account(self) -> float:
+        """查询账户资金"""
         return self.balance
 
-    def query_position(self):
+    def query_position(self) -> Dict[str, PositionData]:
+        """查询持仓"""
         return self.positions
 
-    def write_log(self, msg: str):
+    def write_log(self, msg: str) -> None:
         self.on_event(EventType.LOG, msg)

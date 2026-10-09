@@ -30,6 +30,11 @@ class BollingerMRStrategy(BaseStrategy):
         self.stop_loss_std = stop_loss_std
         self.trend_ma_period = trend_ma_period  # [新增]
 
+    @property
+    def warmup_bars(self) -> int:
+        """Z-Score 窗口与趋势均线取较长者（趋势过滤关闭时即窗口本身）"""
+        return max(self.window, self.trend_ma_period)
+
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
 

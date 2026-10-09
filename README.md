@@ -20,12 +20,12 @@ uv run python research.py  # 交互式研究回测
 研究回测也支持非交互模式（参数省略则回落交互菜单），适合脚本与定时任务：
 
 ```bash
-uv run python research.py --symbol BTC/USDT --strategy bollinger --days 365 --timeframe 1d
-uv run python research.py --symbol ETH/USDT --strategy rsrs --days 730 --leverage 2
+uv run python research.py --symbol BTC/USDT --strategy bollinger --bars 365 --timeframe 1d
+uv run python research.py --symbol ETH/USDT --strategy rsrs --bars 730 --leverage 2
 ```
 
 `--strategy` 可填菜单序号 `1`-`4`，也可填别名 `dual-ma` / `trend-reversion` / `bollinger` / `rsrs`。
-每次回测都会把资金曲线图写到 `data/results/<SYMBOL>_<策略名>.png`，不需要额外确认。
+每次回测都会把资金曲线图写到 `data/results/<SYMBOL>_<策略名>.png`，同时把净值/基准/回撤序列写成同名 `_equity.csv`（pi 扩展里的字符曲线读它），不需要额外确认。
 
 `research.py` 按提示选择标的、周期与策略（双均线 / 趋势+反转 / 布林带均值回归 / RSRS），
 结果直接打印收益率、最大回撤与夏普，可选出图存到 `data/results/`。
@@ -53,20 +53,23 @@ OKX_PROXY_PORT=7890
 | 命令 | 用途 |
 | --- | --- |
 | `uv run python research.py [--symbol ... --strategy ...]` | 向量化回测：带参数进入非交互模式，不带参数进入交互菜单，自动落盘图表 |
-| `uv run python research.py --robust --days 2900 --segments 4` | 稳健性检验：全样本 + 一年滚动窗口分布 + 分段稳定性 + 多重检验校正（默认 BTC/ETH） |
-| `uv run python research.py --carry --symbol c1,c2,SOL/USDT` | 资金费率 carry 研究：做多现货 + 做空等额永续的毛收益与净收益（Binance 历史） |
-| `uv run python run.py` | 事件驱动模拟盘 demo（离线，自动生成测试数据） |
-| `uv run python analyze_result.py --capital 1000000` | 读 `data/results/trades_*.csv` 估算资金曲线与回撤，`--capital` 需与引擎初始资金一致 |
+| `uv run python research.py --robust --bars 2900 --segments 4` | 稳健性检验：全样本 + 一年滚动窗口分布 + 分段稳定性 + 多重检验校正（默认 BTC/ETH） |
+| `uv run python research.py --carry --symbol c1,c2,SOL/USDT` | 资金费率 carry 研究：做多现货 + 做空等额永续的毛收益与净收益（Binance 历史，`--carry-days` 控研究窗口） |
+| `uv run python research.py --symbol c1 --maker` | 用 maker 挂单执行替代市价单：挂单价与成交明细见下文「执行成本」 |
+| `uv run python run.py` | 事件驱动模拟盘 demo（离线，自动生成测试数据）：落 `trades_*.parquet` 与 `<标的>_<策略>_equity.csv`，净值按每根收盘价 mark-to-market |
 
 回测类参数（`--robust` 与单次回测共用）：
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
-| `--days` | 单次 730 / 稳健 2900 | 回测窗口长度：评估区间取最近 N 根，指标预热在窗口之外 |
+| `--bars` | 单次 730 / 稳健 2900 | 评估区间根数（最近 N 根）；预热根数留在窗口之外，抓数深度按「评估+预热」换算成日历天 |
 | `--segments` | 4 | 稳健性检验的分段数 |
 | `--trials` | 本次候选数 | 多重检验校正的试验次数 N，历史试过的参数/窗口越多应越大 |
 | `--vol-target` | 关闭 | 波动率目标仓位，只给开关则用 40%；把 0/1 信号缩放成 0~100% 暴露 |
 | `--vol-lookback` / `--vol-rebalance` | 30 / 7 | 波动率回看根数与调仓间隔（控制换手成本） |
+| `--maker` | 关闭 | 用 maker 挂单执行替代市价单（详见「执行成本」） |
+| `--maker-patience` | 1 | 挂单耐心根数，超时回退市价（默认挂在市价、当根即成，用不到等待）；单独给出会报错 |
+| `--carry-days` | 2900 | `--carry` 的研究窗口（日历天，资金费率历史），与 `--bars` 无关；窗口外数据不参与统计 |
 
 ## 稳健性检验
 
@@ -80,6 +83,27 @@ OKX_PROXY_PORT=7890
 | 资金费率 carry | carry 扣掉保证金占用与换手成本后还剩多少 |
 
 DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitting.py`；波动率目标仓位见 `src/research/position_sizing.py`。
+
+## 执行成本
+
+`--maker` 把下单从市价单换成挂单，实现在 `src/research/execution.py`。默认挂在市价
+（`offset=0`）：成交价与市价单相同，只把费率从 taker 5bp + 滑点 5bp 换成 maker 2bp，
+**仓位序列与市价单逐根一致、不引入任何延迟**，因此不改变策略的择时行为。
+
+挂单价差与成交率来自 1m 数据实测（BTCUSDT 12.9 万根）：
+
+| 挂单价差 | 成交率 | 相对市价单优势 | t 值 | 成交后价格漂移 |
+| --- | --- | --- | --- | --- |
+| **0bp（挂在市价，默认）** | 99.6% | **+7.9bp** | 269 | +0.2bp |
+| 1bp | 86.6% | +6.1bp | 62 | −0.6bp |
+| 5bp | 61.9% | +4.6bp | 30 | −0.2bp |
+
+**挂在市价严格优于挂低价**：挂 −1bp 虽多拿 1bp 价格改善，却让 13.4% 的订单挂不上、
+只能回退市价买在更差的位置。跨 139 标的 × 4 策略的检验里，挂低价的择时偏差标准差
+达 25–37pp（突破型策略 RSRS 净效应 −13.82pp，t=−2.3），而挂在市价的仓位偏离为 0、
+纯成本效应 +12.17pp（t=6.5，98% 的样本为正）。
+
+例外：急涨（前 15 根 > +50bp）时挂低价会被吃穿、优势归零，此时买单改挂当前价。
 
 ## 绩效指标
 
@@ -99,6 +123,7 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 ## 数据与配置
 
 - 缓存路径：`data/storage/crypto/<exchange_id>/<timeframe>/<SYMBOL>.parquet`，`data/` 不入版本库。
+- 研究/回测产物：数值表格一律落 parquet（`compression="snappy"`），不写 CSV；唯一例外是 `data/results/<策略>_equity.csv`，它是 pi 扩展字符曲线的数据源（零依赖 TS 解析）。
 - 资金费率缓存：`data/storage/crypto/binance/8h/<SYMBOL>.parquet`（OKX 只保留约 100 天，长历史取 Binance，回溯至 2019-09）。
 - 数据源：ccxt，交易所实例由调用方注入（行情为 OKX，资金费率为 Binance 公共接口）。
 
@@ -108,9 +133,8 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 config/            环境配置读取、实盘参数表
 research.py        交互式研究回测入口
 run.py             事件驱动模拟盘 demo
-analyze_result.py  成交记录 → 资金曲线/回撤
 src/core/          事件引擎、数据类型、BarGenerator/ArrayManager
-src/research/      向量化回测：engine、domains（市场规则）、strategies、robustness、overfitting、position_sizing、carry
+src/research/      向量化回测：engine、domains（市场规则）、strategies、robustness、overfitting、position_sizing、carry、execution（maker 挂单执行）
 src/simulation/    事件驱动：engine、mock_gateway、replay_loader
 src/strategies/    事件驱动策略（dual_ma）
 src/utils/         数据调度与数据源

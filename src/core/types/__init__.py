@@ -153,6 +153,15 @@ class TradeData(BaseData):
 
 
 @dataclass
+class PositionData:
+    """持仓数据（网关维护，策略与引擎通过 query_position 读）"""
+
+    symbol: str
+    volume: float = 0
+    avg_price: float = 0.0
+
+
+@dataclass
 class OrderRequest:
     """发单请求"""
 

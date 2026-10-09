@@ -7,19 +7,22 @@ Refactored: 集成多标的加载器 (MultiSymbolLoader)，适配 StrategyContex
 import os
 from datetime import date, datetime
 from time import sleep
-from typing import Dict, List, Type, Union
+from typing import Any, Dict, List, Type, Union
 
-import pandas as pd
 
+from src.analytics.equity import EquityTracker
+from src.analytics.reporting import save_trades
+from src.config.paths import RESULTS_ROOT
 from src.core.event import Event, EventEngine, EventType
 from src.core.interfaces import StrategyBase
 from src.core.types import (
     BarData,
     OrderRequest,
+    PositionData,
     TickData,
     TradeData,
 )
-from src.simulation.mock_gateway import MockGateway
+from src.simulation.mock_gateway import DEFAULT_INITIAL_CAPITAL, MockGateway
 from src.simulation.replay_loader import MultiSymbolLoader, ReplayLoader
 
 
@@ -35,17 +38,16 @@ class SimulationEngine:
 
     def __init__(
         self,
-        start_date: str,
         data_path: str,
         symbols: Union[str, List[str]],
+        initial_capital: float = DEFAULT_INITIAL_CAPITAL,
         name: str = "BacktestEngine",
     ):
         """
-        :param start_date: 回测开始日期 (格式 YYYYMMDD)
         :param data_path: 数据文件路径 (单标的) 或 数据目录 (多标的)
         :param symbols: 标的代码 (字符串) 或 标的列表 (List)
+        :param initial_capital: 初始资金，透传给仿真网关
         """
-        self.start_date = start_date
         self.data_path = data_path
         self.engine_name = name
 
@@ -59,7 +61,9 @@ class SimulationEngine:
 
         # 1. 初始化核心组件
         self.event_engine = EventEngine()
-        self.gateway = MockGateway(self.event_engine, gateway_name="BACKTEST")
+        self.gateway = MockGateway(
+            self.event_engine, gateway_name="BACKTEST", initial_capital=initial_capital
+        )
 
         # 2. 策略容器
         self.strategy: StrategyBase | None = None
@@ -67,6 +71,11 @@ class SimulationEngine:
         # 3. 数据记录
         self.trades: List[TradeData] = []
         self.daily_results: Dict[date, float] = {}
+        self.initial_capital = self.gateway.balance
+        # 逐根按收盘价 mark-to-market 的权益序列（口径见 src/analytics）
+        self.equity = EquityTracker(
+            initial_capital=self.initial_capital, single_symbol=not self.is_multi_symbol
+        )
 
         # 4. 注册日志监听
         self.event_engine.register(EventType.LOG, self.process_log)
@@ -77,7 +86,9 @@ class SimulationEngine:
         self.gateway.connect()
         print(f">>> [{self.engine_name}] 模拟引擎初始化完成")
 
-    def load_strategy(self, strategy_class: Type[StrategyBase], settings: dict):
+    def load_strategy(
+        self, strategy_class: Type[StrategyBase], settings: dict[str, Any]
+    ) -> None:
         """加载策略"""
         self.strategy = strategy_class(
             context=self,  # 注入 context (自身)
@@ -111,7 +122,7 @@ class SimulationEngine:
                 loaders.append(ReplayLoader(file_path, sym, is_bar=True))
             return MultiSymbolLoader(loaders)
 
-    def run(self):
+    def run(self) -> None:
         """
         [核心循环] 流式回放数据
         """
@@ -119,8 +130,22 @@ class SimulationEngine:
             print("错误：未加载策略")
             return
 
+        # 行情回调至少实现一个，否则回放跑完什么都不会发生（静默空跑最难查）
+        if not any(
+            getattr(type(self.strategy), name) is not getattr(StrategyBase, name)
+            for name in ("on_bar", "on_bars", "on_tick")
+        ):
+            raise ValueError(
+                f"策略 {self.strategy.strategy_name} 未实现任何行情回调"
+                "（on_bar / on_bars / on_tick 至少一个）"
+            )
+
         if not self.event_engine._active:
             self.init_engine()
+
+        # 订阅行情：回测里网关默认全订阅，但真实网关需要这个接入点
+        for symbol in self.symbols:
+            self.gateway.subscribe(symbol)
 
         # 1. 准备数据流
         print(
@@ -162,23 +187,26 @@ class SimulationEngine:
         self.event_engine.stop()
 
         self.show_summary()
+        self._save_equity_curve()
+        self.gateway.close()
 
     # --- 事件处理函数 ---
 
-    def process_tick_event(self, event: Event):
+    def process_tick_event(self, event: Event) -> None:
         if self.strategy:
             self.strategy.on_tick(event.data)
 
-    def process_bar_event(self, event: Event):
+    def process_bar_event(self, event: Event) -> None:
         if self.strategy:
             self.strategy.on_bar(event.data)
             # TODO: 未来支持 on_bars (切片) 时在此处聚合
+        self._record_equity(event.data)
 
-    def process_order_event(self, event: Event):
+    def process_order_event(self, event: Event) -> None:
         if self.strategy:
             self.strategy.on_order(event.data)
 
-    def process_trade_event(self, event: Event):
+    def process_trade_event(self, event: Event) -> None:
         trade = event.data
         if trade:
             self.trades.append(trade)
@@ -187,7 +215,7 @@ class SimulationEngine:
 
     # --- 结果统计与导出 ---
 
-    def show_summary(self):
+    def show_summary(self) -> None:
         if not self.trades:
             print("\n⚠️ 本次回测无成交记录。")
             return
@@ -202,50 +230,49 @@ class SimulationEngine:
         print(f"首笔成交: {first_trade.datetime}")
         print(f"末笔成交: {last_trade.datetime}")
 
-        # 导出 CSV
-        trade_dicts = []
-        for t in self.trades:
-            d = {
-                "symbol": t.symbol,
-                "direction": t.direction.value,
-                "offset": t.offset.value,
-                "price": t.price,
-                "volume": t.volume,
-                "datetime": t.datetime,
-            }
-            trade_dicts.append(d)
-
-        df_trades = pd.DataFrame(trade_dicts)
-
-        os.makedirs("data/results", exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        csv_path = f"data/results/trades_{timestamp}.csv"
-
-        df_trades.to_csv(csv_path, index=False)
-        print(f"📝 详细成交记录已保存至: {csv_path}")
+        # 导出成交明细
+        RESULTS_ROOT.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        parquet_path = RESULTS_ROOT / f"trades_{timestamp}.parquet"
+        save_trades(self.trades, parquet_path)
+        print(f"📝 详细成交记录已保存至: {parquet_path}")
         print("=" * 40 + "\n")
+
+    # --- 权益曲线 ---
+
+    def _record_equity(self, bar: BarData) -> None:
+        """记录本根收盘价下的账户权益与同期买入持有基准"""
+        self.equity.record(bar.datetime, self.gateway.equity_value(), bar.close_price)
+
+    def _save_equity_curve(self) -> None:
+        """落盘净值/基准/回撤三条序列"""
+        strategy_name = self.strategy.strategy_name if self.strategy else "UNKNOWN"
+        path = RESULTS_ROOT / (
+            f"{self.symbols[0].replace('/', '_')}_{strategy_name}_equity.csv"
+        )
+        self.equity.save(path)
 
     # --- [关键] 实现 StrategyContext 协议 ---
 
-    def send_order(self, req: OrderRequest, gateway_name: str) -> str:
+    def send_order(self, req: OrderRequest) -> str:
         """策略发送订单接口"""
         return self.gateway.send_order(req)
 
-    def cancel_order(self, orderid: str, gateway_name: str):
+    def cancel_order(self, orderid: str) -> None:
         """策略撤单接口"""
-        self.gateway.cancel_order(orderid, symbol="UNKNOWN")
+        self.gateway.cancel_order(orderid)
 
-    def write_log(self, msg: str, strategy_name: str):
+    def write_log(self, msg: str, strategy_name: str) -> None:
         """策略日志接口"""
         print(f"[{strategy_name}] {msg}")
 
-    def query_account(self):
+    def query_account(self) -> float:
         """查询资金"""
         return self.gateway.query_account()
 
-    def query_position(self):
+    def query_position(self) -> dict[str, PositionData]:
         """查询持仓"""
         return self.gateway.query_position()
 
-    def process_log(self, event: Event):
+    def process_log(self, event: Event) -> None:
         print(f"[ENGINE-LOG] {event.data}")

@@ -1,16 +1,27 @@
 from typing import Any, Optional, cast
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # 引入我们刚才写的 Domain
 from src.research.domains.base import MarketDomain
+from src.research.execution import (
+    FILL_COLUMNS,
+    ExecutionResult,
+    MakerPolicy,
+    execute_maker,
+)
 
 # 年化系数
-ANNUAL_DAYS = 365
+from src.analytics import metrics
+from src.analytics.metrics import (
+    annualize,
+    annualized_sharpe,
+    bars_per_year,
+    drawdown_series,
+)
 
 
 class BacktestEngine:
@@ -23,10 +34,36 @@ class BacktestEngine:
         domain: MarketDomain,  # 注入市场规则
         initial_capital: float = 10000.0,
         leverage: float = 1.0,
+        *,
+        maker: MakerPolicy | None = None,  # 传入则改用 maker 挂单执行
     ):
         self.domain = domain
         self.initial_capital = initial_capital
         self.leverage = leverage
+        self.maker = maker
+
+    def _resolve_fills(
+        self, df: pd.DataFrame, target_pos: pd.Series
+    ) -> ExecutionResult:
+        """把目标仓位解析成实际成交仓位、逐根成本与成交明细。
+
+        默认路径按 Domain 规则收取市价单成本；传入 ``maker`` 时改走
+        挂单执行（可能延迟成交或回退市价）。
+        """
+        if self.maker is None or not self.maker.enabled:
+            change = target_pos.diff().fillna(0)
+            notional = change.abs() * self.initial_capital * self.leverage
+            cost_obj = self.domain.calculate_cost(notional, change < 0)
+            return ExecutionResult(
+                pos=target_pos,
+                cost=cost_obj.total / self.initial_capital,
+                fills=pd.DataFrame(columns=pd.Index(FILL_COLUMNS)),
+            )
+
+        executed = execute_maker(df, target_pos, self.maker)
+        return ExecutionResult(
+            pos=executed.pos, cost=executed.cost * self.leverage, fills=executed.fills
+        )
 
     def run(self, df: pd.DataFrame) -> dict[str, Any]:
         """
@@ -49,10 +86,13 @@ class BacktestEngine:
 
         # 2. 计算持仓 (Position)
         # 信号产生的下一根K线生效
-        df["pos"] = df["signal"].shift(1).fillna(0)
+        target_pos = cast(pd.Series, df["signal"].shift(1).fillna(0))
 
         # 3. 计算持仓变化 (Trades)
         # 原始变化量 (用于判断方向)
+        executed = self._resolve_fills(df, target_pos)
+        df["pos"] = executed.pos
+        df["cost"] = executed.cost
         raw_pos_change = df["pos"].diff().fillna(0)
         df["pos_change"] = raw_pos_change.abs()
 
@@ -63,7 +103,7 @@ class BacktestEngine:
         # 策略收益 = 持仓 * 市场涨跌幅 * 杠杆倍数
         df["strategy_raw_ret"] = df["pos"] * df["pct_change"] * self.leverage
 
-        # 6. 计算交易成本 (Cost) - 委托 Domain 计算
+        # 6. 计算交易成本 (Cost)
         # ------------------------------------------------------------------
         # 6.1 计算成交名义金额 (Notional Value)
         # 简化模型：基于初始本金估算
@@ -73,11 +113,13 @@ class BacktestEngine:
         is_sell_mask = raw_pos_change < 0
 
         # 6.3 调用 Domain 获取费用详情 (绝对金额)
-        cost_obj = self.domain.calculate_cost(trade_notional, is_sell_mask)
+        # maker 路径已在 _resolve_fills 中算好逐根成本，此处仅保留名义金额
+        if self.maker is None or not self.maker.enabled:
+            cost_obj = self.domain.calculate_cost(trade_notional, is_sell_mask)
 
-        # 6.4 将绝对费用转换为收益率扣减
-        # Cost Rate = 总费用 / 初始本金
-        df["cost"] = cost_obj.total / self.initial_capital
+            # 6.4 将绝对费用转换为收益率扣减
+            # Cost Rate = 总费用 / 初始本金
+            df["cost"] = cost_obj.total / self.initial_capital
         # ------------------------------------------------------------------
 
         # 7. 计算净收益 (Net Return)
@@ -95,53 +137,30 @@ class BacktestEngine:
 
         df["benchmark_curve"] = (1 + df["pct_change"]).cumprod() * self.initial_capital
 
-        # 9. 计算回撤 (Drawdown)
-        df["peak"] = df["equity_curve"].cummax()
-        df["drawdown"] = np.where(
-            df["peak"] > 0,
-            (df["equity_curve"] - df["peak"]) / df["peak"],
-            -1.0,
-        )
-        df["drawdown"] = pd.Series(df["drawdown"], index=df.index)
+        # 9. 计算回撤（口径来自 src/analytics/metrics）
+        df["drawdown"] = drawdown_series(cast(pd.Series, df["equity_curve"]))
 
-        return self._calculate_metrics(df)
+        return self._calculate_metrics(df, executed.fills)
 
-    def _calculate_metrics(self, df: pd.DataFrame) -> dict[str, Any]:
-        """计算核心绩效指标"""
+    def _calculate_metrics(
+        self, df: pd.DataFrame, fills: pd.DataFrame
+    ) -> dict[str, Any]:
+        """计算核心绩效指标（口径统一来自 src/analytics/metrics）"""
+        net_ret = cast(pd.Series, df["net_ret"])
         total_ret = (df["equity_curve"].iloc[-1] / self.initial_capital) - 1
         bench_ret = (df["benchmark_curve"].iloc[-1] / self.initial_capital) - 1
 
-        days = (df.index[-1] - df.index[0]).days
-        if days <= 0:
-            days = 1
+        # 区间跨度用日历天，7×24 与有缺口的品种都按实际跨度折算
+        periods = (df.index[-1] - df.index[0]).days
+        if periods <= 0:
+            periods = 1
+        per_year = bars_per_year(df.index)
 
-        if total_ret <= -1:
-            annual_ret = -1.0
-        else:
-            annual_ret = (1 + total_ret) ** (ANNUAL_DAYS / days) - 1
-
-        max_drawdown = df["drawdown"].min()
-
-        bars_per_year = len(df) / (days / ANNUAL_DAYS)
-        volatility = df["net_ret"].std()
-
-        if volatility == 0:
-            sharpe_ratio = 0.0
-        else:
-            sharpe_ratio = (df["net_ret"].mean() / volatility) * np.sqrt(bars_per_year)
-
-        calmar_ratio = 0.0
-        if max_drawdown != 0:
-            calmar_ratio = annual_ret / abs(max_drawdown)
-
-        # 索提诺：下行偏差用 MAR=0 的标准定义（全样本取 min(r,0) 的均方根）
-        downside_gap = np.minimum(df["net_ret"].to_numpy(), 0.0)
-        downside_dev = float(np.sqrt((downside_gap**2).mean()))
-        sortino_ratio = 0.0
-        if downside_dev:
-            sortino_ratio = (df["net_ret"].mean() / downside_dev) * np.sqrt(
-                bars_per_year
-            )
+        annual_ret = annualize(total_ret, periods)
+        max_drawdown = float(df["drawdown"].min())
+        sharpe_ratio = annualized_sharpe(net_ret, per_year)
+        sortino_ratio = metrics.sortino_ratio(net_ret, per_year)
+        calmar_ratio = metrics.calmar_ratio(annual_ret, max_drawdown)
 
         # 交易质量：一个回合 = 一段连续的非零持仓
         pos = df["pos"]
@@ -171,6 +190,10 @@ class BacktestEngine:
             "profit_factor": gross_gain / gross_loss if gross_loss else 0.0,
             "avg_hold_bars": float(hold_bars.mean()) if len(hold_bars) else 0.0,
             "total_cost": float(df["cost"].sum() * self.initial_capital),
+            "fills": fills,
+            "maker_fill_rate": (
+                float((fills["fill"] == "maker").mean()) if len(fills) else None
+            ),
             "equity_curve": df["equity_curve"],
             "benchmark_curve": df["benchmark_curve"],
             "drawdown_curve": df["drawdown"],
