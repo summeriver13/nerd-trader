@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from src.config.paths import PROJECT_ROOT, STORAGE_ROOT
-from src.config.settings import GLOBAL_CONFIG
+from src.config.settings import create_exchange
 from src.utils.data_sources.crypto import CCXTSource
 from src.utils.data_sources.funding import create_funding_exchange
 
@@ -57,9 +57,7 @@ def _load_cached(symbol: str, timeframe: str, bars: int) -> pd.DataFrame:
 
 def check_same_source(cached: pd.DataFrame, symbol: str, timeframe: str) -> bool | None:
     """同源复抓：逐根比对 OHLCV，任何一格不同都要报出来。"""
-    exchange: Any = ccxt.okx(
-        GLOBAL_CONFIG.to_ccxt_config()  # pyright: ignore[reportArgumentType]
-    )
+    exchange: Any = create_exchange("okx")
     try:
         source = CCXTSource(exchange)
         start = cast(pd.Timestamp, cached.index[0]).to_pydatetime()

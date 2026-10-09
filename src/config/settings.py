@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+import ccxt
 from dotenv import load_dotenv
 
 # 加载 .env
@@ -52,3 +53,18 @@ def load_config() -> ExchangeConfig:
 
 # 全局配置单例
 GLOBAL_CONFIG = load_config()
+
+
+def create_exchange(exchange_id: str = "okx") -> Any:
+    """按配置构造 ccxt 客户端。
+
+    OKX 的模拟盘不换域名，靠 set_sandbox_mode 打 x-simulated-trading 头，
+    所以开关必须在这里生效——否则 OKX_SANDBOX=true 会被静默忽略、直接打实盘。
+
+    ccxt 基类把 fetch_* 声明成抛 NotImplementedError（返回 Never），
+    静态分析会把调用之后的代码全判成不可达，故返回 Any。
+    """
+    exchange: Any = getattr(ccxt, exchange_id)(GLOBAL_CONFIG.to_ccxt_config())
+    if GLOBAL_CONFIG.sandbox_mode:
+        exchange.set_sandbox_mode(True)
+    return exchange

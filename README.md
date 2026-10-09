@@ -27,9 +27,6 @@ uv run python research.py --symbol ETH/USDT --strategy rsrs --bars 730 --leverag
 `--strategy` 可填菜单序号 `1`-`4`，也可填别名 `dual-ma` / `trend-reversion` / `bollinger` / `rsrs`。
 每次回测都会把资金曲线图写到 `data/results/<SYMBOL>_<策略名>.png`，同时把净值/基准/回撤序列写成同名 `_equity.csv`（pi 扩展里的字符曲线读它），不需要额外确认。
 
-`research.py` 按提示选择标的、周期与策略（双均线 / 趋势+反转 / 布林带均值回归 / RSRS），
-结果直接打印收益率、最大回撤与夏普，可选出图存到 `data/results/`。
-
 行情来自 OKX（ccxt 公共接口），国内网络需先配代理：
 
 ```dotenv
@@ -39,7 +36,7 @@ OKX_PROXY_PORT=7890
 
 ## 环境变量
 
-`.env` 由 `config/settings.py` 读取（缺失时全部取默认值）。
+`.env` 由 `src/config/settings.py` 读取（缺失时全部取默认值）。
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -56,7 +53,9 @@ OKX_PROXY_PORT=7890
 | `uv run python research.py --robust --bars 2900 --segments 4` | 稳健性检验：全样本 + 一年滚动窗口分布 + 分段稳定性 + 多重检验校正（默认 BTC/ETH） |
 | `uv run python research.py --carry --symbol c1,c2,SOL/USDT` | 资金费率 carry 研究：做多现货 + 做空等额永续的毛收益与净收益（Binance 历史，`--carry-days` 控研究窗口） |
 | `uv run python research.py --symbol c1 --maker` | 用 maker 挂单执行替代市价单：挂单价与成交明细见下文「执行成本」 |
-| `uv run python run.py` | 事件驱动模拟盘 demo（离线，自动生成测试数据）：落 `trades_*.parquet` 与 `<标的>_<策略>_equity.csv`，净值按每根收盘价 mark-to-market，成交按 `src/core/costs.py` 的费率计费（限价单 maker、市价单 taker+滑点） |
+| `uv run python run.py` | 事件驱动模拟盘 demo（离线，自动生成测试数据）：落 `trades_*.parquet` 与 `<标的>_<策略>_equity.csv`，净值按每根收盘价 mark-to-market，成交按 `src/core/costs.py` 计费（**按是否吃价**：市价单与挂在市场同侧的限价单 taker+滑点，只有被动挂单才 maker） |
+| `uv run python scripts/crosscheck_crypto_bars.py --symbol BTC/USDT --bars 100` | 数据对账：同源复抓要求 OHLCV 逐根相等，跨源（Binance）只比差异分布 |
+| `uv run python scripts/reconcile_execution.py --market spot [--place-orders --side sell]` | 执行对账：拉回单逐笔比费率，可选在模拟盘下探针单（实盘拒绝） |
 
 回测类参数（`--robust` 与单次回测共用）：
 
@@ -68,7 +67,7 @@ OKX_PROXY_PORT=7890
 | `--vol-target` | 关闭 | 波动率目标仓位，只给开关则用 40%；把 0/1 信号缩放成 0~100% 暴露 |
 | `--vol-lookback` / `--vol-rebalance` | 30 / 7 | 波动率回看根数与调仓间隔（控制换手成本） |
 | `--maker` | 关闭 | 用 maker 挂单执行替代市价单（详见「执行成本」） |
-| `--maker-patience` | 1 | 挂单耐心根数，超时回退市价（默认挂在市价、当根即成，用不到等待）；单独给出会报错 |
+| `--maker-patience` | 1 | 挂单耐心根数，超时回退市价（默认挂市价外 1bp，需等 1 根） |
 | `--carry-days` | 2900 | `--carry` 的研究窗口（日历天，资金费率历史），与 `--bars` 无关；窗口外数据不参与统计 |
 
 ## 稳健性检验
@@ -86,24 +85,44 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 
 ## 执行成本
 
-`--maker` 把下单从市价单换成挂单，实现在 `src/research/execution.py`。默认挂在市价
-（`offset=0`）：成交价与市价单相同，只把费率从 taker 5bp + 滑点 5bp 换成 maker 2bp，
-**仓位序列与市价单逐根一致、不引入任何延迟**，因此不改变策略的择时行为。
+费率只有一个出处：`src/core/costs.py`，现货与永续分开（`SPOT_FEES` / `PERP_FEES`），且
+**按「这笔有没有吃价」判定而不是按订单类型**：市价单、以及挂在市场同侧的限价单
+（买单 ≥ 卖一）都算吃价，按 taker + 滑点计；只有挂到市价之外、被 `low`/`high` 触及的
+挂单才算被动成交，按 maker 计。
 
-挂单价差与成交率来自 1m 数据实测（BTCUSDT 12.9 万根）：
+`--maker` 把下单从市价单换成挂单，实现在 `src/research/execution.py`。默认挂在市价外
+1bp（`offset=1bp`、耐心 1 根）——**挂在市价（`offset=0`）当根就以市价成交，本质是吃价、
+必须按 taker 计费**，拿 maker 费率是错误口径。
 
-| 挂单价差 | 成交率 | 相对市价单优势 | t 值 | 成交后价格漂移 |
+挂单价差与触价率来自 1m 数据实测（BTCUSDT 12.9 万根）：
+
+| 挂单价差 | 触价率 | 净优势 | 说明 |
+| --- | --- | --- | --- |
+| 0bp（挂在市价） | 100% | 0（按 taker） | 当根即成，拿不到 maker 费率 |
+| **1bp（默认）** | 86.6% | **约 +6.1bp/边** | 已扣掉挂不上时回退市价的成本 |
+| 5bp | 61.9% | +4.6bp/边 | 挂不上比例更高 |
+
+**maker 与市价不是「同样交易只换费率」**：挂单要等一根才生效，仓位生效时点不同，所以
+结果永远打印 maker − market 差额。实测布林带均值回归 `--bars 200`（4 笔交易）：maker
+5.13% 对市价 5.24%，即 −0.10%——费率上限只值 +0.36%（4 笔 × 0.09%/边），延迟一根入场
+就把它吃掉了。另一面是择时偏差：跨 139 标的 × 4 策略，挂 1bp 的仓位偏离标准差 25–37pp
+（突破型 RSRS 净效应 −13.82pp），挂在市价则偏离为 0、代价是全额 taker。急涨（前 15 根
+> +50bp）时挂单会被吃穿，此时买单按吃价计。
+
+### 对账：模型 vs 交易所真实回单
+
+`scripts/reconcile_execution.py` 在 OKX 模拟盘下三笔最小单，把回单费率与模型逐笔比对
+（判据：单边误差 < 1bp）：
+
+| 探针单 | OKX 标记 | 实际 | 模型 | 差 |
 | --- | --- | --- | --- | --- |
-| **0bp（挂在市价，默认）** | 99.6% | **+7.9bp** | 269 | +0.2bp |
-| 1bp | 86.6% | +6.1bp | 62 | −0.6bp |
-| 5bp | 61.9% | +4.6bp | 30 | −0.2bp |
+| 市价卖 | taker | 10.000bp | 10.000bp | +0.000 |
+| 限价卖@买一（挂在市场同侧） | taker | 10.000bp | 10.000bp | +0.000 |
+| 限价卖@卖一外 1bp（被动） | maker | 8.000bp | 8.000bp | −0.000 |
 
-**挂在市价严格优于挂低价**：挂 −1bp 虽多拿 1bp 价格改善，却让 13.4% 的订单挂不上、
-只能回退市价买在更差的位置。跨 139 标的 × 4 策略的检验里，挂低价的择时偏差标准差
-达 25–37pp（突破型策略 RSRS 净效应 −13.82pp，t=−2.3），而挂在市价的仓位偏离为 0、
-纯成本效应 +12.17pp（t=6.5，98% 的样本为正）。
-
-例外：急涨（前 15 根 > +50bp）时挂低价会被吃穿、优势归零，此时买单改挂当前价。
+滑点：市价单实测 +0.01bp（$20 名义额）而模型常数是 5bp，**对小单偏保守**；真实滑点与
+规模相关，那个常数应读作「按打算下的规模」。`--place-orders` 只在 `OKX_SANDBOX=true`
+时允许，实盘直接拒绝。
 
 ## 绩效指标
 
@@ -124,20 +143,24 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 
 - 缓存路径：`data/storage/crypto/<exchange_id>/<timeframe>/<SYMBOL>.parquet`，`data/` 不入版本库。
 - 研究/回测产物：数值表格一律落 parquet（`compression="snappy"`），不写 CSV；唯一例外是 `data/results/<策略>_equity.csv`，它是 pi 扩展字符曲线的数据源（零依赖 TS 解析）。
+- 复现指纹：每次成功运行写 `data/results/provenance/<run_id>.json`，`repro_hash` = sha256(配置快照 + 数据指纹 + git HEAD/脏标记)，同一命令必得同一 hash（`src/research/provenance.py`）。
 - 资金费率缓存：`data/storage/crypto/binance/8h/<SYMBOL>.parquet`（OKX 只保留约 100 天，长历史取 Binance，回溯至 2019-09）。
 - 数据源：ccxt，交易所实例由调用方注入（行情为 OKX，资金费率为 Binance 公共接口）。
 
 ## 目录结构
 
 ```text
-config/            环境配置读取、实盘参数表
-research.py        交互式研究回测入口
-run.py             事件驱动模拟盘 demo
-src/core/          事件引擎、数据类型、BarGenerator/ArrayManager
-src/research/      向量化回测：engine、domains（市场规则）、strategies、robustness、overfitting、position_sizing、carry、execution（maker 挂单执行）
+data/              数据湖（不入版本库）：storage/ 行情与资金费率缓存、results/ 回测产物与复现指纹
+scripts/           数据与执行对账：manifest 生成、行情交叉校验、成本/滑点对账
+src/analytics/     绩效指标（单一出处）
+src/cli/           研究回测的命令行与交互菜单
+src/config/        环境配置读取、路径常量、实盘参数表
+src/core/          事件引擎、数据类型、BarGenerator/ArrayManager、成本模型
+src/research/      向量化回测：engine、domains（市场规则）、strategies、robustness、overfitting、position_sizing、carry、execution（maker 挂单执行）、provenance（复现指纹）
 src/simulation/    事件驱动：engine、mock_gateway、replay_loader
 src/strategies/    事件驱动策略（dual_ma）
 src/utils/         数据调度与数据源
+run.py / research.py  两个薄壳入口（逻辑在 src/cli/ 与 src/simulation/）
 docs/              因子/模型/书目/交易者笔记
 ```
 

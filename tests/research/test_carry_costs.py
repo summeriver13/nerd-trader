@@ -46,8 +46,8 @@ def test_daily_funding_counts_gaps_instead_of_filling_zero() -> None:
     """缺日要能被数出来（修复前 resample 默认补 0，缺日会静默稀释年化）。"""
     funding = _funding(10)
     gap = pd.to_datetime(["2024-01-03", "2024-01-04"], utc=True)
-    funding = funding[~funding.index.to_series().dt.normalize().isin(gap)]
-    daily, missing = daily_funding(funding)
+    keep = ~funding.index.to_series().dt.normalize().isin(gap)
+    daily, missing = daily_funding(funding.loc[keep])
     assert missing == 2
     assert (daily.loc["2024-01-03":"2024-01-04"] == 0.0).all()
 
@@ -55,7 +55,7 @@ def test_daily_funding_counts_gaps_instead_of_filling_zero() -> None:
 def test_daily_funding_drops_incomplete_last_day() -> None:
     """最后一天只结算了 1 次（常态 3 次）视为不完整，剔除。"""
     funding = _funding(5)
-    funding = funding[funding.index < pd.Timestamp("2024-01-06", tz="UTC")]
+    funding = funding.loc[funding.index < pd.Timestamp("2024-01-06", tz="UTC")]
     daily, _ = daily_funding(funding)
     assert len(daily) == 5  # 第 6 天被剔除
     assert str(daily.index[-1])[:10] == "2024-01-05"
