@@ -17,11 +17,38 @@ dependencies = [
     "plotly>=6.5.0,<7",
 ]
 
-[tool.uv]
-package = false
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 # PyPI 官方源在国内经常超时，默认走清华镜像；如需官方源，改用 --default-index
 [[tool.uv.index]]
 name = "tuna"
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.40.2",
+    "pytest>=9.1.1",
+]
+
+[tool.pyright]
+# pandas/numpy/ccxt 的 DataFrame 表面无类型信息，unknown/Any 家族一律关掉（它们只会淹没真问题）
+typeCheckingMode = "standard"
+reportUnknownMemberType = "none"
+reportUnknownVariableType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownParameterType = "none"
+reportUnknownLambdaType = "none"
+reportMissingParameterType = "none"
+reportAny = "none"
+reportImplicitOverride = "none"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# 弃用警告直接失败：numpy/pandas 的 timedelta 单位弃用就是这么被抓到的
+filterwarnings = ["error"]
