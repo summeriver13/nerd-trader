@@ -27,13 +27,13 @@ def _funding(days: int, rate: float = 0.0001) -> pd.Series:
 
 
 def test_cost_drag_amortizes_round_trip() -> None:
-    """一次性进出按持有年数摊薄：7 年持有期下 0.2% 只剩 0.019%/年。"""
+    """一次性进出按持有年数摊薄：7 年持有期下 0.3%（双腿 taker）只剩 0.029%/年。"""
     amortized, rebalance = cost_drag(holding_years=7.0, turnover=TURNOVER_SHARE)
     assert amortized == pytest.approx(ROUND_TRIP_COST / CAPITAL_MULTIPLE / 7.0)
-    assert amortized == pytest.approx(0.00019, abs=1e-5)
-    # 再平衡按换手率：12 × 0.2% × 5% / 1.5 = 0.08%/年，而不是全名义的 2.4%
+    assert amortized == pytest.approx(0.000286, abs=1e-5)
+    # 再平衡按换手率：12 × 0.3% × 5% / 1.5 = 0.12%/年，而不是全名义的 3.6%
     assert rebalance == pytest.approx(12 * ROUND_TRIP_COST * 0.05 / CAPITAL_MULTIPLE)
-    assert rebalance == pytest.approx(0.0008, abs=1e-5)
+    assert rebalance == pytest.approx(0.0012, abs=1e-5)
 
 
 def test_cost_drag_short_holding_does_not_explode() -> None:

@@ -20,13 +20,13 @@ import numpy as np
 import pandas as pd
 
 from src.analytics.metrics import ANNUAL_DAYS, annualize, total_return
+from src.core.costs import PERP_TAKER_FEE, SPOT_TAKER_FEE
 from src.utils.console import pad
-from src.utils.data_sources.funding import FundingSource
+from src.utils.data_sources.funding import FundingSource, daily_rates
 
 ROLLING_DAYS = 30
-SPOT_FEE = 0.0005
-PERP_FEE = 0.0005
-ROUND_TRIP_COST = 2 * (SPOT_FEE + PERP_FEE)  # 建仓 + 平仓，双腿各一次（名义口径）
+# 双腿（现货 + 永续）× 建仓/平仓，各一次 taker；现货 taker 0.10% 高于永续 0.05%
+ROUND_TRIP_COST = 2 * (SPOT_TAKER_FEE + PERP_TAKER_FEE)
 REBALANCE_PER_YEAR = 12
 TURNOVER_SHARE = 0.05  # 每次再平衡调掉的名义占比（现货与永续之间的漂移量）
 TURNOVER_SHARE_STRESS = 0.20  # 敏感性：漂移放大到 20%
@@ -75,7 +75,25 @@ class CarryReport:
     rolling_worst: float
     rolling_best: float
     rolling_dropped: int
+    cumulative_p5: float
+    cumulative_worst: float
+    negative_share: float
     years: list[YearStats]
+
+    @property
+    def rolling_p5_capital(self) -> float:
+        """滚动 P5 折到资本口径（滚动统计本身是现货名义口径）。"""
+        return self.rolling_p5 / CAPITAL_MULTIPLE
+
+    @property
+    def cumulative_p5_capital(self) -> float:
+        """30 天累计 P5 折到资本口径。"""
+        return self.cumulative_p5 / CAPITAL_MULTIPLE
+
+    @property
+    def cumulative_worst_capital(self) -> float:
+        """30 天累计最差折到资本口径。"""
+        return self.cumulative_worst / CAPITAL_MULTIPLE
 
     @property
     def holding_years(self) -> float:
@@ -88,7 +106,7 @@ def daily_funding(funding: pd.Series) -> tuple[pd.Series, int]:
     缺日不再静默补 0：resample 用 min_count=1 产出 NaN 并计数，缺日多则年化不可信。
     最后一天通常还没结算完，按整日计入会失真，若结算次数少于常态则剔除。
     """
-    daily = cast(pd.Series, funding.resample("1D").sum(min_count=1))
+    daily = daily_rates(funding)
     # pandas-stubs 未声明 Index.normalize，走 .dt 访问器（按自然日归组）
     counts = funding.groupby(funding.index.to_series().dt.normalize()).size()
     if len(counts) > 1 and int(counts.iloc[-1]) < float(counts.median()):
@@ -97,11 +115,16 @@ def daily_funding(funding: pd.Series) -> tuple[pd.Series, int]:
     return cast(pd.Series, daily.fillna(0.0)), missing
 
 
+def rolling_cumulative(daily: pd.Series, window: int = ROLLING_DAYS) -> pd.Series:
+    """滚动 window 天的累计收益（不年化，现货名义口径）。"""
+    return cast(pd.Series, daily.rolling(window).sum()).dropna()
+
+
 def rolling_annual(
     daily: pd.Series, window: int = ROLLING_DAYS
 ) -> tuple[pd.Series, int]:
     """滚动 window 天的复利年化（外推值），返回（序列, 亏光被剔除的窗口数）。"""
-    cumulative = cast(pd.Series, daily.rolling(window).sum()).dropna()
+    cumulative = rolling_cumulative(daily, window)
     dropped = int((cumulative <= -1).sum())
     kept = cumulative[cumulative > -1]
     return cast(pd.Series, (1 + kept) ** (ANNUAL_DAYS / window) - 1), dropped
@@ -153,6 +176,7 @@ def build_carry_report(symbol: str, funding: pd.Series) -> CarryReport:
     """把资金费率序列整理成 carry 报告（含持有期成本与资本占用折算）。"""
     daily, missing = daily_funding(funding)
     rolling, dropped = rolling_annual(daily)
+    cumulative = rolling_cumulative(daily)
     gross = annualize(total_return(daily), len(daily))
     adjusted = gross / CAPITAL_MULTIPLE
     holding = len(daily) / ANNUAL_DAYS
@@ -178,6 +202,9 @@ def build_carry_report(symbol: str, funding: pd.Series) -> CarryReport:
         rolling_worst=float(rolling.min()) if rolling.size else 0.0,
         rolling_best=float(rolling.max()) if rolling.size else 0.0,
         rolling_dropped=dropped,
+        cumulative_p5=float(np.percentile(cumulative, 5)) if cumulative.size else 0.0,
+        cumulative_worst=float(cumulative.min()) if cumulative.size else 0.0,
+        negative_share=float((cumulative < 0).mean()) if cumulative.size else 0.0,
         years=yearly_stats(funding, daily, rolling),
     )
 
@@ -218,9 +245,14 @@ def print_carry_report(report: CarryReport) -> None:
     print("=" * 118)
     _print_cost_lines(report)
     print(
-        f"{ROLLING_DAYS} 天滚动年化（外推）: 中位 {report.rolling_median:.2%}"
+        f"{ROLLING_DAYS} 天滚动年化（外推，现货名义）: 中位 {report.rolling_median:.2%}"
         f" | P5 {report.rolling_p5:.2%} | 最差 {report.rolling_worst:.2%}"
         f" | 最好 {report.rolling_best:.2%}"
+    )
+    print(
+        f"{ROLLING_DAYS} 天累计（不年化）  : P5 {report.cumulative_p5:+.2%} 名义 / "
+        f"{report.cumulative_p5_capital:+.2%} 资本 | 最差 {report.cumulative_worst:+.2%} 名义 / "
+        f"{report.cumulative_worst_capital:+.2%} 资本 | 负窗口 {report.negative_share:.1%}"
     )
     if report.rolling_dropped:
         print(
@@ -232,9 +264,10 @@ def print_carry_report(report: CarryReport) -> None:
             f"（{report.missing_days / report.days:.1%}），按 0% 补齐参与年化，结论仅供参考"
         )
     print(
-        f"\n📌 净年化 {report.net_annual:.2%}，但 30 天滚动 P5 {report.rolling_p5:.2%}"
-        f"、最差 {report.rolling_worst:.2%}：长期为正、短期可负，"
-        f"仓位应按 P5 而不是中位来定。"
+        f"\n📌 窗口净年化 {report.net_annual:.2%}，但 {report.negative_share:.1%} 的 "
+        f"{ROLLING_DAYS} 天窗口为负（累计 P5 {report.cumulative_p5_capital:+.2%} 资本、"
+        f"最差 {report.cumulative_worst_capital:+.2%} 资本）：仓位由「能承受多大逆向波动而不被追保」"
+        f"决定，不由费率的 P5 决定。"
     )
 
     print(f"\n逐年（{len(report.years)} 年，* = 不完整年，年化是外推值）")
@@ -283,7 +316,9 @@ def run_carry(symbols: list[str], days: int) -> bool:
             continue
         print_carry_report(build_carry_report(symbol, cast(pd.Series, frame["rate"])))
     print(
-        "\n注：执行需要在同一账户同时持有现货多头与永续空头"
+        "\n注：费率历史取 Binance 8h 结算（长历史唯一可用源，OKX 只保留约 100 天），"
+        "执行按 OKX 永续——「费率水平取 Binance、执行按 OKX」是跨源代理假设。\n"
+        "    执行需要在同一账户同时持有现货多头与永续空头"
         "（OKX AU 需通过衍生品资格评估，零售杠杆上限 2x）。"
     )
     return ok

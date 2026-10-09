@@ -2,19 +2,19 @@
 
 实测依据（1m OHLC 上 12.9 万根 BTCUSDT，见 data/results 的 maker 研究）：
 
-- 挂在市价（offset=0）：成交率 99.6%，相对市价单省 7.9bp（t=269），
-  成交后价格漂移 +0.2bp（逆向选择可忽略）
-- 挂在市价下方 1bp：成交率降到 86.6%，优势反降到 6.1bp——挂不上的那
-  13.4% 只能回退市价、买在更差的位置，等价格回来是负收益
-- 急涨（前 15 根 > +50bp）：挂低价会被吃穿，优势归零
+- 挂在市价（offset=0）：触价率 99.6%，但这是**吃价成交**——成交价就是市价，
+  费率必须按 taker 计，没有任何节省；此前按 maker 计费是白捡 7.9bp/边。
+- 挂在市价下方 1bp：触价率降到 86.6%，被动成交按 maker 计费、买价还低 1bp，
+  含「挂不上回退市价」的成本后净优势约 6.1bp/边。
+- 急涨（前 15 根 > +50bp）：挂低价会被吃穿，改挂当前价 = 追单，按 taker 计。
 
-故默认 ``offset=0``：挂在市价拿满手续费与滑点节省，且不承担等待风险。
+故默认 ``offset=1bp``：只有真正被动成交的那部分才拿 maker 费率。
 
 本模块把「目标仓位序列」转成「实际成交仓位序列 + 逐根成本」，供向量化
 回测使用；实盘下单可复用同一套挂单规则（挂单价、耐心、未成交回退）。
 
 时序约定：``target_pos[t]`` 是 bar t 的目标仓位，挂单以 ``close[t]`` 为
-参考价建立。挂在市价的订单当根即成（被动成交，拿 maker 费率）；挂在市价
+参考价建立。挂在市价（含急涨追单）的订单当根即成，按 taker 计费；挂在市价
 下方的订单从 bar t+1 起用 low/high 判断是否被触及——同一根 K 线的 ``low``
 发生在 ``close`` 之前，用它验证基于该根 ``close`` 的挂单会引入前视偏差。
 """
@@ -24,18 +24,18 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from src.core.costs import PERP_FEES, FeeSchedule
+
 FILL_COLUMNS = ("bar", "side", "fill", "price", "ref", "delta", "cost")
 
 
 @dataclass(frozen=True)
 class MakerPolicy:
-    """maker 挂单执行参数。"""
+    """maker 挂单执行参数（费率口径见 src/core/costs.py，默认永续）。"""
 
     enabled: bool = True
-    maker_fee: float = 0.0002  # maker 手续费（OKX 永续 VIP0）
-    taker_fee: float = 0.0005  # taker 手续费
-    slippage: float = 0.0005  # 市价单滑点
-    offset: float = 0.0  # 挂单价差：0 = 挂在市价当根即成，>0 = 等价格回落
+    fees: FeeSchedule = PERP_FEES
+    offset: float = 0.0001  # 挂单价差：0 = 挂在市价（吃价成交），>0 = 等价格回落
     patience: int = 1  # 挂单耐心（根），超时回退市价
     spike_lookback: int = 15  # 急涨判定的回看根数
     spike_threshold: float = 0.005  # 急涨阈值（前 N 根收益 > 0.5%）
@@ -43,12 +43,12 @@ class MakerPolicy:
     @property
     def maker_net_cost(self) -> float:
         """maker 成交的单边净成本：手续费减去挂单价差带来的价格改善。"""
-        return self.maker_fee - self.offset
+        return self.fees.maker_net(self.offset)
 
     @property
     def taker_net_cost(self) -> float:
         """市价成交的单边净成本：手续费加滑点。"""
-        return self.taker_fee + self.slippage
+        return self.fees.taker_net()
 
 
 @dataclass(frozen=True)
@@ -64,7 +64,7 @@ class PendingOrder:
 
     @property
     def at_market(self) -> bool:
-        """挂在市价（无价差）：当根即成，不承担等待风险。"""
+        """挂在市价（无价差）：当根即成，但属于吃价成交，按 taker 计费。"""
         return self.limit == self.ref
 
 
@@ -122,12 +122,15 @@ def _resolve_pending(
     policy: MakerPolicy,
 ) -> _Fill | None:
     """在途挂单在 bar 内的结局：成交、超时回退市价，或继续等待。"""
-    maker = _Fill("maker", order.limit, policy.maker_net_cost)
     if bar == order.bar:
-        return maker if order.at_market else None
+        # 挂在市价 / 急涨追单：当根即成，但吃的是对手价，按 taker 计费
+        if not order.at_market:
+            return None
+        return _Fill("taker", order.limit, policy.taker_net_cost)
     touched = low <= order.limit if order.is_buy else high >= order.limit
     if touched:
-        return maker
+        # 被本根 low/high 触及：被动成交，按 maker 计费
+        return _Fill("maker", order.limit, policy.maker_net_cost)
     if bar >= order.deadline:
         return _Fill("taker", close, policy.taker_net_cost)
     return None
@@ -139,8 +142,9 @@ def execute_maker(
     """按 maker 挂单规则把目标仓位转成实际成交仓位与成本。
 
     ``target_pos[t]`` 是 bar t 的目标仓位；挂单以 ``close[t]`` 为参考价建立，
-    挂在市价的当根即成，挂在市价下方的从 bar t+1 起等 ``patience`` 根，
-    超时回退市价。目标在等待期间变化时撤单重挂。
+    挂在市价（含急涨追单）的当根即成且按 taker 计费，挂在市价外的从 bar t+1
+    起等 ``patience`` 根、被 low/high 触及才被动成交，超时回退市价。
+    目标在等待期间变化时撤单重挂。
     """
     close = df["close"].to_numpy(dtype=float)
     high = df["high"].to_numpy(dtype=float)

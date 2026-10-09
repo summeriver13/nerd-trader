@@ -1,18 +1,10 @@
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-
-# 引入我们刚才写的 Domain
-from src.research.domains.base import MarketDomain
-from src.research.execution import (
-    FILL_COLUMNS,
-    ExecutionResult,
-    MakerPolicy,
-    execute_maker,
-)
 
 # 年化系数
 from src.analytics import metrics
@@ -21,6 +13,15 @@ from src.analytics.metrics import (
     annualized_sharpe,
     bars_per_year,
     drawdown_series,
+)
+
+# 引入我们刚才写的 Domain
+from src.research.domains.base import MarketDomain
+from src.research.execution import (
+    FILL_COLUMNS,
+    ExecutionResult,
+    MakerPolicy,
+    execute_maker,
 )
 
 
@@ -36,11 +37,25 @@ class BacktestEngine:
         leverage: float = 1.0,
         *,
         maker: MakerPolicy | None = None,  # 传入则改用 maker 挂单执行
+        funding: pd.Series | None = None,  # 按日资金费率（正 = 多头付钱）
     ):
         self.domain = domain
         self.initial_capital = initial_capital
         self.leverage = leverage
         self.maker = maker
+        self.funding = funding
+
+    def _funding_cost(self, index: pd.Index, pos: pd.Series) -> pd.Series:
+        """永续资金费率：多头付正费率、空头收正费率，按持仓名义×杠杆计。
+
+        逐次结算已按日汇总，同一天内的每根 K 线分摊同一个日费率；
+        缓存没覆盖到的日子按 0 计，覆盖情况由取数侧打印，不在这里静默。
+        """
+        if self.funding is None:
+            return pd.Series(0.0, index=index)
+        days = pd.DatetimeIndex(pd.DatetimeIndex(index).to_series().dt.normalize())
+        rate = np.nan_to_num(self.funding.reindex(days).to_numpy(dtype=float), nan=0.0)
+        return pd.Series(pos.to_numpy(dtype=float) * rate * self.leverage, index=index)
 
     def _resolve_fills(
         self, df: pd.DataFrame, target_pos: pd.Series
@@ -122,8 +137,9 @@ class BacktestEngine:
             df["cost"] = cost_obj.total / self.initial_capital
         # ------------------------------------------------------------------
 
-        # 7. 计算净收益 (Net Return)
-        df["net_ret"] = df["strategy_raw_ret"] - df["cost"]
+        # 7. 计算净收益 (Net Return) = 策略毛收益 − 交易成本 − 资金费率
+        df["funding_cost"] = self._funding_cost(df.index, cast(pd.Series, df["pos"]))
+        df["net_ret"] = df["strategy_raw_ret"] - df["cost"] - df["funding_cost"]
 
         # 8. 计算资金曲线 (Equity Curve)
         df["equity_curve"] = (1 + df["net_ret"]).cumprod() * self.initial_capital
@@ -176,6 +192,11 @@ class BacktestEngine:
         gross_gain = float(trade_ret[trade_ret > 0].sum())
         gross_loss = abs(float(trade_ret[trade_ret < 0].sum()))
 
+        # 资金费率：未注入时不报这个数（而不是报 0，免得被读成「已计入」）
+        funding_total = (
+            float(df["funding_cost"].sum()) if self.funding is not None else None
+        )
+
         return {
             "total_ret": total_ret,
             "bench_ret": bench_ret,
@@ -190,6 +211,10 @@ class BacktestEngine:
             "profit_factor": gross_gain / gross_loss if gross_loss else 0.0,
             "avg_hold_bars": float(hold_bars.mean()) if len(hold_bars) else 0.0,
             "total_cost": float(df["cost"].sum() * self.initial_capital),
+            "total_funding": funding_total,
+            "funding_annual": (
+                annualize(funding_total, periods) if funding_total is not None else None
+            ),
             "fills": fills,
             "maker_fill_rate": (
                 float((fills["fill"] == "maker").mean()) if len(fills) else None
@@ -202,9 +227,9 @@ class BacktestEngine:
 
     def plot(
         self,
-        result: dict,
+        result: dict[str, Any],
         title: str = "Backtest Result",
-        save_path: Optional[str] = None,
+        save_path: str | None = None,
     ):
         """绘制 Matplotlib 静态图"""
         equity = result["equity_curve"]
@@ -263,9 +288,9 @@ class BacktestEngine:
 
     def plot_interactive(
         self,
-        result: dict,
+        result: dict[str, Any],
         title: str = "Backtest Result",
-        save_path: Optional[str] = None,
+        save_path: str | None = None,
     ):
         """生成 Plotly 交互式图表"""
         df = result["df"]
@@ -288,7 +313,7 @@ class BacktestEngine:
                 x=df.index,
                 y=equity,
                 name=f"Strategy Equity ({self.leverage}x)",
-                line=dict(color="#ffa726", width=2),
+                line={"color": "#ffa726", "width": 2},
             ),
             row=1,
             col=1,
@@ -298,7 +323,7 @@ class BacktestEngine:
                 x=df.index,
                 y=benchmark,
                 name="Benchmark (1x)",
-                line=dict(color="gray", dash="dot"),
+                line={"color": "gray", "dash": "dot"},
             ),
             row=1,
             col=1,
@@ -310,7 +335,7 @@ class BacktestEngine:
                 x=df.index,
                 y=df["close"],
                 name="Price",
-                line=dict(color="#29b6f6", width=1),
+                line={"color": "#29b6f6", "width": 1},
                 opacity=0.5,
             ),
             row=2,
@@ -322,7 +347,7 @@ class BacktestEngine:
                     x=df.index,
                     y=df["MA_Fast"],
                     name="MA Fast",
-                    line=dict(color="#ef5350", width=1),
+                    line={"color": "#ef5350", "width": 1},
                 ),
                 row=2,
                 col=1,
@@ -333,7 +358,7 @@ class BacktestEngine:
                     x=df.index,
                     y=df["MA_Slow"],
                     name="MA Slow",
-                    line=dict(color="#66bb6a", width=1),
+                    line={"color": "#66bb6a", "width": 1},
                 ),
                 row=2,
                 col=1,
@@ -346,7 +371,7 @@ class BacktestEngine:
                 y=drawdown,
                 name="Drawdown",
                 fill="tozeroy",
-                line=dict(color="#ef5350", width=1),
+                line={"color": "#ef5350", "width": 1},
             ),
             row=3,
             col=1,

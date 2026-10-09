@@ -20,7 +20,7 @@ DATA_FILE = CACHE_ROOT / f"{SYMBOL.replace('-', '_')}_1m_test.parquet"
 INITIAL_CAPITAL = 1_000_000.0
 SEED = 42
 
-# 演示仓位：1000 份约 10 万名义额（初始资金的 10%），1 倍杠杆、不含手续费。
+# 演示仓位：1000 份约 10 万名义额（初始资金的 10%），1 倍杠杆，成本按 src/core/costs.py 的费率计。
 # 不是有依据的仓位选择——1 份的收益/回撤会被本金摊成 0.00%，看不出 demo 在做什么。
 FIXED_SIZE = 1000.0
 FAST_WINDOW = 10

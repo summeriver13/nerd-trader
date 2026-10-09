@@ -39,9 +39,18 @@ def create_funding_exchange() -> ccxt.Exchange:
     if GLOBAL_CONFIG.use_proxy and GLOBAL_CONFIG.proxy_url:
         proxy = GLOBAL_CONFIG.proxy_url
         config["proxies"] = {"http": proxy, "https": proxy}
-    exchange = ccxt.binance(config)  # type: ignore
+    # ccxt 的 ConstructorConfig 比文档里的 dict 严格，配置本身就是任意字典
+    exchange = ccxt.binance(config)  # pyright: ignore[reportArgumentType]
     exchange.load_markets()
     return exchange
+
+
+def daily_rates(rates: pd.Series) -> pd.Series:
+    """把逐次结算的资金费率按日求和（结算间隔由交易所决定，不能假设恒为 8h）。
+
+    缺日产出 NaN 而不是 0：把没结算的日子当成「费率为 0」会低估拖累。
+    """
+    return cast(pd.Series, rates.resample("1D").sum(min_count=1))
 
 
 class FundingSource:
@@ -57,8 +66,12 @@ class FundingSource:
         self.data_root = data_root if data_root is not None else STORAGE_ROOT
 
     @property
-    def exchange(self) -> ccxt.Exchange:
-        """按需构造（load_markets 需要联网，不能让读缓存也依赖网络）"""
+    def exchange(self) -> Any:
+        """按需构造（load_markets 需要联网，不能让读缓存也依赖网络）。
+
+        ccxt 基类把 fetch_* 声明成抛 NotImplementedError（返回 Never），
+        静态分析会把调用之后的代码全判成不可达，故按 Any 处理。
+        """
         if self._exchange is None:
             self._exchange = create_funding_exchange()
         return self._exchange

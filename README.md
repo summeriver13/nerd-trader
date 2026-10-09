@@ -56,7 +56,7 @@ OKX_PROXY_PORT=7890
 | `uv run python research.py --robust --bars 2900 --segments 4` | 稳健性检验：全样本 + 一年滚动窗口分布 + 分段稳定性 + 多重检验校正（默认 BTC/ETH） |
 | `uv run python research.py --carry --symbol c1,c2,SOL/USDT` | 资金费率 carry 研究：做多现货 + 做空等额永续的毛收益与净收益（Binance 历史，`--carry-days` 控研究窗口） |
 | `uv run python research.py --symbol c1 --maker` | 用 maker 挂单执行替代市价单：挂单价与成交明细见下文「执行成本」 |
-| `uv run python run.py` | 事件驱动模拟盘 demo（离线，自动生成测试数据）：落 `trades_*.parquet` 与 `<标的>_<策略>_equity.csv`，净值按每根收盘价 mark-to-market |
+| `uv run python run.py` | 事件驱动模拟盘 demo（离线，自动生成测试数据）：落 `trades_*.parquet` 与 `<标的>_<策略>_equity.csv`，净值按每根收盘价 mark-to-market，成交按 `src/core/costs.py` 的费率计费（限价单 maker、市价单 taker+滑点） |
 
 回测类参数（`--robust` 与单次回测共用）：
 
