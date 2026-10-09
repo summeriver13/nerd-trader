@@ -38,6 +38,11 @@ class RSRSTrendStrategy(BaseStrategy):
         self.stop_loss_mult = stop_loss_mult
         self.effective_max_lev = min(max_leverage, self.max_leverage)
 
+    @property
+    def warmup_bars(self) -> int:
+        """RSRS 斜率是双层滚动（n 根上再 m 根），两层相加"""
+        return self.rsrs_m + self.rsrs_n
+
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         利用向量化计算 RSRS 指标。

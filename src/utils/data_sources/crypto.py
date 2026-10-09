@@ -1,6 +1,7 @@
 # src/utils/data_sources/crypto.py
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime
 from typing import cast
@@ -10,6 +11,8 @@ import pandas as pd
 
 from .base import BaseDataSource
 
+logger = logging.getLogger(__name__)
+
 
 class CCXTSource(BaseDataSource):
     # 连续失败上限：数据源持续不可用时快速失败，不要无限重试把调用方挂死
@@ -18,11 +21,14 @@ class CCXTSource(BaseDataSource):
     PAGE_LIMIT: int = 100
     # 起点定位的最少试探次数与总时间预算（越界请求既慢又不稳定）
     PROBE_STEPS: int = 8
-    PROBE_ATTEMPTS: int = 1
     PROBE_BUDGET_SECONDS: float = 60.0
 
     def __init__(self, exchange: ccxt.Exchange):
         self.exchange = exchange
+
+    @property
+    def label(self) -> str:
+        return str(getattr(self.exchange, "id", "unknown_cex"))
 
     def _safe_fetch(
         self, symbol: str, timeframe: str, since_ts: int, limit: int
@@ -33,17 +39,13 @@ class CCXTSource(BaseDataSource):
         起点越界时 OKX 对 limit>1 返回空页、对 limit=1 直接报参数错误，
         两种情形都是「该起点没有数据」，这里统一收敛成空列表。
         """
-        for attempt in range(self.PROBE_ATTEMPTS):
-            try:
-                page = self.exchange.fetch_ohlcv(
-                    symbol, timeframe, since=since_ts, limit=limit
-                )
-                return cast(list[list[float]], page)
-            except Exception:
-                if attempt == self.PROBE_ATTEMPTS - 1:
-                    return []
-                time.sleep(1)
-        return []
+        try:
+            page = self.exchange.fetch_ohlcv(
+                symbol, timeframe, since=since_ts, limit=limit
+            )
+            return cast(list[list[float]], page)
+        except Exception:
+            return []
 
     def _probe_first_bar(
         self, symbol: str, timeframe: str, since_ts: int, end_ts: int
@@ -54,7 +56,7 @@ class CCXTSource(BaseDataSource):
         请求起点早于上市时间时拿不到任何数据；先用几何步长往后试探，
         再在「无数据」与「有数据」之间二分细化，收敛到最早可得的一根。
         """
-        bar_ms = int(self.exchange.parse_timeframe(timeframe)) * 1000
+        bar_ms = int(ccxt.Exchange.parse_timeframe(timeframe)) * 1000
         low, high = since_ts, end_ts
         step = max((end_ts - since_ts) // 8, bar_ms)
         deadline = time.time() + self.PROBE_BUDGET_SECONDS
@@ -81,6 +83,10 @@ class CCXTSource(BaseDataSource):
                 high = max(int(page[0][0]), low)
             else:
                 low = mid
+        if high >= end_ts:
+            logger.warning(
+                f"{symbol} 在请求区间内探不到任何 K 线：标的可能不存在或代码拼错"
+            )
         return high
 
     def fetch_bars(
@@ -91,6 +97,7 @@ class CCXTSource(BaseDataSource):
 
         since_ts = int(start_dt.timestamp() * 1000)
         end_ts = int(end_dt.timestamp() * 1000)
+        bar_ms = int(ccxt.Exchange.parse_timeframe(timeframe)) * 1000
         all_candles: list[list[float]] = []  # 明确内部类型
         limit = self.PAGE_LIMIT
 
@@ -119,7 +126,14 @@ class CCXTSource(BaseDataSource):
 
             if not ohlcv:
                 if all_candles or probe_used:
-                    # 已经拿到数据，或起点已收敛过一次：后面确实没有更多 K 线
+                    # 已拿到数据（或起点已收敛过一次）：后面确实没有更多 K 线；
+                    # 但没覆盖到请求末尾说明中途断了，必须报出来，否则会永远补不上这段空洞
+                    if all_candles and int(all_candles[-1][0]) < end_ts - bar_ms:
+                        logger.warning(
+                            f"{symbol} 抓取在中途停止：{pd.Timestamp(int(all_candles[-1][0]), unit='ms', tz='UTC')}"
+                            f" → {pd.Timestamp(end_ts, unit='ms', tz='UTC')} 出现空洞，"
+                            f"已拿到的部分照常入库，下次运行会重试"
+                        )
                     break
                 probe_used = True
                 probed = self._probe_first_bar(symbol, timeframe, since_ts, end_ts)

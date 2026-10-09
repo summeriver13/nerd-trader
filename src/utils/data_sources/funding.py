@@ -16,10 +16,13 @@ from typing import Any, cast
 import ccxt
 import pandas as pd
 
-from config.settings import GLOBAL_CONFIG
+from src.config.paths import STORAGE_ROOT
+from src.config.settings import GLOBAL_CONFIG
 
 FUNDING_TIMEFRAME = "8h"
-FUNDING_INTERVAL = pd.Timedelta(hours=8)
+FUNDING_INTERVAL = pd.Timedelta(
+    8, unit="h"
+)  # 结算间隔由交易所决定，此处只作缓存新鲜度容差
 PAGE_LIMIT = 1000
 REQUEST_TIMEOUT_MS = 20000
 RATE_LIMIT_SLEEP = 0.3
@@ -42,15 +45,33 @@ def create_funding_exchange() -> ccxt.Exchange:
 
 
 class FundingSource:
-    """资金费率历史抓取 + 缓存（旁挂 meta.json 记录已请求过的起点）。"""
+    """资金费率历史抓取 + 缓存（旁挂 meta.json 记录已请求过的起点）。
 
-    def __init__(self, exchange: ccxt.Exchange, data_root: Path | None = None) -> None:
-        self.exchange = exchange
-        self.data_root = data_root if data_root is not None else Path("data") / "storage"
+    exchange 不传则首次需要联网时才构造：缓存够新时整个研究可离线跑。
+    """
+
+    def __init__(
+        self, exchange: ccxt.Exchange | None = None, data_root: Path | None = None
+    ) -> None:
+        self._exchange = exchange
+        self.data_root = data_root if data_root is not None else STORAGE_ROOT
+
+    @property
+    def exchange(self) -> ccxt.Exchange:
+        """按需构造（load_markets 需要联网，不能让读缓存也依赖网络）"""
+        if self._exchange is None:
+            self._exchange = create_funding_exchange()
+        return self._exchange
 
     def _cache_path(self, symbol: str) -> Path:
         safe = symbol.replace("/", "-").upper()
-        return self.data_root / "crypto" / "binance" / FUNDING_TIMEFRAME / f"{safe}.parquet"
+        return (
+            self.data_root
+            / "crypto"
+            / "binance"
+            / FUNDING_TIMEFRAME
+            / f"{safe}.parquet"
+        )
 
     def _read_cache(self, path: Path) -> pd.DataFrame:
         if not path.exists():
@@ -106,30 +127,40 @@ class FundingSource:
             {"rate": [rate for _, rate in pairs]},
             index=pd.to_datetime([ts for ts, _ in pairs], unit="ms", utc=True),
         )
-        return cast(pd.DataFrame, frame[~frame.index.duplicated(keep="last")].sort_index())
+        return cast(
+            pd.DataFrame, frame[~frame.index.duplicated(keep="last")].sort_index()
+        )
 
     def load(
-        self, symbol: str, days_back: int, force_update: bool = False
+        self, symbol: str, fetch_lookback_days: int, force_update: bool = False
     ) -> pd.DataFrame:
-        """读取缓存并按需增量补齐；已请求过更早起点则不再重复探测。"""
+        """读取缓存并按需增量补齐，返回**整份缓存**（是否截断由调用方按研究窗口决定）。
+
+        fetch_lookback_days 是抓数时往回探测的日历天数，不等于研究窗口；
+        已请求过更早起点则不再重复探测。
+        """
         path = self._cache_path(symbol)
         local = self._read_cache(path)
         target_start = cast(
-            pd.Timestamp, pd.Timestamp.now(tz=UTC_TZ) - pd.Timedelta(days=days_back)
+            pd.Timestamp,
+            pd.Timestamp.now(tz=UTC_TZ) - pd.Timedelta(fetch_lookback_days, unit="D"),
         )
         asked_start = self._read_asked_start(symbol)
         if not force_update and self._is_usable(local, target_start, asked_start):
             return local
 
         now = cast(pd.Timestamp, pd.Timestamp.now(tz=UTC_TZ))
-        fetch_start = target_start if local.empty else cast(pd.Timestamp, local.index[-1])
-        print(f"⬇️ [Binance] 获取 {symbol} 资金费率（{days_back} 天）...")
+        fetch_start = (
+            target_start if local.empty else cast(pd.Timestamp, local.index[-1])
+        )
+        print(f"⬇️ [Binance] 获取 {symbol} 资金费率（{fetch_lookback_days} 天）...")
         fetched = self.fetch(symbol, fetch_start.to_pydatetime(), now.to_pydatetime())
         merged = pd.concat([local, fetched])
         merged = merged[~merged.index.duplicated(keep="last")].sort_index()
         if merged.empty:
             return cast(pd.DataFrame, merged)
         path.parent.mkdir(parents=True, exist_ok=True)
+        # 增量补齐后整份重写：长历史下每次补抓都重写一次，暂可接受
         merged.to_parquet(path, compression="snappy")
         earlier = [value for value in (asked_start, target_start) if value is not None]
         self._write_meta(symbol, min(earlier))
@@ -138,7 +169,9 @@ class FundingSource:
 
     @staticmethod
     def _is_usable(
-        local: pd.DataFrame, target_start: pd.Timestamp, asked_start: pd.Timestamp | None
+        local: pd.DataFrame,
+        target_start: pd.Timestamp,
+        asked_start: pd.Timestamp | None,
     ) -> bool:
         """缓存要同时满足「足够新」与「起点已覆盖或已探测过更早起点」。"""
         if local.empty:
