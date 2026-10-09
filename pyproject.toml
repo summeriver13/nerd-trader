@@ -34,10 +34,14 @@ default = true
 dev = [
     "basedpyright>=1.40.2",
     "pytest>=9.1.1",
+    "ruff>=0.16.10",
 ]
 
 [tool.ruff]
 target-version = "py312"
+# 0.16 起 Markdown 里的 Python 代码块也进格式化范围；docs/ 下是读书笔记里引用的示例代码，
+# 属于原文，工具不该改它的引号，所以把 Markdown 整个排除，ruff 只管我们自己的代码
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 # 规则显式写出来，别靠个人习惯维持；E501 交给 formatter（中文注释按显示宽度看不超行）
