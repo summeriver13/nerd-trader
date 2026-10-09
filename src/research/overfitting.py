@@ -16,9 +16,9 @@ from itertools import combinations
 from statistics import NormalDist
 
 import numpy as np
-
-from src.analytics.metrics import MIN_OBSERVATIONS, sharpe_ratio
 import pandas as pd
+
+from src.analytics.metrics import sharpe_ratio
 
 EULER_MASCHERONI = 0.5772156649015329
 DSR_THRESHOLD = 0.95  # 去膨胀夏普门槛：低于它无法与「试 N 次碰运气」区分
@@ -27,6 +27,8 @@ DEFAULT_BLOCKS = 10  # CSCV 分块数（须为偶数）
 MIN_BLOCKS = 4
 MIN_BARS_PER_BLOCK = 60
 MIN_CANDIDATES = 2
+# DSR 至少需要这么多个观测：3 个观测算出的 DSR 没有意义，应报「样本不足」而不是 0
+MIN_DSR_OBSERVATIONS = 30
 
 _NORMAL = NormalDist()
 
@@ -51,10 +53,16 @@ class SharpeTest:
     sharpe: float
     expected_max: float
     dsr: float
+    observations: int
+
+    @property
+    def sufficient(self) -> bool:
+        """观测数是否够算 DSR（不够时报「样本不足」，不能当成「未通过」）。"""
+        return self.observations >= MIN_DSR_OBSERVATIONS
 
     @property
     def passed(self) -> bool:
-        return self.dsr >= DSR_THRESHOLD
+        return self.sufficient and self.dsr >= DSR_THRESHOLD
 
 
 @dataclass(frozen=True)
@@ -82,22 +90,37 @@ class OverfittingReport:
     pbo: PboResult | None
 
 
+def sharpe_estimator_variance(sharpes: list[float], observations: int) -> float:
+    """零假设下夏普估计量的方差，取「候选间离散度」与「估计量方差」的较大者。
+
+    候选高度相关（甚至完全相同）时离散度≈ 0，会把门槛清零、让 DSR 恒过；
+    估计量方差 (1 + 0.5·SR²)/T 不依赖候选之间的差异，是这个门槛的下界。
+    """
+    dispersion = (
+        float(np.var(sharpes, ddof=1)) if len(sharpes) >= MIN_CANDIDATES else 0.0
+    )
+    if observations <= 1 or not sharpes:
+        return dispersion
+    estimator = (1 + 0.5 * float(np.mean(sharpes)) ** 2) / observations
+    return max(dispersion, estimator)
+
+
 def deflated_sharpe(label: str, returns: pd.Series, expected_max: float) -> SharpeTest:
     """把观测夏普与零假设下的期望最大夏普比较，输出 DSR 概率。"""
     arr = np.asarray(returns, dtype=float)
     arr = arr[np.isfinite(arr)]
     sr = sharpe_ratio(arr)
-    if arr.size < MIN_OBSERVATIONS:
-        return SharpeTest(label, sr, expected_max, 0.0)
+    if arr.size < MIN_DSR_OBSERVATIONS:
+        return SharpeTest(label, sr, expected_max, float("nan"), arr.size)
 
     series = pd.Series(arr)
     skew = float(series.skew())
     kurtosis = float(series.kurt()) + 3.0  # 转成非超额峰度
     denominator = 1 - skew * sr + (kurtosis - 1) / 4 * sr**2
     if denominator <= 0:
-        return SharpeTest(label, sr, expected_max, 0.0)
+        return SharpeTest(label, sr, expected_max, 0.0, arr.size)
     z_score = (sr - expected_max) * math.sqrt(arr.size - 1) / math.sqrt(denominator)
-    return SharpeTest(label, sr, expected_max, float(_NORMAL.cdf(z_score)))
+    return SharpeTest(label, sr, expected_max, float(_NORMAL.cdf(z_score)), arr.size)
 
 
 def _resolve_blocks(bars: int, requested: int) -> int | None:
@@ -107,12 +130,26 @@ def _resolve_blocks(bars: int, requested: int) -> int | None:
     return blocks if blocks >= MIN_BLOCKS else None
 
 
+def _is_degenerate(frame: pd.DataFrame) -> bool:
+    """候选是否退化：各候选逐根取值完全相同（相关 = 1）。
+
+    此时样本内冠军与其余候选没有差别，分位秩无意义，PBO 必须报「未定义」
+    而不是 0%（0% 会被读成「没有过拟合风险」）。
+    """
+    values = frame.to_numpy(dtype=float)
+    spread = values.max(axis=1) - values.min(axis=1)
+    scale = float(np.abs(values).mean()) or 1.0
+    return bool(np.all(spread <= 1e-9 * scale))
+
+
 def probability_of_backtest_overfitting(
     series_map: dict[str, pd.Series], blocks: int = DEFAULT_BLOCKS
 ) -> PboResult | None:
     """CSCV：把时间轴等分 S 块，枚举全部「一半样本内 / 一半样本外」切分。"""
     frame = pd.DataFrame(series_map).dropna(how="any")
     if frame.shape[1] < MIN_CANDIDATES or frame.empty:
+        return None
+    if _is_degenerate(frame):
         return None
     effective = _resolve_blocks(len(frame), blocks)
     if effective is None:
@@ -138,7 +175,10 @@ def probability_of_backtest_overfitting(
             [sharpe_ratio(values[out_sample, j]) for j in range(frame.shape[1])]
         )
         winner = int(np.argmax(is_sharpe))
-        rank = int((oos_sharpe <= oos_sharpe[winner]).sum())  # 1..N
+        # 平局（候选完全相同）取中位秩：直接数「≤ 冠军」会把冠军判成第一名
+        less = float((oos_sharpe < oos_sharpe[winner]).sum())
+        equal = float((oos_sharpe == oos_sharpe[winner]).sum())
+        rank = less + (equal + 1) / 2  # 1..N 的中位秩
         percentile = rank / (frame.shape[1] + 1)
         logits.append(math.log(percentile / (1 - percentile)))
         winner_oos.append(float(oos_sharpe[winner]))
@@ -159,8 +199,9 @@ def build_overfitting_report(
     blocks: int = DEFAULT_BLOCKS,
 ) -> OverfittingReport:
     """对一组候选（同一份数据上的全部试验）做 DSR 与 PBO。"""
+    frame = pd.DataFrame(series_map).dropna(how="any")
     sharpes = [sharpe_ratio(series) for series in series_map.values()]
-    variance = float(np.var(sharpes, ddof=1)) if len(sharpes) >= MIN_CANDIDATES else 0.0
+    variance = sharpe_estimator_variance(sharpes, len(frame))
     trial_count = max(trials or len(series_map), MIN_CANDIDATES)
     expected_max = expected_max_sharpe(variance, trial_count)
     tests = [
@@ -169,7 +210,7 @@ def build_overfitting_report(
     ]
     return OverfittingReport(
         trials=trial_count,
-        observations=len(pd.DataFrame(series_map).dropna(how="any")),
+        observations=len(frame),
         sharpe_tests=tests,
         pbo=probability_of_backtest_overfitting(series_map, blocks),
     )
@@ -198,15 +239,26 @@ def print_overfitting(
     )
     print("-" * 118)
     for test in report.sharpe_tests:
-        verdict = "通过" if test.passed else "未通过"
+        if not test.sufficient:
+            verdict = "样本不足"
+        else:
+            verdict = "通过" if test.passed else "未通过"
         print(
             f"{test.label:<26}{test.sharpe:>12.4f} {test.expected_max:>14.4f} "
-            f"{test.dsr:>8.3f} {verdict:>6}"
+            f"{test.dsr:>8.3f} {verdict:>8}"
+        )
+    if any(not test.sufficient for test in report.sharpe_tests):
+        print(
+            f"（观测数少于 {MIN_DSR_OBSERVATIONS} 根的候选无法算 DSR，"
+            "「样本不足」不等于「未通过」）"
         )
 
     pbo = report.pbo
     if pbo is None:
-        print("\nPBO：样本不足或候选过少，未计算。")
+        print(
+            "\nPBO：未计算（样本不足、候选过少，或候选之间完全相同——"
+            "后者的分位秩无意义，0% 会被误读成「没有过拟合风险」）。"
+        )
         return
     print(
         f"\nPBO (CSCV, S={pbo.blocks}, {pbo.splits} 次切分) = {pbo.pbo:.1%}"

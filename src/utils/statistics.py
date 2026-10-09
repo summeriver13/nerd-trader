@@ -1,6 +1,10 @@
+import logging
+
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm  # 修正: 使用 statsmodels.api 进行 OLS 回归
+
+logger = logging.getLogger(__name__)
 
 
 def calculate_z_score(series: pd.Series, window: int) -> pd.Series:
@@ -58,8 +62,10 @@ def calculate_half_life(series: pd.Series) -> float:
         # 4. 提取回归系数 beta (即 x 的系数)
         # params[1] 是 x 的系数，params[0] 是常数项
         beta = res.params.iloc[1]
-    except Exception:
-        # 如果回归失败 (例如数据完全平直)，返回默认值
+    except Exception as e:
+        # 回归失败（数据完全平直等）退化为「无半衰期」：返回值语义与 beta>=0 一致，
+        # 但原因必须打出来，否则「没有均值回归」与「算不出来」看起来一模一样
+        logger.warning(f"半衰期回归失败，按无半衰期处理: {e}")
         return 0.0
 
     # 5. 计算半衰期

@@ -15,7 +15,12 @@ import pandas as pd
 from src.analytics.metrics import bars_per_year
 from src.analytics.reporting import save_equity_series
 from src.config.paths import RESULTS_ROOT
-from src.research.data_window import fetch_window, load_window, open_loader
+from src.research.data_window import (
+    fetch_window,
+    load_funding_rates,
+    load_window,
+    open_loader,
+)
 from src.research.domains.crypto import CryptoDomain
 from src.research.engine import BacktestEngine
 from src.research.execution import MakerPolicy
@@ -36,9 +41,7 @@ plt.rcParams["font.sans-serif"] = [
 plt.rcParams["axes.unicode_minus"] = False
 
 # === 回测口径（单次回测与稳健性检验共用）===
-INITIAL_CAPITAL = 10_000.0  # 初始资金 USDT
-TAKER_FEE_RATE = 0.0005  # OKX 永续 VIP0 taker 费率
-SLIPPAGE = 0.0005  # 单边滑点假设
+INITIAL_CAPITAL = 10_000.0  # 初始资金 USDT（费率口径见 src/core/costs.py）
 
 
 def describe_maker(maker: MakerPolicy | None) -> str | None:
@@ -97,8 +100,14 @@ def _print_result(result: dict[str, Any], symbol: str) -> None:
         fills = result["fills"]
         n_maker = fills["fill"].eq("maker").sum()
         print(
-            f"🎯 maker 成交率: {fill_rate:.1%}（挂单成交 {n_maker} 笔 / "
-            f"市价回退 {len(fills) - n_maker} 笔）"
+            f"🎯 maker 成交率: {fill_rate:.1%}（被动成交 {n_maker} 笔 / "
+            f"吃价成交 {len(fills) - n_maker} 笔）"
+        )
+    funding_annual = result.get("funding_annual")
+    if funding_annual is not None:
+        print(
+            f"💸 资金费率成本: {funding_annual:+.2%}/年"
+            f"（区间累计 {result['total_funding']:+.2%}；多头付正费率、空头收正费率）"
         )
 
 
@@ -159,12 +168,13 @@ def run_backtest(
         f"（{len(window)} 根，预热 {len(df) - len(window)} 根）"
     )
 
-    # 4. 引擎适配
+    # 4. 引擎适配（资金费率按日汇总后注入，永续多头按持仓名义付正费率）
     engine = BacktestEngine(
-        domain=CryptoDomain(fee_rate=TAKER_FEE_RATE, slippage=SLIPPAGE),
+        domain=CryptoDomain(),
         initial_capital=INITIAL_CAPITAL,
         leverage=leverage,
         maker=maker,
+        funding=load_funding_rates(symbol, pd.DatetimeIndex(window.index)),
     )
     maker_note = describe_maker(maker)
     if maker_note is not None:
@@ -175,19 +185,44 @@ def run_backtest(
         return False
 
     _print_result(result, symbol)
+    if maker is not None and maker.enabled:
+        _print_maker_delta(engine, window, result)
     _persist_outputs(result, symbol, strategy_name, engine)
     return True
 
 
+def _print_maker_delta(
+    engine: BacktestEngine, window: pd.DataFrame, result: dict[str, Any]
+) -> None:
+    """maker 与市价单的差额：任何小于它的年化优势都被执行口径吃掉。
+
+    差额 = 费率差（能算的极限）+ 成交时点变化（挂单把仓位生效推迟若干根），
+    两者混在一起，所以要把「只看费率」的极限一起打出来才能判断优势是不是真的。
+    """
+    policy = engine.maker
+    if policy is None or not policy.enabled:
+        return
+    market = BacktestEngine(
+        domain=engine.domain,
+        initial_capital=engine.initial_capital,
+        leverage=engine.leverage,
+        funding=engine.funding,
+    )
+    base = market.run(window)
+    if not base:
+        return
+    fills = result["fills"]
+    per_side = policy.taker_net_cost - policy.maker_net_cost
+    bound = float((fills["delta"].abs() * per_side).sum())
+    delta = result["total_ret"] - base["total_ret"]
+    print(
+        f"🎯 maker 执行差额: 市价 {base['total_ret']:.2%} → maker {result['total_ret']:.2%}"
+        f"（{delta:+.2%}；只看费率的极限 {bound:+.2%} = {len(fills)} 笔 × {per_side:.2%}/边）"
+    )
+
+
 def run_robustness(options: RobustnessOptions) -> bool:
     """稳健性检验：多标的 × 全策略，输出窗口分布、分段稳定性与多重检验校正。"""
-    domain = CryptoDomain(fee_rate=TAKER_FEE_RATE, slippage=SLIPPAGE)
-    engine = BacktestEngine(
-        domain=domain,
-        initial_capital=INITIAL_CAPITAL,
-        leverage=options.leverage,
-        maker=options.maker,
-    )
     maker_note = describe_maker(options.maker)
     if maker_note is not None:
         print(maker_note)
@@ -200,13 +235,12 @@ def run_robustness(options: RobustnessOptions) -> bool:
     warmup = max(strategy.warmup_bars for _, strategy in candidates)
 
     with open_loader() as loader:
-        return _run_symbols(loader, options, engine, candidates, warmup)
+        return _run_symbols(loader, options, candidates, warmup)
 
 
 def _run_symbols(
     loader: MarketDataHandler,
     options: RobustnessOptions,
-    engine: BacktestEngine,
     candidates: list[tuple[str, Any]],
     warmup: int,
 ) -> bool:
@@ -226,6 +260,14 @@ def _run_symbols(
             continue
 
         eval_index = pd.DatetimeIndex(evaluation_window(df, options.bars).index)
+        # 引擎逐标的重建：资金费率是按标的取的，多标的跑批不能共用一个
+        engine = BacktestEngine(
+            domain=CryptoDomain(),
+            initial_capital=INITIAL_CAPITAL,
+            leverage=options.leverage,
+            maker=options.maker,
+            funding=load_funding_rates(symbol, eval_index),
+        )
         # 滚动窗口是「一年」：按评估区间的实际周期折算根数（1h 下 365 根只有 15 天）
         window = int(bars_per_year(eval_index))
         reports = []

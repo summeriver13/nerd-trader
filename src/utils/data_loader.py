@@ -4,10 +4,13 @@ src/utils/data_loader.py
 
 职责分工：本模块只负责「拿到一段可用历史」，窗口裁剪由调用方（runners.load_window）决定。
 已知陷阱：合并只覆盖 incoming 出现的键，删不掉旧坏行——坏行修正只能删 parquet 重建。
+旁挂 .meta.json 记「已问过的最早起点」：年轻标的的请求起点永远早于上市起点，
+不记就会每次运行全量重下（源侧给不出更早历史）。
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -87,14 +90,22 @@ class MarketDataHandler:
             need_fetch = True
         else:
             local_index = pd.DatetimeIndex(df_local.index)
-            # 情况 A: 本地数据起始时间太晚，无法覆盖预热期
+            # 情况 A: 本地起点太晚，无法覆盖请求窗口；已问过更早起点就不再重下
             if local_index[0] > target_start_dt:
-                logger.info(
-                    f"[{symbol}] 本地历史深度不足 ({local_index[0]:%Y-%m-%d}), 执行全量同步"
-                )
-                need_fetch = True
-            # 情况 B: 本地数据最新时间太早，需要增量更新（从最后一根续抓，避免空洞）
-            elif local_index[-1] < now_utc - timedelta(hours=STALE_HOURS):
+                if self._probed_earlier(file_path, target_start_dt):
+                    logger.info(
+                        f"[{symbol}] 本地起点 {local_index[0]:%Y-%m-%d} 晚于请求起点 "
+                        f"{target_start_dt:%Y-%m-%d}，但已问过更早起点，跳过全量同步"
+                    )
+                else:
+                    logger.info(
+                        f"[{symbol}] 本地历史深度不足 ({local_index[0]:%Y-%m-%d}), 执行全量同步"
+                    )
+                    need_fetch = True
+            # 情况 B: 本地最新时间太早，需要增量更新（从最后一根续抓，避免空洞）
+            if not need_fetch and local_index[-1] < now_utc - timedelta(
+                hours=STALE_HOURS
+            ):
                 logger.info(f"[{symbol}] 数据已过时, 准备增量更新...")
                 need_fetch = True
                 fetch_start = cast(datetime, local_index[-1])
@@ -104,6 +115,9 @@ class MarketDataHandler:
             df_new = self._fetch(
                 symbol, timeframe, fetch_start, cast(datetime, now_utc)
             )
+            if fetch_start == target_start_dt:
+                # 记下问过的起点：源侧给不出更早历史时，下次不再全量重下
+                self._write_asked_start(file_path, target_start_dt)
             if not df_new.empty:
                 if df_local is not None and not df_local.empty and not force_update:
                     df_local = self._clean_and_save(
@@ -112,12 +126,15 @@ class MarketDataHandler:
                 else:
                     df_local = self._clean_and_save(df_new, file_path)
             elif df_local is not None and not df_local.empty:
-                self._warn_stale(symbol, df_local, now_utc)
+                logger.info(f"[{symbol}] 数据源本次未返回新数据")
             else:
                 logger.warning(f"[{symbol}] 数据源返回空：该标的历史为空或起点越界")
 
         if df_local is None or df_local.empty:
             return pd.DataFrame()
+
+        # 抓取后核对覆盖区间：短帧（不是空帧）同样会「静默过期」
+        self._check_coverage(symbol, df_local, target_start_dt, now_utc)
 
         # 未收盘的最后一根不进回测：指标与信号会建立在还在变的 Bar 上，
         # 同一条命令在盘中与收盘后跑会给出不同结果（落盘仍保留，交给下次刷新覆盖）
@@ -136,15 +153,57 @@ class MarketDataHandler:
                 f"{self.source.label} 抓取 {symbol} {timeframe} 失败: {e}"
             ) from e
 
+    def _meta_path(self, file_path: Path) -> Path:
+        return file_path.with_suffix(".meta.json")
+
+    def _read_asked_start(self, file_path: Path) -> pd.Timestamp | None:
+        """读「曾经问到过的最早起点」备忘（与 funding.py 的缓存旁挂 meta 同一套）。"""
+        path = self._meta_path(file_path)
+        if not path.exists():
+            return None
+        try:
+            value = json.loads(path.read_text(encoding="utf-8")).get("asked_start")
+        except (OSError, ValueError):
+            return None
+        return cast(pd.Timestamp, pd.Timestamp(value)) if value else None
+
+    def _write_asked_start(self, file_path: Path, asked_start: pd.Timestamp) -> None:
+        path = self._meta_path(file_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"asked_start": asked_start.isoformat()}), encoding="utf-8"
+        )
+
+    def _probed_earlier(self, file_path: Path, target_start_dt: pd.Timestamp) -> bool:
+        """是否已经问过不晚于本次请求的起点（问过就不必再全量重下）。"""
+        asked_start = self._read_asked_start(file_path)
+        return asked_start is not None and asked_start <= target_start_dt
+
+    def _check_coverage(
+        self,
+        symbol: str,
+        df_local: pd.DataFrame,
+        target_start_dt: pd.Timestamp,
+        now_utc: pd.Timestamp,
+    ) -> None:
+        """抓取后核对覆盖区间：短帧不会经过空帧分支，必须在这里判定。"""
+        index = pd.DatetimeIndex(df_local.index)
+        if index[-1] < now_utc - timedelta(hours=STALE_HOURS):
+            self._warn_stale(symbol, df_local, now_utc)
+        if index[0] > target_start_dt:
+            logger.warning(
+                f"[{symbol}] 覆盖仍不足：源侧起点 {index[0]:%Y-%m-%d} 晚于请求起点 "
+                f"{target_start_dt:%Y-%m-%d}（上市时间或源侧上限），窗口前段指标未热透"
+            )
+
     def _warn_stale(
         self, symbol: str, df_local: pd.DataFrame, now_utc: pd.Timestamp
     ) -> None:
-        """数据源没给新数据时，明确报出用的是哪天的缓存，别让人以为是最新的。"""
+        """缓存落后于当前时间时明确报出截止日，别让人以为是最新的。"""
         last = cast(pd.Timestamp, df_local.index[-1])
         lag_days = (now_utc - last).total_seconds() / 86400
         logger.warning(
-            f"[{symbol}] 数据源无新数据，回退本地缓存：截止 {last.date()}"
-            f"（滞后 {lag_days:.1f} 天）"
+            f"[{symbol}] 本地缓存仍滞后：截止 {last.date()}（滞后 {lag_days:.1f} 天）"
         )
 
     def _load_local(self, path: Path) -> pd.DataFrame | None:

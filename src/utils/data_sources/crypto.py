@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime
-from typing import cast
+from typing import Any, cast, override
 
 import ccxt
 import pandas as pd
@@ -24,9 +24,12 @@ class CCXTSource(BaseDataSource):
     PROBE_BUDGET_SECONDS: float = 60.0
 
     def __init__(self, exchange: ccxt.Exchange):
-        self.exchange = exchange
+        # ccxt 基类把 fetch_* 声明成抛 NotImplementedError（返回 Never），
+        # 静态分析会把调用之后的代码全判成不可达；运行时由子类实现，故按 Any 处理
+        self.exchange: Any = exchange
 
     @property
+    @override
     def label(self) -> str:
         return str(getattr(self.exchange, "id", "unknown_cex"))
 
@@ -37,14 +40,15 @@ class CCXTSource(BaseDataSource):
         抓一页 K 线。
 
         起点越界时 OKX 对 limit>1 返回空页、对 limit=1 直接报参数错误，
-        两种情形都是「该起点没有数据」，这里统一收敛成空列表。
+        两种情形都是「该起点没有数据」，这里统一收敛成空列表（但要留下日志）。
         """
         try:
             page = self.exchange.fetch_ohlcv(
                 symbol, timeframe, since=since_ts, limit=limit
             )
             return cast(list[list[float]], page)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"{symbol} 探测 {since_ts} 起点失败，按无数据处理: {e}")
             return []
 
     def _probe_first_bar(
@@ -89,6 +93,7 @@ class CCXTSource(BaseDataSource):
             )
         return high
 
+    @override
     def fetch_bars(
         self, symbol: str, timeframe: str, start_dt: datetime, end_dt: datetime
     ) -> pd.DataFrame:

@@ -4,9 +4,10 @@
 会被当成完整数据参与指标，两者都让「同一条命令给出不同结果」。
 """
 
+import logging
 from datetime import datetime
 from pathlib import Path
-from typing import cast
+from typing import cast, override
 
 import pandas as pd
 import pytest
@@ -19,16 +20,20 @@ class _FakeSource(BaseDataSource):
     """假数据源：可指定返回的帧，或强制抛异常。"""
 
     @property
+    @override
     def label(self) -> str:
         return "fake"
 
     def __init__(self, frame: pd.DataFrame | None = None, error: bool = False) -> None:
         self.frame = frame if frame is not None else pd.DataFrame()
         self.error = error
+        self.calls: list[tuple[datetime, datetime]] = []
 
+    @override
     def fetch_bars(
         self, symbol: str, timeframe: str, start_dt: datetime, end_dt: datetime
     ) -> pd.DataFrame:
+        self.calls.append((start_dt, end_dt))
         if self.error:
             raise RuntimeError("proxy down")
         return self.frame
@@ -41,6 +46,17 @@ def _ts(text: str) -> pd.Timestamp:
 
 def _frame(periods: int, freq: str = "1D") -> pd.DataFrame:
     index = pd.date_range("2024-01-01", periods=periods, freq=freq, tz="UTC")
+    return pd.DataFrame(
+        {"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0}, index=index
+    )
+
+
+def _recent_frame(periods: int, freq: str = "1D") -> pd.DataFrame:
+    """以昨天结尾的帧：测试不能随日历过期，也天然满足「滞后 > 24h」。"""
+    end = cast(pd.Timestamp, pd.Timestamp.now(tz="UTC").floor("1D")) - pd.Timedelta(
+        1, unit="D"
+    )
+    index = pd.date_range(end=end, periods=periods, freq=freq)
     return pd.DataFrame(
         {"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0}, index=index
     )
@@ -80,3 +96,34 @@ def test_fetch_failure_raises_instead_of_returning_stale_cache(tmp_path: Path) -
     handler = MarketDataHandler(_FakeSource(error=True), data_root=tmp_path)
     with pytest.raises(DataSourceError):
         handler.prepare_data("TEST/USDT", "1d", days_back=10, force_update=True)
+
+
+def test_young_symbol_does_not_resync_full_history_every_run(tmp_path: Path) -> None:
+    """年轻标的的请求起点永远早于上市起点：第二次运行只能做增量，不能全量重下。"""
+    frame = _recent_frame(5)  # 只有 5 天历史，晚于 days_back=30 的请求起点
+    source = _FakeSource(frame)
+    handler = MarketDataHandler(source, data_root=tmp_path)
+
+    handler.prepare_data("TEST/USDT", "1d", days_back=30)
+    first_start = source.calls[0][0]
+    source.calls.clear()
+    handler.prepare_data("TEST/USDT", "1d", days_back=30)
+
+    assert len(source.calls) == 1
+    assert source.calls[0][0] == cast(pd.Timestamp, frame.index[-1]).to_pydatetime()
+    assert source.calls[0][0] > first_start
+
+
+def test_short_frame_still_reports_staleness(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """源侧返回「更短但非空」的帧也要报滞后：空帧分支覆盖不到这种情况。"""
+    source = _FakeSource(_recent_frame(3))
+    handler = MarketDataHandler(source, data_root=tmp_path)
+
+    with caplog.at_level(logging.WARNING):
+        handler.prepare_data("TEST/USDT", "1d", days_back=30)
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("仍滞后" in message for message in messages)
+    assert any("覆盖仍不足" in message for message in messages)

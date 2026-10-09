@@ -157,7 +157,9 @@ def _window_cells(stats: WindowStats) -> str:
         f"{stats.dd_worst:.1%}",
         f"{stats.positive_share:.1%}",
     )
-    return "".join(pad(v, w, "right") for v, w in zip(values, WINDOW_WIDTHS))
+    return "".join(
+        pad(v, w, "right") for v, w in zip(values, WINDOW_WIDTHS, strict=True)
+    )
 
 
 def _segment_label(start: pd.Timestamp, intraday: bool) -> str:

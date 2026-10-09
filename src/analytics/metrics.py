@@ -50,8 +50,11 @@ def annualize(
 
 
 def bars_per_year(index: pd.Index, periods_per_year: int = ANNUAL_DAYS) -> float:
-    """每年多少根 K 线：按区间实际跨度算，7×24 与有缺口的品种都能对齐。"""
-    span_days = (index[-1] - index[0]).days if len(index) > 1 else 0
+    """每年多少根 K 线：按区间实际跨度算，7×24 与有缺口的品种都能对齐。
+
+    跨度用秒而不是 .days：整数天会截断（1h 下 500 根实测偏高 3.96%）。
+    """
+    span_days = (index[-1] - index[0]).total_seconds() / 86_400 if len(index) > 1 else 0
     if span_days <= 0:
         span_days = 1
     return len(index) / (span_days / periods_per_year)
