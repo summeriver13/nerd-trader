@@ -36,6 +36,17 @@ dev = [
     "pytest>=9.1.1",
 ]
 
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+# 规则显式写出来，别靠个人习惯维持；E501 交给 formatter（中文注释按显示宽度看不超行）
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "PERF"]
+ignore = [
+    "E501", # 行长由 ruff format 管
+    "B027", # 策略接口的 on_tick/on_bar 等是可选覆写点，故意不标 abstractmethod
+]
+
 [tool.pyright]
 # pandas/numpy/ccxt 的 DataFrame 表面无类型信息，unknown/Any 家族一律关掉（它们只会淹没真问题）
 typeCheckingMode = "standard"
@@ -44,9 +55,20 @@ reportUnknownVariableType = "none"
 reportUnknownArgumentType = "none"
 reportUnknownParameterType = "none"
 reportUnknownLambdaType = "none"
-reportMissingParameterType = "none"
 reportAny = "none"
-reportImplicitOverride = "none"
+# standard 默认关掉、但能抓真 bug 的规则：显式打开
+reportUnreachable = "error"           # 不可达代码 = 作者意图与实际不符
+reportOptionalSubscript = "error"     # Optional 直接下标（可能崩）
+reportOptionalMemberAccess = "error"
+reportAttributeAccessIssue = "error"
+reportArgumentType = "error"
+reportReturnType = "error"
+reportMissingTypeArgument = "error"
+reportImplicitOverride = "error"      # 覆盖基类方法却未标 @override（方法名拼错会静默失效）
+reportMissingParameterType = "error"  # 函数签名必须完整标注
+reportUnnecessaryComparison = "warning"
+reportPrivateUsage = "none"           # 测试直接用模块私有函数
+reportUnusedParameter = "none"        # 接口占位参数
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

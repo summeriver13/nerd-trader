@@ -4,8 +4,8 @@ src/core/utility.py
 Refactored: Removed unused variables & Cleaned up logic
 """
 
+from collections.abc import Callable
 from copy import copy
-from typing import Callable
 
 import numpy as np
 import talib
@@ -19,7 +19,7 @@ class BarGenerator:
     功能：接收 Tick，合成 1分钟 K线
     """
 
-    def __init__(self, on_bar: Callable, xmin: int = 0):
+    def __init__(self, on_bar: Callable[[BarData], None], xmin: int = 0):
         """
         :param on_bar: 当K线合成完成时的回调函数
         :param xmin: 0=合成1分钟线, N=合成N分钟线 (暂未实现N分钟, 仅演示1分钟)

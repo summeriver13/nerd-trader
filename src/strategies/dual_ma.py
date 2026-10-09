@@ -4,7 +4,7 @@ src/strategies/dual_ma.py
 Refactored: Pass 0 as price for Market Orders to ensure execution
 """
 
-from typing import Any
+from typing import Any, override
 
 from src.core.interfaces import StrategyBase, StrategyContext
 from src.core.types import BarData, OrderData, OrderType, TickData, TradeData
@@ -39,18 +39,23 @@ class DualMaStrategy(StrategyBase):
         self.bg = BarGenerator(self.on_bar)
         self.am = ArrayManager(size=self.slow_window + 10)
 
+    @override
     def on_init(self):
         self.write_log("策略初始化完成")
 
+    @override
     def on_start(self):
         self.write_log("策略启动")
 
+    @override
     def on_stop(self):
         self.write_log("策略停止")
 
+    @override
     def on_tick(self, tick: TickData):
         self.bg.update_tick(tick)
 
+    @override
     def on_bar(self, bar: BarData):
         self.am.update_bar(bar)
 
@@ -81,23 +86,23 @@ class DualMaStrategy(StrategyBase):
                 self.short(bar.symbol, 0, self.fixed_size, OrderType.MARKET)
                 self.pos -= self.fixed_size
 
-        elif self.pos > 0:
-            if cross_below:
-                self.write_log("死叉平仓")
-                # [修改] 价格传 0
-                self.sell(bar.symbol, 0, self.pos, OrderType.MARKET)
-                self.pos = 0
+        elif self.pos > 0 and cross_below:
+            self.write_log("死叉平仓")
+            # [修改] 价格传 0
+            self.sell(bar.symbol, 0, self.pos, OrderType.MARKET)
+            self.pos = 0
 
-        elif self.pos < 0:
-            if cross_over:
-                self.write_log("金叉 -> 平空")
-                # [修改] 价格传 0，确保作为市价单成交
-                self.cover(bar.symbol, 0, abs(self.pos), OrderType.MARKET)
-                self.pos = 0
+        elif self.pos < 0 and cross_over:
+            self.write_log("金叉 -> 平空")
+            # [修改] 价格传 0，确保作为市价单成交
+            self.cover(bar.symbol, 0, abs(self.pos), OrderType.MARKET)
+            self.pos = 0
 
+    @override
     def on_order(self, order: OrderData):
         pass
 
+    @override
     def on_trade(self, trade: TradeData):
         """
         成交推送

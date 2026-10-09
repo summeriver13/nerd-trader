@@ -13,7 +13,6 @@ from src.research.position_sizing import (
     DEFAULT_VOL_LOOKBACK,
     DEFAULT_VOL_TARGET,
 )
-from src.utils.data_loader import TimeFrameStr
 from src.research.registry import (
     CARRY_DEFAULT_DAYS,
     DEFAULT_BARS,
@@ -25,6 +24,7 @@ from src.research.registry import (
     ROBUST_DEFAULT_BARS,
     STRATEGY_ALIASES,
 )
+from src.utils.data_loader import TimeFrameStr
 
 
 def parse_args() -> argparse.Namespace:

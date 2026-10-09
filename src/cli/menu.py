@@ -5,12 +5,9 @@ src/cli/menu.py
 
 from __future__ import annotations
 
-from typing import cast
-
 import traceback
-from typing import Any
+from typing import Any, cast
 
-from src.utils.data_loader import TimeFrameStr
 from src.research.registry import (
     DEFAULT_BARS,
     DEFAULT_LEVERAGE,
@@ -22,6 +19,7 @@ from src.research.registry import (
     resolve_strategy,
 )
 from src.research.runners import run_backtest
+from src.utils.data_loader import TimeFrameStr
 
 
 def customize_params(default_params: dict[str, Any]) -> dict[str, Any]:

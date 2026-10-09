@@ -7,10 +7,12 @@ src/research/strategies/vector_trend_reversion.py
 3. 熊市做空逻辑受 self.can_short 控制
 """
 
+from typing import Any, Literal, overload, override
+
 import numpy as np
 import pandas as pd
 
-from src.research.strategies.base import BaseStrategy, EWM_CONVERGENCE_MULT
+from src.research.strategies.base import EWM_CONVERGENCE_MULT, BaseStrategy
 
 
 class TrendReversionStrategy(BaseStrategy):
@@ -70,6 +72,7 @@ class TrendReversionStrategy(BaseStrategy):
         self.adx_period = adx_period
 
     @property
+    @override
     def warmup_bars(self) -> int:
         """最长滚动窗口 + ADX 的 EWM 收敛余量"""
         longest = max(
@@ -82,8 +85,9 @@ class TrendReversionStrategy(BaseStrategy):
         )
         return longest + EWM_CONVERGENCE_MULT * self.adx_period
 
+    @override
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        if df is None or df.empty:
+        if df.empty:
             return df
         df = df.sort_index()
 
@@ -121,7 +125,7 @@ class TrendReversionStrategy(BaseStrategy):
 
         sum_di = pd.Series(plus_di + minus_di, index=df.index).replace(0, np.nan)
         dx = pd.Series(100 * (abs(plus_di - minus_di) / sum_di), index=df.index)
-        df["ADX"] = dx.fillna(0).ewm(alpha=alpha, adjust=False).mean()  # type: ignore
+        df["ADX"] = pd.Series(dx).fillna(0).ewm(alpha=alpha, adjust=False).mean()
 
         # 3. 熊市指标
         bb_mid = df["close"].rolling(self.bear_bb_period).mean()
@@ -135,27 +139,28 @@ class TrendReversionStrategy(BaseStrategy):
         loss = (-delta.where(delta < 0, 0)).rolling(self.bear_rsi_period).mean()
         rs = gain / loss
         rsi_raw = pd.Series(100 - (100 / (1 + rs)), index=df.index)
-        df["RSI"] = rsi_raw.fillna(50)  # type: ignore
+        df["RSI"] = pd.Series(rsi_raw).fillna(50)
 
         return df
 
+    @override
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         if "MA_Trend" not in df.columns:
             df = self.calculate_indicators(df)
 
         signals, _ = self._run_simulation_logic(
-            df["open"].values,
-            df["close"].values,
-            df["high"].values,
-            df["low"].values,
-            df["MA_Trend"].values,
-            df["MA_Fast"].values,
-            df["MA_Slow"].values,
-            df["ATR"].values,
-            df["ADX"].values,
-            df["BB_Lower"].values,
-            df["BB_Mid"].values,
-            df["RSI"].values,
+            df["open"].to_numpy(),
+            df["close"].to_numpy(),
+            df["high"].to_numpy(),
+            df["low"].to_numpy(),
+            df["MA_Trend"].to_numpy(),
+            df["MA_Fast"].to_numpy(),
+            df["MA_Slow"].to_numpy(),
+            df["ATR"].to_numpy(),
+            df["ADX"].to_numpy(),
+            df["BB_Lower"].to_numpy(),
+            df["BB_Mid"].to_numpy(),
+            df["RSI"].to_numpy(),
             # 策略参数
             self.bull_adx_thresh,
             self.bull_atr_mult,
@@ -172,23 +177,23 @@ class TrendReversionStrategy(BaseStrategy):
         df["signal"] = signals
         return df
 
-    def get_trade_history(self, df: pd.DataFrame) -> list:
+    def get_trade_history(self, df: pd.DataFrame) -> list[dict[str, Any]]:
         if "MA_Trend" not in df.columns:
             df = self.calculate_indicators(df)
 
         return self._run_simulation_logic(
-            df["open"].values,
-            df["close"].values,
-            df["high"].values,
-            df["low"].values,
-            df["MA_Trend"].values,
-            df["MA_Fast"].values,
-            df["MA_Slow"].values,
-            df["ATR"].values,
-            df["ADX"].values,
-            df["BB_Lower"].values,
-            df["BB_Mid"].values,
-            df["RSI"].values,
+            df["open"].to_numpy(),
+            df["close"].to_numpy(),
+            df["high"].to_numpy(),
+            df["low"].to_numpy(),
+            df["MA_Trend"].to_numpy(),
+            df["MA_Fast"].to_numpy(),
+            df["MA_Slow"].to_numpy(),
+            df["ATR"].to_numpy(),
+            df["ADX"].to_numpy(),
+            df["BB_Lower"].to_numpy(),
+            df["BB_Mid"].to_numpy(),
+            df["RSI"].to_numpy(),
             self.bull_adx_thresh,
             self.bull_atr_mult,
             self.bear_rsi_thresh,
@@ -198,9 +203,15 @@ class TrendReversionStrategy(BaseStrategy):
             self.effective_min_lev,
             record_trades=True,
             timestamps=df.index,
-        )  # type: ignore
+        )
 
-    def _calculate_kelly_leverage(self, trade_history, window, max_lev, min_lev):
+    def _calculate_kelly_leverage(
+        self,
+        trade_history: list[dict[str, Any]],
+        window: int,
+        max_lev: float,
+        min_lev: float,
+    ) -> float:
         """
         计算半凯利杠杆
         """
@@ -226,42 +237,91 @@ class TrendReversionStrategy(BaseStrategy):
             return max_lev
         b_ratio = avg_win / avg_loss
 
-        # 半凯利公式
+        # 半凯利公式：负值直接压到下限，否则夹在 [min_lev, max_lev]
         kelly_f = (win_rate * b_ratio - (1 - win_rate)) / b_ratio
         half_kelly = kelly_f / 2
-
-        if half_kelly < 0:
-            final_lev = min_lev
-        else:
-            # 限制在 min 和 max 之间
-            final_lev = np.clip(half_kelly, min_lev, max_lev)
+        final_lev = (
+            min_lev if half_kelly < 0 else float(np.clip(half_kelly, min_lev, max_lev))
+        )
 
         return final_lev
 
+    @overload
     def _run_simulation_logic(
         self,
-        open_arr,
-        close_arr,
-        high_arr,
-        low_arr,
-        trend_ma,
-        ma_fast,
-        ma_slow,
-        atr,
-        adx,
-        bb_lower,
-        bb_mid,
-        rsi,
-        bull_adx_thresh,
-        bull_atr_mult,
-        bear_rsi_thresh,
-        bear_stop_loss_pct,
-        kelly_window,
-        max_lev,
-        min_lev,
-        record_trades=False,
-        timestamps=None,
-    ):
+        open_arr: np.ndarray,
+        close_arr: np.ndarray,
+        high_arr: np.ndarray,
+        low_arr: np.ndarray,
+        trend_ma: np.ndarray,
+        ma_fast: np.ndarray,
+        ma_slow: np.ndarray,
+        atr: np.ndarray,
+        adx: np.ndarray,
+        bb_lower: np.ndarray,
+        bb_mid: np.ndarray,
+        rsi: np.ndarray,
+        bull_adx_thresh: float,
+        bull_atr_mult: float,
+        bear_rsi_thresh: float,
+        bear_stop_loss_pct: float,
+        kelly_window: int,
+        max_lev: float,
+        min_lev: float,
+        record_trades: Literal[True],
+        timestamps: pd.Index | None = None,
+    ) -> list[dict[str, Any]]: ...
+
+    @overload
+    def _run_simulation_logic(
+        self,
+        open_arr: np.ndarray,
+        close_arr: np.ndarray,
+        high_arr: np.ndarray,
+        low_arr: np.ndarray,
+        trend_ma: np.ndarray,
+        ma_fast: np.ndarray,
+        ma_slow: np.ndarray,
+        atr: np.ndarray,
+        adx: np.ndarray,
+        bb_lower: np.ndarray,
+        bb_mid: np.ndarray,
+        rsi: np.ndarray,
+        bull_adx_thresh: float,
+        bull_atr_mult: float,
+        bear_rsi_thresh: float,
+        bear_stop_loss_pct: float,
+        kelly_window: int,
+        max_lev: float,
+        min_lev: float,
+        record_trades: Literal[False] = False,
+        timestamps: pd.Index | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]: ...
+
+    def _run_simulation_logic(
+        self,
+        open_arr: np.ndarray,
+        close_arr: np.ndarray,
+        high_arr: np.ndarray,
+        low_arr: np.ndarray,
+        trend_ma: np.ndarray,
+        ma_fast: np.ndarray,
+        ma_slow: np.ndarray,
+        atr: np.ndarray,
+        adx: np.ndarray,
+        bb_lower: np.ndarray,
+        bb_mid: np.ndarray,
+        rsi: np.ndarray,
+        bull_adx_thresh: float,
+        bull_atr_mult: float,
+        bear_rsi_thresh: float,
+        bear_stop_loss_pct: float,
+        kelly_window: int,
+        max_lev: float,
+        min_lev: float,
+        record_trades: bool = False,
+        timestamps: pd.Index | None = None,
+    ) -> list[dict[str, Any]] | tuple[np.ndarray, np.ndarray]:
         length = len(close_arr)
         signals = np.zeros(length)
         returns = np.zeros(length)
@@ -387,14 +447,14 @@ class TrendReversionStrategy(BaseStrategy):
             signals[i] = position
             returns[i] = bar_return
 
-            if position == 0 and exit_reason:
+            if position == 0 and exit_reason and timestamps is not None:
                 raw_pnl = (exit_price - entry_price) / entry_price
                 # 移除了 Short 相关逻辑，因为此策略只做多
 
                 trade_logs.append(
                     {
-                        "entry_time": timestamps[entry_idx],  # type: ignore
-                        "exit_time": timestamps[i],  # type: ignore
+                        "entry_time": timestamps[entry_idx],
+                        "exit_time": timestamps[i],
                         "reason": exit_reason,
                         "pnl": raw_pnl,
                         "leverage_used": current_leverage,

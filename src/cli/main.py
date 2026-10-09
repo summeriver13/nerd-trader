@@ -5,13 +5,19 @@ src/cli/main.py
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 from src.cli.args import parse_args
 from src.cli.menu import interactive_menu
-from src.research.carry import run_carry
+from src.research.carry import (
+    CAPITAL_MULTIPLE,
+    ROLLING_DAYS,
+    TURNOVER_SHARE,
+    run_carry,
+)
 from src.research.execution import MakerPolicy
 from src.research.position_sizing import VolatilityTarget
+from src.research.provenance import record_run
 from src.research.registry import (
     DEFAULT_BARS,
     ROBUST_DEFAULT_BARS,
@@ -24,6 +30,22 @@ from src.research.registry import (
 from src.research.runners import RobustnessOptions, run_backtest, run_robustness
 from src.utils.console import force_utf8_stdout, setup_logging
 from src.utils.data_loader import TimeFrameStr
+
+
+def _common_config(
+    args: Any, sizing: VolatilityTarget | None, maker: MakerPolicy | None
+) -> dict[str, Any]:
+    """进指纹的配置快照：只放会改变结果的参数。"""
+    return {
+        "timeframe": args.timeframe,
+        "bars": args.bars,
+        "leverage": args.leverage,
+        "vol_target": sizing.target_vol if sizing else None,
+        "vol_lookback": sizing.lookback if sizing else None,
+        "vol_rebalance": sizing.rebalance_every if sizing else None,
+        "maker_offset": maker.offset if maker else None,
+        "maker_patience": maker.patience if maker else None,
+    }
 
 
 def main() -> None:
@@ -42,17 +64,36 @@ def main() -> None:
         else None
     )
     maker = MakerPolicy(patience=args.maker_patience) if args.maker else None
+    symbols = resolve_symbols(args.symbol)
 
     if args.carry:
-        if not run_carry(resolve_symbols(args.symbol), args.carry_days):
+        ok = run_carry(symbols, args.carry_days)
+        record_run(
+            "carry",
+            {
+                "carry_days": args.carry_days,
+                "capital_multiple": CAPITAL_MULTIPLE,
+                "turnover_share": TURNOVER_SHARE,
+                "rolling_days": ROLLING_DAYS,
+            },
+            symbols,
+            timeframe,
+        )
+        if not ok:
             raise SystemExit(1)
         return
 
     if args.robust:
         bars = args.bars if args.bars is not None else ROBUST_DEFAULT_BARS
+        config = _common_config(args, sizing, maker) | {
+            "bars": bars,
+            "segments": args.segments,
+            "trials": args.trials,
+            "strategies": list(STRATEGY_MAP),
+        }
         ok = run_robustness(
             RobustnessOptions(
-                symbols=resolve_symbols(args.symbol),
+                symbols=symbols,
                 timeframe=timeframe,
                 bars=bars,
                 segments=args.segments,
@@ -62,6 +103,8 @@ def main() -> None:
                 maker=maker,
             )
         )
+        # 即使部分标的取数失败也要留指纹：失败本身（数据为 null）已经进 hash
+        record_run("robust", config, symbols, timeframe)
         if not ok:
             raise SystemExit(1)
         return
@@ -75,6 +118,10 @@ def main() -> None:
             )
             raise SystemExit(2)  # 2 = 用法错误，与 argparse 一致
         bars = args.bars if args.bars is not None else DEFAULT_BARS
+        config = _common_config(args, sizing, maker) | {
+            "bars": bars,
+            "strategy": strategy_conf["name"],
+        }
         ok = run_backtest(
             resolve_symbol(args.symbol),
             timeframe,
@@ -84,6 +131,7 @@ def main() -> None:
             sizing=sizing,
             maker=maker,
         )
+        record_run("backtest", config, symbols, timeframe)
         if not ok:
             raise SystemExit(1)
         return

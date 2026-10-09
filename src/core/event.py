@@ -5,12 +5,13 @@ src/core/event.py
 
 import logging
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from queue import Empty, Queue
 from threading import Thread
 from time import sleep
-from typing import Any, Callable
+from typing import Any
 
 
 # --- [变更点 1] 使用 StrEnum 定义事件类型 ---
@@ -53,11 +54,13 @@ class EventEngine:
     """
 
     def __init__(self):
-        self._queue: Queue = Queue()
+        self._queue: Queue[Event] = Queue()
         self._active: bool = False
         self._thread: Thread | None = None
         self._timer_thread: Thread | None = None
-        self._handlers: defaultdict = defaultdict(list)
+        self._handlers: defaultdict[str | EventType, list[Callable[[Event], None]]] = (
+            defaultdict(list)
+        )
 
         # 获取专属 logger
         self.logger = logging.getLogger("EventEngine")
@@ -95,12 +98,12 @@ class EventEngine:
         """向队列压入事件"""
         self._queue.put(event)
 
-    def register(self, type: str | EventType, handler: Callable):
+    def register(self, type: str | EventType, handler: Callable[[Event], None]):
         """注册事件处理函数"""
         if handler not in self._handlers[type]:
             self._handlers[type].append(handler)
 
-    def unregister(self, type: str | EventType, handler: Callable):
+    def unregister(self, type: str | EventType, handler: Callable[[Event], None]):
         """注销事件处理函数"""
         if handler in self._handlers[type]:
             self._handlers[type].remove(handler)

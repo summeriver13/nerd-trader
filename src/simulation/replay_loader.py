@@ -7,8 +7,9 @@ src/simulation/replay_loader.py
 """
 
 import heapq
+from collections.abc import Generator, Iterator
 from datetime import datetime
-from typing import Generator, Iterator, List, Union
+from typing import Any
 
 import pandas as pd
 
@@ -31,7 +32,7 @@ class ReplayLoader:
         self.symbol = symbol
         self.is_bar = is_bar
 
-    def load_data(self) -> Generator[Union[TickData, BarData], None, None]:
+    def load_data(self) -> Generator[TickData | BarData, None, None]:
         """
         加载数据并生成迭代器
         使用 yield 节省内存，支持流式回放
@@ -67,7 +68,7 @@ class ReplayLoader:
             print(f"Error: 加载 {self.symbol} 失败: {e}")
             return
 
-    def _row_to_bar(self, row) -> BarData:
+    def _row_to_bar(self, row: Any) -> BarData:
         """解析 K线数据 (保留 OHLC)"""
         # 兼容 Index 为 datetime 的情况
         dt_val = getattr(row, "datetime", getattr(row, "Index", datetime.now()))
@@ -89,7 +90,7 @@ class ReplayLoader:
             open_interest=float(getattr(row, "open_interest", 0)),
         )
 
-    def _row_to_tick(self, row) -> TickData:
+    def _row_to_tick(self, row: Any) -> TickData:
         """解析 Tick 数据"""
         dt_val = getattr(row, "datetime", getattr(row, "Index", datetime.now()))
         if not isinstance(dt_val, datetime):
@@ -121,10 +122,10 @@ class MultiSymbolLoader:
     原理：使用最小堆 (Min-Heap) 进行多路归并排序。
     """
 
-    def __init__(self, loaders: List[ReplayLoader]):
+    def __init__(self, loaders: list[ReplayLoader]):
         self.loaders = loaders
 
-    def merge_streams(self) -> Iterator[Union[TickData, BarData]]:
+    def merge_streams(self) -> Iterator[TickData | BarData]:
         """
         生成归并后的数据流
         """

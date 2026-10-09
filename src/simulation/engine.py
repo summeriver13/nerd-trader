@@ -7,8 +7,7 @@ Refactored: 集成多标的加载器 (MultiSymbolLoader)，适配 StrategyContex
 import os
 from datetime import date, datetime
 from time import sleep
-from typing import Any, Dict, List, Type, Union
-
+from typing import Any
 
 from src.analytics.equity import EquityTracker
 from src.analytics.reporting import save_trades
@@ -39,7 +38,7 @@ class SimulationEngine:
     def __init__(
         self,
         data_path: str,
-        symbols: Union[str, List[str]],
+        symbols: str | list[str],
         initial_capital: float = DEFAULT_INITIAL_CAPITAL,
         name: str = "BacktestEngine",
     ):
@@ -69,8 +68,8 @@ class SimulationEngine:
         self.strategy: StrategyBase | None = None
 
         # 3. 数据记录
-        self.trades: List[TradeData] = []
-        self.daily_results: Dict[date, float] = {}
+        self.trades: list[TradeData] = []
+        self.daily_results: dict[date, float] = {}
         self.initial_capital = self.gateway.balance
         # 逐根按收盘价 mark-to-market 的权益序列（口径见 src/analytics）
         self.equity = EquityTracker(
@@ -87,7 +86,7 @@ class SimulationEngine:
         print(f">>> [{self.engine_name}] 模拟引擎初始化完成")
 
     def load_strategy(
-        self, strategy_class: Type[StrategyBase], settings: dict[str, Any]
+        self, strategy_class: type[StrategyBase], settings: dict[str, Any]
     ) -> None:
         """加载策略"""
         self.strategy = strategy_class(
@@ -107,7 +106,7 @@ class SimulationEngine:
         self.strategy.on_init()
         print(f">>> 策略 {self.strategy.strategy_name} 已加载")
 
-    def _get_loader(self) -> Union[ReplayLoader, MultiSymbolLoader]:
+    def _get_loader(self) -> ReplayLoader | MultiSymbolLoader:
         """工厂方法：构建数据加载器"""
         if not self.is_multi_symbol:
             # 单标的模式：data_path 被视为完整文件路径

@@ -1,3 +1,5 @@
+from typing import cast, override
+
 import numpy as np
 import pandas as pd
 
@@ -31,15 +33,17 @@ class BollingerMRStrategy(BaseStrategy):
         self.trend_ma_period = trend_ma_period  # [新增]
 
     @property
+    @override
     def warmup_bars(self) -> int:
         """Z-Score 窗口与趋势均线取较长者（趋势过滤关闭时即窗口本身）"""
         return max(self.window, self.trend_ma_period)
 
+    @override
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
 
         # 1. 计算 Z-Score (短期回归指标)
-        df["z_score"] = calculate_z_score(df["close"], self.window)  # type: ignore
+        df["z_score"] = calculate_z_score(cast(pd.Series, df["close"]), self.window)
 
         # 2. [新增] 计算趋势均线 (长期趋势指标)
         if self.trend_ma_period > 0:
@@ -55,6 +59,7 @@ class BollingerMRStrategy(BaseStrategy):
 
         return df
 
+    @override
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         if "z_score" not in df.columns:
             df = self.calculate_indicators(df)
@@ -109,13 +114,13 @@ class BollingerMRStrategy(BaseStrategy):
                     current_position = -1
 
             # --- 3. 平仓逻辑 ---
-            elif current_position == 1:
-                if z_val > -self.exit_std:
-                    current_position = 0
-
-            elif current_position == -1:
-                if z_val < self.exit_std:
-                    current_position = 0
+            elif (
+                current_position == 1
+                and z_val > -self.exit_std
+                or current_position == -1
+                and z_val < self.exit_std
+            ):
+                current_position = 0
 
             signals[i] = current_position
 

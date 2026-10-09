@@ -7,10 +7,12 @@ src/research/strategies/vector_dual_ma.py
 2. 直接调用 self.can_short 控制空头权限
 """
 
+from typing import Any, Literal, overload, override
+
 import numpy as np
 import pandas as pd
 
-from src.research.strategies.base import BaseStrategy, EWM_CONVERGENCE_MULT
+from src.research.strategies.base import EWM_CONVERGENCE_MULT, BaseStrategy
 
 
 class DualMAStrategy(BaseStrategy):
@@ -55,6 +57,7 @@ class DualMAStrategy(BaseStrategy):
         self.adx_period = adx_period
 
     @property
+    @override
     def warmup_bars(self) -> int:
         """最长滚动窗口 + ADX 的 EWM 收敛余量"""
         longest = max(
@@ -62,8 +65,9 @@ class DualMAStrategy(BaseStrategy):
         )
         return longest + EWM_CONVERGENCE_MULT * self.adx_period
 
+    @override
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        if df is None or df.empty:
+        if df.empty:
             return df
         df = df.sort_index()
 
@@ -103,26 +107,27 @@ class DualMAStrategy(BaseStrategy):
 
         sum_di = pd.Series(plus_di + minus_di, index=df.index).replace(0, np.nan)
         dx = 100 * (abs(plus_di - minus_di) / sum_di)
-        df["ADX"] = dx.fillna(0).ewm(alpha=alpha, adjust=False).mean()  # type: ignore
+        df["ADX"] = pd.Series(dx).fillna(0).ewm(alpha=alpha, adjust=False).mean()
 
         return df
 
+    @override
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         if "MA_Trend" not in df.columns:
             df = self.calculate_indicators(df)
 
         signals, _ = self._run_simulation_logic(
-            df["open"].values,
-            df["close"].values,
-            df["high"].values,
-            df["low"].values,
-            df["MA_Trend"].values,
-            df["Bull_Fast"].values,
-            df["Bull_Slow"].values,
-            df["Bear_Fast"].values,
-            df["Bear_Slow"].values,
-            df["ATR"].values,
-            df["ADX"].values,
+            df["open"].to_numpy(),
+            df["close"].to_numpy(),
+            df["high"].to_numpy(),
+            df["low"].to_numpy(),
+            df["MA_Trend"].to_numpy(),
+            df["Bull_Fast"].to_numpy(),
+            df["Bull_Slow"].to_numpy(),
+            df["Bear_Fast"].to_numpy(),
+            df["Bear_Slow"].to_numpy(),
+            df["ATR"].to_numpy(),
+            df["ADX"].to_numpy(),
             self.bull_adx_thresh,
             self.bull_atr_mult,
             self.bear_adx_thresh,
@@ -131,50 +136,94 @@ class DualMAStrategy(BaseStrategy):
         df["signal"] = signals
         return df
 
-    def get_trade_history(self, df: pd.DataFrame) -> list:
+    def get_trade_history(self, df: pd.DataFrame) -> list[dict[str, Any]]:
         if "MA_Trend" not in df.columns:
             df = self.calculate_indicators(df)
 
         return self._run_simulation_logic(
-            df["open"].values,
-            df["close"].values,
-            df["high"].values,
-            df["low"].values,
-            df["MA_Trend"].values,
-            df["Bull_Fast"].values,
-            df["Bull_Slow"].values,
-            df["Bear_Fast"].values,
-            df["Bear_Slow"].values,
-            df["ATR"].values,
-            df["ADX"].values,
+            df["open"].to_numpy(),
+            df["close"].to_numpy(),
+            df["high"].to_numpy(),
+            df["low"].to_numpy(),
+            df["MA_Trend"].to_numpy(),
+            df["Bull_Fast"].to_numpy(),
+            df["Bull_Slow"].to_numpy(),
+            df["Bear_Fast"].to_numpy(),
+            df["Bear_Slow"].to_numpy(),
+            df["ATR"].to_numpy(),
+            df["ADX"].to_numpy(),
             self.bull_adx_thresh,
             self.bull_atr_mult,
             self.bear_adx_thresh,
             self.bear_atr_mult,
             record_trades=True,
             timestamps=df.index,
-        )  # type: ignore
+        )
+
+    @overload
+    def _run_simulation_logic(
+        self,
+        open_arr: np.ndarray,
+        close_arr: np.ndarray,
+        high_arr: np.ndarray,
+        low_arr: np.ndarray,
+        trend_ma_arr: np.ndarray,
+        bull_fast: np.ndarray,
+        bull_slow: np.ndarray,
+        bear_fast: np.ndarray,
+        bear_slow: np.ndarray,
+        atr_arr: np.ndarray,
+        adx_arr: np.ndarray,
+        bull_adx_thresh: float,
+        bull_atr_mult: float,
+        bear_adx_thresh: float,
+        bear_atr_mult: float,
+        record_trades: Literal[True],
+        timestamps: pd.Index | None = None,
+    ) -> list[dict[str, Any]]: ...
+
+    @overload
+    def _run_simulation_logic(
+        self,
+        open_arr: np.ndarray,
+        close_arr: np.ndarray,
+        high_arr: np.ndarray,
+        low_arr: np.ndarray,
+        trend_ma_arr: np.ndarray,
+        bull_fast: np.ndarray,
+        bull_slow: np.ndarray,
+        bear_fast: np.ndarray,
+        bear_slow: np.ndarray,
+        atr_arr: np.ndarray,
+        adx_arr: np.ndarray,
+        bull_adx_thresh: float,
+        bull_atr_mult: float,
+        bear_adx_thresh: float,
+        bear_atr_mult: float,
+        record_trades: Literal[False] = False,
+        timestamps: pd.Index | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]: ...
 
     def _run_simulation_logic(
         self,
-        open_arr,
-        close_arr,
-        high_arr,
-        low_arr,
-        trend_ma_arr,
-        bull_fast,
-        bull_slow,
-        bear_fast,
-        bear_slow,
-        atr_arr,
-        adx_arr,
-        bull_adx_thresh,
-        bull_atr_mult,
-        bear_adx_thresh,
-        bear_atr_mult,
-        record_trades=False,
-        timestamps=None,
-    ):
+        open_arr: np.ndarray,
+        close_arr: np.ndarray,
+        high_arr: np.ndarray,
+        low_arr: np.ndarray,
+        trend_ma_arr: np.ndarray,
+        bull_fast: np.ndarray,
+        bull_slow: np.ndarray,
+        bear_fast: np.ndarray,
+        bear_slow: np.ndarray,
+        atr_arr: np.ndarray,
+        adx_arr: np.ndarray,
+        bull_adx_thresh: float,
+        bull_atr_mult: float,
+        bear_adx_thresh: float,
+        bear_atr_mult: float,
+        record_trades: bool = False,
+        timestamps: pd.Index | None = None,
+    ) -> list[dict[str, Any]] | tuple[np.ndarray, np.ndarray]:
         length = len(close_arr)
         signals = np.zeros(length)
         returns = np.zeros(length)
@@ -299,14 +348,19 @@ class DualMAStrategy(BaseStrategy):
             signals[i] = position
             returns[i] = bar_return
 
-            if record_trades and position == 0 and exit_reason:
+            if (
+                record_trades
+                and position == 0
+                and exit_reason
+                and timestamps is not None
+            ):
                 pnl = (exit_price - entry_price) / entry_price
                 if "Short" in exit_reason:
                     pnl *= -1
                 trade_logs.append(
                     {
-                        "entry_time": timestamps[entry_idx],  # type: ignore
-                        "exit_time": timestamps[i],  # type: ignore
+                        "entry_time": timestamps[entry_idx],
+                        "exit_time": timestamps[i],
                         "reason": exit_reason,
                         "pnl": pnl,
                     }

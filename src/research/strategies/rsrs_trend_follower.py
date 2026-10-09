@@ -6,7 +6,7 @@ RSRS (Resistance Support Relative Strength) 趋势增强策略
 
 from __future__ import annotations
 
-from typing import Any, Literal, overload
+from typing import Any, Literal, overload, override
 
 import numpy as np
 import pandas as pd
@@ -39,16 +39,18 @@ class RSRSTrendStrategy(BaseStrategy):
         self.effective_max_lev = min(max_leverage, self.max_leverage)
 
     @property
+    @override
     def warmup_bars(self) -> int:
         """RSRS 斜率是双层滚动（n 根上再 m 根），两层相加"""
         return self.rsrs_m + self.rsrs_n
 
+    @override
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         利用向量化计算 RSRS 指标。
         修复了 ndarray 没有 replace 属性的问题，并优化了除零处理。
         """
-        if df is None or df.empty:
+        if df.empty:
             return df
 
         df = df.sort_index().copy()
@@ -90,6 +92,7 @@ class RSRSTrendStrategy(BaseStrategy):
 
         return df
 
+    @override
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """生成信号序列。"""
         if "RSRS_Zscore" not in df.columns:
