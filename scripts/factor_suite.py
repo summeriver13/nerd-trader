@@ -18,8 +18,8 @@ from typing import cast
 
 import pandas as pd
 
-from src.research.factors.evaluation import DEFAULT_ONE_WAY_COST, PortfolioOptions
 from src.research.factors.panel import Panel, UniverseRule, load_panel
+from src.research.factors.portfolio import DEFAULT_ONE_WAY_COST, PortfolioOptions
 from src.research.factors.report import (
     DEFAULT_HORIZONS,
     DEFAULT_PORTFOLIO_HORIZON,
@@ -109,7 +109,10 @@ def print_ic(report: FactorReport) -> None:
 
 
 def print_portfolio(report: FactorReport) -> None:
-    """分位组合表：多空价差与只多腿并列，单调性说明只多腿是否可信。"""
+    """分位组合表：多空价差与只多腿并列，单调性说明只多腿是否可信。
+
+    这里的「只多年化」是算术折算，不是可复利收益；判定要看 print_benchmark。
+    """
     first = report.portfolio.iloc[0]
     print(
         f"\n=== 分位组合（非重叠期次，名义基准，{first['quantiles']} 分位"
@@ -126,6 +129,28 @@ def print_portfolio(report: FactorReport) -> None:
             f"{row['net_spread']:>9.4f}{row['annual_net']:>10.3f}"
             f"{row['long_only_net']:>9.4f}{row['long_only_annual']:>10.3f}"
             f"{row['monotonicity']:>8.2f}{row['long_turnover']:>7.3f}"
+        )
+
+
+def print_benchmark(report: FactorReport) -> None:
+    """只多腿 vs 等权全体与 BTC：不比基准就分不清收益来自因子还是来自市场 beta。
+
+    「只多算术」是期均值×每年期数，年化波动 95% 的腿上它比实际到手高十几个
+    百分点；「只多复利」才是拿到手的。判定看「超额」与「BTC复利」两列：
+    跑输等权说明因子无用，跑赢等权但跑输 BTC 说明不如直接买 BTC。
+    """
+    print("\n=== 只多腿 vs 市场基准（等权全体与 BTC 买入持有，同期同起点）===")
+    print(
+        f"{'因子':<{FACTOR_WIDTH}}{'只多算术':>10}{'只多复利':>10}{'只多夏普':>10}"
+        f"{'只多回撤':>10}{'等权复利':>10}{'超额':>10}{'BTC复利':>10}{'BTC夏普':>10}"
+    )
+    for _, row in report.portfolio.iterrows():
+        print(
+            f"{row['factor']:<{FACTOR_WIDTH}}{row['long_only_annual']:>10.3f}"
+            f"{row['long_compounded']:>10.3f}{row['long_sharpe']:>10.2f}"
+            f"{row['long_drawdown']:>10.3f}{row['market_compounded']:>10.3f}"
+            f"{row['excess_compounded']:>10.3f}{row['btc_compounded']:>10.3f}"
+            f"{row['btc_sharpe']:>10.2f}"
         )
 
 
@@ -179,6 +204,7 @@ def main() -> int:
     print_universe(panel, report)
     print_ic(report)
     print_portfolio(report)
+    print_benchmark(report)
     print_correlation(report)
     print_capacity(report)
     print_survivorship(report)

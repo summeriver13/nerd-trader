@@ -16,7 +16,7 @@ from typing import Final
 
 import pandas as pd
 
-from src.research.factors.evaluation import MIN_NAMES_PER_QUANTILE, forward_returns
+from src.research.factors.evaluation import forward_returns
 from src.research.factors.library import FactorSpec
 from src.research.factors.panel import (
     LIQUIDITY_WINDOW,
@@ -25,6 +25,7 @@ from src.research.factors.panel import (
     listing_age_days,
     tradable_mask,
 )
+from src.research.factors.portfolio import MIN_NAMES_PER_QUANTILE
 
 # 单标的能吃掉的最大比例：日名义额的一定比例，超过就会自己推动价格
 MAX_PARTICIPATION: Final[float] = 0.01

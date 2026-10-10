@@ -2,7 +2,7 @@
 src/research/factors/report.py
 因子台的报告层：把 IC、分位组合、相关、容量、幸存者偏差汇成可落盘的表。
 
-四条口径，缺一条结论就不能用：
+五条口径，缺一条结论就不能用：
 
 1. **显著性只认非重叠 t 值**，且必须过多重检验校正。因子库有 N 个因子 × H 个
    horizon，报「最好的那个」等于没校正；门槛用 Bonferroni 双侧临界值。
@@ -13,6 +13,9 @@ src/research/factors/report.py
 3. **容量是前提不是结论**：截面因子的收益常常在能下单的规模上就没了。
 4. **幸存者偏差是前提不是结论**：缓存里 0 个退市标的，任何依赖上市初期收益的
    数字都不能当证据。
+5. **必须跟等权全体比，且报复利不报算术**：只多腿的绝对收益里含市场 beta，
+   不减去基准就分不清收益来自因子还是来自市场；*_annual 是算术折算，在年化波动
+   95% 的腿上它比实际到手高出十几个百分点。判定看 excess_compounded。
 """
 
 from __future__ import annotations
@@ -30,19 +33,19 @@ from src.research.factors.diagnostics import (
     factor_correlation,
     survivorship_probe,
 )
-from src.research.factors.evaluation import (
-    DEFAULT_ONE_WAY_COST,
-    PortfolioOptions,
-    PortfolioStats,
-    ic_stats,
-    portfolio_stats,
-)
+from src.research.factors.evaluation import ic_stats
 from src.research.factors.library import FACTOR_LIBRARY, FactorSpec
 from src.research.factors.panel import (
     Panel,
     UniverseRule,
     tradable_counts,
     tradable_mask,
+)
+from src.research.factors.portfolio import (
+    DEFAULT_ONE_WAY_COST,
+    PortfolioOptions,
+    PortfolioStats,
+    portfolio_stats,
 )
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "factors"
@@ -169,6 +172,8 @@ def _portfolio_row(
         if not stats.quantile_returns.empty
         else 0.0
     )
+    long_leg = stats.long_leg
+    market_leg = stats.market_leg
     return {
         "factor": spec.key,
         "label": spec.label,
@@ -189,6 +194,19 @@ def _portfolio_row(
         # 分位收益与分位序号的秩相关：低单调性说明「只多腿好看」来自极端分位
         # 而非单调排序，这种收益换个起始点就消失
         "monotonicity": _monotonicity(stats.quantile_returns),
+        # 只多腿的复利口径：算术年化会因波动拖累高估实际收益
+        "long_compounded": long_leg.annual_compounded,
+        "long_sharpe": long_leg.sharpe,
+        "long_drawdown": long_leg.max_drawdown,
+        # 市场基准（每期等权全体）：不跟它比就分不清因子与 beta
+        "market_compounded": market_leg.annual_compounded,
+        "market_sharpe": market_leg.sharpe,
+        "market_drawdown": market_leg.max_drawdown,
+        "excess_compounded": stats.excess_compounded,
+        # BTC 买入持有（同期同起点）：比等权基准更硬的一道关
+        "btc_compounded": stats.btc_leg.annual_compounded,
+        "btc_sharpe": stats.btc_leg.sharpe,
+        "btc_drawdown": stats.btc_leg.max_drawdown,
     }
 
 

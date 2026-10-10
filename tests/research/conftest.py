@@ -9,11 +9,17 @@ from collections.abc import Callable
 import pandas as pd
 import pytest
 
+from src.research.factors.library import FactorSpec
 from src.research.factors.panel import Panel
 
 type PanelFactory = Callable[[dict[str, list[float]]], Panel]
+type SpecFactory = Callable[[bool], FactorSpec]
 
 DAILY_NOTIONAL: float = 1e6
+# 手算合成数据的口径：第 i 个标的每根收益 = STEP × i，分位与 IC 都能一眼算出
+NAMES: int = 20
+PERIODS: int = 4
+STEP: float = 0.01
 
 
 @pytest.fixture
@@ -30,6 +36,42 @@ def panel_factory() -> PanelFactory:
             close=close,
             volume=volume,
             notional=close * volume,
+        )
+
+    return _make
+
+
+@pytest.fixture
+def ranked_panel(panel_factory: PanelFactory) -> tuple[Panel, list[float]]:
+    """确定性行情：第 i 个标的每根收益 = STEP × i，返回面板与收益率列表。"""
+    rates = [STEP * index for index in range(NAMES)]
+    closes = {
+        f"N{index:02d}-USDT": [100.0 * (1 + rate) ** bar for bar in range(PERIODS)]
+        for index, rate in enumerate(rates)
+    }
+    return panel_factory(closes), rates
+
+
+@pytest.fixture
+def rank_spec() -> SpecFactory:
+    """因子值 = 标的下标（越大越看多）的工厂；reverse=True 验证符号方向。"""
+
+    def _make(reverse: bool = False) -> FactorSpec:
+        sign = -1.0 if reverse else 1.0
+
+        def compute(panel: Panel) -> pd.DataFrame:
+            return pd.DataFrame(
+                {name: float(index) * sign for index, name in enumerate(panel.symbols)},
+                index=panel.index,
+            )
+
+        return FactorSpec(
+            key="rank",
+            label="手算排名因子",
+            family="测试",
+            direction=1,
+            warmup=0,
+            compute=compute,
         )
 
     return _make
