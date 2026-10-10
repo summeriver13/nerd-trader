@@ -1,8 +1,10 @@
 """
-资金费率数据源：Binance 永续（历史最长），带本地 Parquet 缓存。
+资金费率数据源：Binance 与 OKX 永续，带本地 Parquet 缓存。
 
-OKX 的资金费率接口只保留约 100 天，做 carry 的长历史研究必须换源；
-Binance 公开接口可回溯到 2019-09，8 小时结算口径与 OKX 一致。
+长历史研究只能取 Binance：OKX 接口只保留约 103 天（2026-10 实测），
+Binance 公开接口可回溯到 2019-09，两者都是 8 小时结算口径。
+OKX 仍然要抓：「费率取 Binance、执行按 OKX」这一跨源代理假设，
+只有同期 OKX 费率能量化它的误差。
 """
 
 from __future__ import annotations
@@ -28,14 +30,19 @@ FUNDING_TIMEFRAME = "8h"
 FUNDING_INTERVAL = pd.Timedelta(
     8, unit="h"
 )  # 结算间隔由交易所决定，此处只作缓存新鲜度容差
+# 默认取 Binance：唯一有长历史的源；传 exchange_id="okx" 可覆盖
+FUNDING_EXCHANGE_ID = "binance"
+# 单页上限：Binance 支持 1000，OKX 传 1000 会自行截断到可用长度（实测 310 条）
 PAGE_LIMIT = 1000
 REQUEST_TIMEOUT_MS = 20000
 RATE_LIMIT_SLEEP = 0.3
 UTC_TZ = "UTC"
 
 
-def create_funding_exchange(default_type: str = "future") -> ccxt.Exchange:
-    """构造 Binance 客户端（只用公共接口，代理沿用 OKX 配置）。
+def create_funding_exchange(
+    default_type: str = "future", exchange_id: str = FUNDING_EXCHANGE_ID
+) -> ccxt.Exchange:
+    """构造交易所客户端（只用公共接口，代理沿用 OKX 配置）。
 
     资金费率走永续（future）；跨源比价要的是现货，才与 OKX 缓存的现货口径一致。
     """
@@ -49,7 +56,7 @@ def create_funding_exchange(default_type: str = "future") -> ccxt.Exchange:
         config["proxies"] = {"http": proxy, "https": proxy}
     # ccxt 的 ConstructorArgs 类型比运行时严格：配置本身就是任意字典，
     # 与 settings.py 构造客户端一样按 Any 传入，不去迎合类型定义。
-    exchange = ccxt.binance(cast(Any, config))
+    exchange = cast(Any, getattr(ccxt, exchange_id))(config)
     exchange.load_markets()
     return exchange
 
@@ -69,8 +76,12 @@ class FundingSource:
     """
 
     def __init__(
-        self, exchange: ccxt.Exchange | None = None, data_root: Path | None = None
+        self,
+        exchange: ccxt.Exchange | None = None,
+        data_root: Path | None = None,
+        exchange_id: str = FUNDING_EXCHANGE_ID,
     ) -> None:
+        self.exchange_id = exchange_id
         self._exchange = exchange
         self.data_root = data_root if data_root is not None else CRYPTO_ROOT
 
@@ -82,13 +93,16 @@ class FundingSource:
         静态分析会把调用之后的代码全判成不可达，故按 Any 处理。
         """
         if self._exchange is None:
-            self._exchange = create_funding_exchange()
+            self._exchange = create_funding_exchange(exchange_id=self.exchange_id)
         return self._exchange
 
     def _cache_path(self, symbol: str) -> Path:
         return (
             crypto_dataset_dir(
-                "binance", MARKET_FUNDING, FUNDING_TIMEFRAME, root=self.data_root
+                self.exchange_id,
+                MARKET_FUNDING,
+                FUNDING_TIMEFRAME,
+                root=self.data_root,
             )
             / f"{symbol_stem(symbol)}.parquet"
         )
@@ -173,7 +187,9 @@ class FundingSource:
         fetch_start = (
             target_start if local.empty else cast(pd.Timestamp, local.index[-1])
         )
-        print(f"[Binance] 获取 {symbol} 资金费率（{fetch_lookback_days} 天）...")
+        print(
+            f"[{self.exchange_id}] 获取 {symbol} 资金费率（{fetch_lookback_days} 天）..."
+        )
         fetched = self.fetch(symbol, fetch_start.to_pydatetime(), now.to_pydatetime())
         merged = pd.concat([local, fetched])
         merged = merged[~merged.index.duplicated(keep="last")].sort_index()

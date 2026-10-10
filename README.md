@@ -151,7 +151,7 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 
 ```text
 data/              数据湖（不入版本库）：storage/ 行情与资金费率缓存、results/ 回测产物与复现指纹
-scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）、趋势对比（trend_duel）、单策略统一测试（strategy_suite）、重合度与组合（strategy_correlation）
+scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）、趋势对比（trend_duel）、单策略统一测试（strategy_suite）、重合度与组合（strategy_correlation）、资金费率抓取（fetch_funding_history）与 carry 排名（carry_ranking）
 src/analytics/     绩效指标（单一出处）
 src/cli/           研究回测的命令行与交互菜单
 src/config/        环境配置读取、路径常量、实盘参数表
@@ -161,7 +161,7 @@ src/simulation/    事件驱动：engine、mock_gateway、replay_loader
 src/strategies/    事件驱动策略（dual_ma）
 src/utils/         数据调度与数据源
 run.py / research.py  两个薄壳入口（逻辑在 src/cli/ 与 src/simulation/）
-docs/              因子/模型/书目/交易者笔记/执行与信号研究/趋势研究/组合研究
+docs/              因子/模型/书目/交易者笔记/执行与信号研究/趋势研究/组合研究/carry 研究
 ```
 
 ## 依赖与源
@@ -181,3 +181,4 @@ docs/              因子/模型/书目/交易者笔记/执行与信号研究/�
 | `docs/execution/` | 执行与信号研究：被动挂单成交率与逆向选择、1m 方向性信号扫描 |
 | `docs/trend/` | 趋势追踪研究：经典唐奇安与自适应双均线的对比 |
 | `docs/portfolio/` | 组合研究：单策略统一测试、重合度与等权组合 |
+| `docs/carry/` | 资金费率 carry：净收益排名与跨源校验 |
