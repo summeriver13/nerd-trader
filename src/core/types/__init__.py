@@ -25,8 +25,6 @@ class Offset(Enum):
     NONE = ""
     OPEN = "开"
     CLOSE = "平"
-    CLOSETODAY = "平今"
-    CLOSEYESTERDAY = "平昨"
 
 
 class Status(Enum):
@@ -51,15 +49,8 @@ class OrderType(Enum):
 
 
 class Exchange(Enum):
-    """交易所 (示例)"""
+    """交易所"""
 
-    SSE = "SSE"  # 上交所
-    SZSE = "SZSE"  # 深交所
-    CFFEX = "CFFEX"  # 中金所
-    SHFE = "SHFE"  # 上期所
-    DCE = "DCE"  # 大商所
-    CZCE = "CZCE"  # 郑商所
-    INE = "INE"  # 能源中心
     BINANCE = "BINANCE"
     OKX = "OKX"
     MOCK = "MOCK"  # 模拟盘
@@ -98,8 +89,6 @@ class TickData(BaseData):
     open_interest: float = 0
     last_price: float = 0
     last_volume: float = 0
-    limit_up: float = 0
-    limit_down: float = 0
 
     # 盘口深度 (简版只给一档，需要的可以自行扩充)
     bid_price_1: float = 0
