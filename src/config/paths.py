@@ -20,3 +20,38 @@ MANIFEST_ROOT = DATA_ROOT / "manifests"
 
 # 数据集 manifest 存放处（覆盖区间/行数/来源/hash），格式对齐容器数据湖
 MANIFEST_SUFFIX = ".json"
+
+# === crypto 数据集的目录契约 ===
+# <crypto>/<exchange>/<market>/<timeframe>/<标的>.parquet
+# market 是数据集的语义维度而不是目录装饰：现货与永续的上市起点、杠杆与成本口径都不同，
+# 且永续的 ccxt 符号带结算币后缀（BTC/USDT:USDT），冒号在 Windows 上不能进文件名。
+MARKET_SPOT = "spot"
+MARKET_SWAP = "swap"
+MARKET_FUNDING = "funding"
+SETTLEMENT_SEP = ":"
+
+
+def symbol_market(symbol: str) -> str:
+    """ccxt 符号 → 市场层级：带结算币后缀的是永续。"""
+    return MARKET_SWAP if SETTLEMENT_SEP in symbol else MARKET_SPOT
+
+
+def symbol_stem(symbol: str) -> str:
+    """ccxt 符号 → 文件名主干：去掉结算币后缀并转成文件名安全形式。"""
+    return symbol.split(SETTLEMENT_SEP)[0].replace("/", "-").upper()
+
+
+def crypto_dataset_dir(
+    exchange: str, market: str, timeframe: str, *, root: Path = CRYPTO_ROOT
+) -> Path:
+    """crypto 数据集目录：<crypto>/<exchange>/<market>/<timeframe>。"""
+    return root / exchange / market / timeframe
+
+
+def crypto_bar_path(
+    exchange: str, symbol: str, timeframe: str, *, root: Path = CRYPTO_ROOT
+) -> Path:
+    """行情文件路径；市场层级由符号本身推断，调用方不必重复判断。"""
+    return crypto_dataset_dir(
+        exchange, symbol_market(symbol), timeframe, root=root
+    ) / f"{symbol_stem(symbol)}.parquet"

@@ -20,7 +20,7 @@ from typing import Final, Literal, cast
 import ccxt
 import pandas as pd
 
-from src.config.paths import STORAGE_ROOT
+from src.config.paths import CRYPTO_ROOT, crypto_bar_path
 
 from .bar_quality import (
     SPIKE_RATIO,
@@ -59,20 +59,16 @@ class MarketDataHandler:
     """
 
     def __init__(self, source: BaseDataSource, data_root: Path | None = None) -> None:
+        """data_root 是 crypto 数据根（默认 data/storage/crypto），测试可注入临时目录。"""
         self.source = source
         self.data_root: Final[Path] = (
-            data_root if data_root is not None else STORAGE_ROOT
+            data_root if data_root is not None else CRYPTO_ROOT
         )
 
     def _get_file_path(self, symbol: str, timeframe: TimeFrameStr) -> Path:
-        """生成标准化的本地持久化路径。"""
-        safe_symbol = symbol.replace("/", "-").upper()
-        return (
-            self.data_root
-            / "crypto"
-            / self.source.label
-            / timeframe
-            / f"{safe_symbol}.parquet"
+        """标准化的本地持久化路径：市场层级（现货/永续）由符号推断。"""
+        return crypto_bar_path(
+            self.source.label, symbol, timeframe, root=self.data_root
         )
 
     def prepare_data(
@@ -93,22 +89,27 @@ class MarketDataHandler:
 
         need_fetch = False
         fetch_start = cast(datetime, target_start_dt)
+        fetch_end = cast(datetime, now_utc)
         if df_local is None or df_local.empty or force_update:
             need_fetch = True
         else:
             local_index = pd.DatetimeIndex(df_local.index)
-            # 情况 A: 本地起点太晚，无法覆盖请求窗口；已问过更早起点就不再重下
+            # 情况 A: 本地起点太晚 → 只补头部（请求起点 → 本地起点）。
+            # 长历史回填最怕一次抖动丢掉整段成果，补头部让每次调用只搬缺失的那一截；
+            # 源侧给不出更早历史时（已问过起点）不再重下。
             if local_index[0] > target_start_dt:
                 if self._probed_earlier(file_path, target_start_dt):
                     logger.info(
                         f"[{symbol}] 本地起点 {local_index[0]:%Y-%m-%d} 晚于请求起点 "
-                        f"{target_start_dt:%Y-%m-%d}，但已问过更早起点，跳过全量同步"
+                        f"{target_start_dt:%Y-%m-%d}，但已问过更早起点，跳过补头部"
                     )
                 else:
                     logger.info(
-                        f"[{symbol}] 本地历史深度不足 ({local_index[0]:%Y-%m-%d}), 执行全量同步"
+                        f"[{symbol}] 本地历史深度不足 ({local_index[0]:%Y-%m-%d}), 补头部 "
+                        f"{target_start_dt:%Y-%m-%d} → {local_index[0]:%Y-%m-%d}"
                     )
                     need_fetch = True
+                    fetch_end = cast(datetime, local_index[0])
             # 情况 B: 本地最新时间太早，需要增量更新（从最后一根续抓，避免空洞）
             if not need_fetch and local_index[-1] < now_utc - timedelta(
                 hours=STALE_HOURS
@@ -119,9 +120,7 @@ class MarketDataHandler:
 
         if need_fetch:
             # 取数失败会抛 DataSourceError，不再静默回退到过期缓存
-            df_new = self._fetch(
-                symbol, timeframe, fetch_start, cast(datetime, now_utc)
-            )
+            df_new = self._fetch(symbol, timeframe, fetch_start, fetch_end)
             if fetch_start == target_start_dt:
                 # 记下问过的起点：源侧给不出更早历史时，下次不再全量重下
                 self._write_asked_start(file_path, target_start_dt)

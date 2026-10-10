@@ -141,17 +141,17 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 
 ## 数据与配置
 
-- 缓存路径：`data/storage/crypto/<exchange_id>/<timeframe>/<SYMBOL>.parquet`，`data/` 不入版本库。
+- 缓存路径：`data/storage/crypto/<exchange_id>/<market>/<timeframe>/<SYMBOL>.parquet`（`market` = `spot` | `swap`），`data/` 不入版本库。
 - 研究/回测产物：数值表格一律落 parquet（`compression="snappy"`），不写 CSV；唯一例外是 `data/results/<策略>_equity.csv`，它是 pi 扩展字符曲线的数据源（零依赖 TS 解析）。
 - 复现指纹：每次成功运行写 `data/results/provenance/<run_id>.json`，`repro_hash` = sha256(配置快照 + 数据指纹 + git HEAD/脏标记)，同一命令必得同一 hash（`src/research/provenance.py`）。
-- 资金费率缓存：`data/storage/crypto/binance/8h/<SYMBOL>.parquet`（OKX 只保留约 100 天，长历史取 Binance，回溯至 2019-09）。
+- 资金费率缓存：`data/storage/crypto/binance/funding/8h/<SYMBOL>.parquet`（OKX 只保留约 100 天，长历史取 Binance，回溯至 2019-09）。
 - 数据源：ccxt，交易所实例由调用方注入（行情为 OKX，资金费率为 Binance 公共接口）。
 
 ## 目录结构
 
 ```text
 data/              数据湖（不入版本库）：storage/ 行情与资金费率缓存、results/ 回测产物与复现指纹
-scripts/           数据与执行对账：manifest 生成、行情交叉校验、成本/滑点对账
+scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账
 src/analytics/     绩效指标（单一出处）
 src/cli/           研究回测的命令行与交互菜单
 src/config/        环境配置读取、路径常量、实盘参数表

@@ -15,10 +15,12 @@ logger = logging.getLogger(__name__)
 
 
 class CCXTSource(BaseDataSource):
-    # 连续失败上限：数据源持续不可用时快速失败，不要无限重试把调用方挂死
-    MAX_CONSECUTIVE_FAILURES: int = 5
-    # 单页 K 线数量（交易所分页上限）
-    PAGE_LIMIT: int = 100
+    # 连续失败上限与退避：限速封禁通常持续几十秒，固定 3 秒重试会在封禁窗口内耗光次数
+    MAX_CONSECUTIVE_FAILURES: int = 6
+    RETRY_BACKOFF_SECONDS: float = 3.0
+    # 单页 K 线数量：OKX 单页上限 300（实测 history-candles 给满 300 根），
+    # 取 300 让全量回填少翻 2/3 的页；对上限更高的交易所（Binance 1000）同样安全
+    PAGE_LIMIT: int = 300
     # 起点定位的最少试探次数与总时间预算（越界请求既慢又不稳定）
     PROBE_STEPS: int = 8
     PROBE_BUDGET_SECONDS: float = 60.0
@@ -106,7 +108,8 @@ class CCXTSource(BaseDataSource):
         all_candles: list[list[float]] = []  # 明确内部类型
         limit = self.PAGE_LIMIT
 
-        print(f"⬇️ [CCXT] 获取 {symbol} ({timeframe}) ...")
+        # 全量回填动辄几十分钟，进度行必须即时可见（重定向到文件时默认是块缓冲）
+        print(f"[CCXT] 获取 {symbol} ({timeframe}) ...", flush=True)
 
         failures = 0
         probe_used = False
@@ -119,14 +122,17 @@ class CCXTSource(BaseDataSource):
                 failures = 0
             except Exception as e:
                 failures += 1
+                wait = self.RETRY_BACKOFF_SECONDS * (2 ** (failures - 1))
                 print(
-                    f"   ❌ CCXT Error ({failures}/{self.MAX_CONSECUTIVE_FAILURES}): {e}"
+                    f"   CCXT Error ({failures}/{self.MAX_CONSECUTIVE_FAILURES}) "
+                    f"{type(e).__name__}: {e!r}；{wait:.0f}s 后重试",
+                    flush=True,
                 )
                 if failures >= self.MAX_CONSECUTIVE_FAILURES:
                     raise RuntimeError(
-                        f"{symbol} 连续 {failures} 次抓取失败，请检查网络与代理"
+                        f"{symbol} 连续 {failures} 次抓取失败（网络/代理/限速）"
                     ) from e
-                time.sleep(3)
+                time.sleep(wait)
                 continue
 
             if not ohlcv:
@@ -145,8 +151,9 @@ class CCXTSource(BaseDataSource):
                 if probed >= end_ts:
                     break
                 print(
-                    f"   ↩️ 起点早于最早 K 线，收敛到 "
-                    f"{pd.Timestamp(probed, unit='ms', tz='UTC').date()}"
+                    f"   起点早于最早 K 线，收敛到 "
+                    f"{pd.Timestamp(probed, unit='ms', tz='UTC').date()}",
+                    flush=True,
                 )
                 since_ts = max(probed, since_ts + 1)
                 continue
@@ -157,7 +164,8 @@ class CCXTSource(BaseDataSource):
 
             all_candles.extend(ohlcv)  # type: ignore
             since_ts = last_ts + 1
-            time.sleep(self.exchange.rateLimit / 1000)
+            # 限速交给 ccxt 的 enableRateLimit（按交易所 rateLimit 自动节流）；
+            # 这里再 sleep 一次等于速度砍半（实测 967 → 1981 根/秒）
 
         if not all_candles:
             return pd.DataFrame()

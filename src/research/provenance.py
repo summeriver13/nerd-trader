@@ -25,7 +25,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from src.config.paths import CRYPTO_ROOT, MANIFEST_ROOT, PROJECT_ROOT, RESULTS_ROOT
+from src.config.paths import (
+    MANIFEST_ROOT,
+    PROJECT_ROOT,
+    RESULTS_ROOT,
+    crypto_bar_path,
+    symbol_market,
+)
 from src.core.costs import (
     MARKET_SLIPPAGE,
     PERP_MAKER_FEE,
@@ -38,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 PROVENANCE_DIR = RESULTS_ROOT / "provenance"
 BAR_SOURCE = "okx"  # 行情缓存来源
-FUNDING_DATASET = "crypto_binance_8h"  # 资金费率缓存（binance/8h）
+FUNDING_DATASET = "crypto_binance_funding_8h"  # 资金费率缓存（binance/funding/8h）
 HASH_DISPLAY_LEN = 12
 READ_CHUNK = 1 << 20
 
@@ -73,19 +79,18 @@ def _git_fingerprint() -> dict[str, Any]:
 
 
 def data_fingerprint(symbols: list[str], timeframe: str) -> dict[str, Any]:
-    """本次读到的数据：逐标的行情文件 + 两份 manifest 的 sha256。"""
+    """本次读到的数据：逐标的行情文件 + 各市场 manifest 的 sha256。"""
     bars = {
-        symbol: _sha256_file(
-            CRYPTO_ROOT
-            / BAR_SOURCE
-            / timeframe
-            / f"{symbol.replace('/', '-').upper()}.parquet"
-        )
+        symbol: _sha256_file(crypto_bar_path(BAR_SOURCE, symbol, timeframe))
         for symbol in symbols
     }
+    manifest_names = [
+        f"crypto_{BAR_SOURCE}_{market}_{timeframe}"
+        for market in sorted({symbol_market(symbol) for symbol in symbols})
+    ]
     manifests = {
         name: _sha256_file(MANIFEST_ROOT / f"{name}.json")
-        for name in (f"crypto_{BAR_SOURCE}_{timeframe}", FUNDING_DATASET)
+        for name in (*manifest_names, FUNDING_DATASET)
     }
     return {"bars": bars, "manifests": manifests}
 

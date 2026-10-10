@@ -12,6 +12,7 @@
 
 用法：
     uv run python scripts/crosscheck_crypto_bars.py [--symbol BTC/USDT] [--timeframe 1d] [--bars 0]
+    uv run python scripts/crosscheck_crypto_bars.py --symbol "BTC/USDT:USDT" --timeframe 1m --bars 5000
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ import ccxt
 import numpy as np
 import pandas as pd
 
-from src.config.paths import PROJECT_ROOT, STORAGE_ROOT
+from src.config.paths import PROJECT_ROOT, crypto_bar_path
 from src.config.settings import create_data_exchange
 from src.utils.data_sources.crypto import CCXTSource
 from src.utils.data_sources.funding import create_funding_exchange
@@ -42,14 +43,13 @@ DAY_MS = 86_400_000
 
 
 def _cache_path(symbol: str, timeframe: str) -> Path:
-    safe = symbol.replace("/", "-").upper()
-    return STORAGE_ROOT / "crypto" / OKX_LABEL / timeframe / f"{safe}.parquet"
+    return crypto_bar_path(OKX_LABEL, symbol, timeframe)
 
 
 def _load_cached(symbol: str, timeframe: str, bars: int) -> pd.DataFrame:
     path = _cache_path(symbol, timeframe)
     if not path.exists():
-        raise SystemExit(f"❌ 无缓存：{path}（先跑一次 research.py 生成）")
+        raise SystemExit(f"无缓存：{path}（先跑一次 research.py 生成）")
     frame = pd.read_parquet(path)
     frame.index = pd.to_datetime(frame.index, utc=True)
     frame = frame.sort_index()
@@ -90,7 +90,7 @@ def check_same_source(cached: pd.DataFrame, symbol: str, timeframe: str) -> bool
     if mismatched:
         worst = diff.max(axis=1).sort_values(ascending=False).head(5)
         for stamp, value in worst.items():
-            print(f"   ⚠️ {stamp}: 最大偏差 {value:.6g}")
+            print(f"   [!] {stamp}: 最大偏差 {value:.6g}")
     return missing == 0 and mismatched == 0
 
 
@@ -98,7 +98,9 @@ def _fetch_cross_source(
     symbol: str, start: pd.Timestamp, end: pd.Timestamp
 ) -> pd.Series:
     """分页取第二来源日线：单页上限 1000 根，全历史必须翻页。"""
-    exchange: Any = create_funding_exchange("spot")  # 现货口径，与 OKX 缓存同口径
+    # 第二来源的市场类型跟着符号走：永续（带结算币后缀）必须用合约市场，
+    # 否则会拿现货去对永续，把基差算成「数据差异」
+    exchange: Any = create_funding_exchange("future" if ":" in symbol else "spot")
     rows: list[list[float]] = []
     since_ms = int(start.timestamp() * 1000)
     end_ms = int(end.timestamp() * 1000)
@@ -166,7 +168,7 @@ def check_cross_source(cached: pd.DataFrame, symbol: str) -> bool | None:
     ok = median <= CROSS_SOURCE_MEDIAN_BP and p95 <= CROSS_SOURCE_P95_BP
     if not ok:
         print(
-            f"   ⚠️ 超过阈值（中位 ≤{CROSS_SOURCE_MEDIAN_BP:.0f}bp、"
+            f"   [!] 超过阈值（中位 ≤{CROSS_SOURCE_MEDIAN_BP:.0f}bp、"
             f"P95 ≤{CROSS_SOURCE_P95_BP:.0f}bp）：需人工确认哪一侧数据有问题"
         )
     return ok

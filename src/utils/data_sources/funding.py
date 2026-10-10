@@ -16,7 +16,12 @@ from typing import Any, cast
 import ccxt
 import pandas as pd
 
-from src.config.paths import STORAGE_ROOT
+from src.config.paths import (
+    CRYPTO_ROOT,
+    MARKET_FUNDING,
+    crypto_dataset_dir,
+    symbol_stem,
+)
 from src.config.settings import GLOBAL_CONFIG
 
 FUNDING_TIMEFRAME = "8h"
@@ -42,8 +47,9 @@ def create_funding_exchange(default_type: str = "future") -> ccxt.Exchange:
     if GLOBAL_CONFIG.use_proxy and GLOBAL_CONFIG.proxy_url:
         proxy = GLOBAL_CONFIG.proxy_url
         config["proxies"] = {"http": proxy, "https": proxy}
-    # ccxt 的 ConstructorConfig 比文档里的 dict 严格，配置本身就是任意字典
-    exchange = ccxt.binance(config)  # pyright: ignore[reportArgumentType]
+    # ccxt 的 ConstructorArgs 类型比运行时严格：配置本身就是任意字典，
+    # 与 settings.py 构造客户端一样按 Any 传入，不去迎合类型定义。
+    exchange = ccxt.binance(cast(Any, config))
     exchange.load_markets()
     return exchange
 
@@ -66,7 +72,7 @@ class FundingSource:
         self, exchange: ccxt.Exchange | None = None, data_root: Path | None = None
     ) -> None:
         self._exchange = exchange
-        self.data_root = data_root if data_root is not None else STORAGE_ROOT
+        self.data_root = data_root if data_root is not None else CRYPTO_ROOT
 
     @property
     def exchange(self) -> Any:
@@ -80,13 +86,11 @@ class FundingSource:
         return self._exchange
 
     def _cache_path(self, symbol: str) -> Path:
-        safe = symbol.replace("/", "-").upper()
         return (
-            self.data_root
-            / "crypto"
-            / "binance"
-            / FUNDING_TIMEFRAME
-            / f"{safe}.parquet"
+            crypto_dataset_dir(
+                "binance", MARKET_FUNDING, FUNDING_TIMEFRAME, root=self.data_root
+            )
+            / f"{symbol_stem(symbol)}.parquet"
         )
 
     def _read_cache(self, path: Path) -> pd.DataFrame:
@@ -169,7 +173,7 @@ class FundingSource:
         fetch_start = (
             target_start if local.empty else cast(pd.Timestamp, local.index[-1])
         )
-        print(f"⬇️ [Binance] 获取 {symbol} 资金费率（{fetch_lookback_days} 天）...")
+        print(f"[Binance] 获取 {symbol} 资金费率（{fetch_lookback_days} 天）...")
         fetched = self.fetch(symbol, fetch_start.to_pydatetime(), now.to_pydatetime())
         merged = pd.concat([local, fetched])
         merged = merged[~merged.index.duplicated(keep="last")].sort_index()
@@ -180,7 +184,7 @@ class FundingSource:
         merged.to_parquet(path, compression="snappy")
         earlier = [value for value in (asked_start, target_start) if value is not None]
         self._write_meta(symbol, min(earlier))
-        print(f"💾 资金费率缓存 {path}（{len(merged)} 条结算）")
+        print(f"资金费率缓存 {path}（{len(merged)} 条结算）")
         return cast(pd.DataFrame, merged)
 
     @staticmethod

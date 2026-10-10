@@ -3,7 +3,7 @@ scripts/build_crypto_manifests.py
 为自持的 crypto 数据集生成 manifest（覆盖区间/行数/来源/hash）。
 
 容器数据湖的约定照搬过来：每个数据集一份 JSON，放在 data/manifests/ 下，
-数据集名 = crypto_<exchange>_<timeframe>。crypto 不入湖由容器层 ADR-0006 豁免，
+数据集名 = crypto_<exchange>_<market>_<timeframe>。crypto 不入湖由容器层 ADR-0006 豁免，
 但"数据集必须有 manifest"这条不放宽。
 """
 
@@ -69,9 +69,9 @@ def build_dataset_manifest(dataset_dir: Path) -> dict[str, Any]:
             }
         )
 
-    exchange, timeframe = dataset_dir.parent.name, dataset_dir.name
+    exchange, market, timeframe = dataset_dir.parts[-3:]
     return {
-        "dataset": f"crypto_{exchange}_{timeframe}",
+        "dataset": f"crypto_{exchange}_{market}_{timeframe}",
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
         "coverage": {
@@ -86,10 +86,10 @@ def build_dataset_manifest(dataset_dir: Path) -> dict[str, Any]:
 
 
 def main() -> None:
-    """遍历 data/storage/crypto/<exchange>/<timeframe>/，各写一份 manifest。"""
+    """遍历 data/storage/crypto/<exchange>/<market>/<timeframe>/，各写一份 manifest。"""
     MANIFEST_ROOT.mkdir(parents=True, exist_ok=True)
     dataset_dirs = sorted(
-        d for d in CRYPTO_ROOT.glob("*/*") if d.is_dir() and any(d.glob("*.parquet"))
+        d for d in CRYPTO_ROOT.glob("*/*/*") if d.is_dir() and any(d.glob("*.parquet"))
     )
     for dataset_dir in dataset_dirs:
         manifest = build_dataset_manifest(dataset_dir)
@@ -98,7 +98,7 @@ def main() -> None:
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         print(
-            f"✅ {manifest['dataset']}: {manifest['symbols']} 个文件 / "
+            f"{manifest['dataset']}: {manifest['symbols']} 个文件 / "
             f"{manifest['rows']} 行 / {manifest['coverage']['start']} → "
             f"{manifest['coverage']['end']} → {out}"
         )
