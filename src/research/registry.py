@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.research.strategies.donchian_trend import DonchianTrendStrategy
 from src.research.strategies.rsrs_trend_follower import RSRSTrendStrategy
 from src.research.strategies.vector_bollinger_mr import BollingerMRStrategy
 from src.research.strategies.vector_dual_ma import DualMAStrategy
@@ -42,6 +43,7 @@ STRATEGY_ALIASES: dict[str, str] = {
     "trend-reversion": "2",
     "bollinger": "3",
     "rsrs": "4",
+    "donchian": "5",
 }
 
 # === 策略映射表 ===
@@ -78,6 +80,11 @@ STRATEGY_MAP: dict[str, dict[str, Any]] = {
             "max_leverage": 1.0,
             "stop_loss_mult": 2.5,
         },
+    },
+    "5": {
+        "name": "唐奇安突破 (Donchian)",
+        "class": DonchianTrendStrategy,
+        "default_params": {"entry_period": 55, "exit_period": 20},
     },
 }
 

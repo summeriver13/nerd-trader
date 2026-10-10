@@ -24,7 +24,7 @@ uv run python research.py --symbol BTC/USDT --strategy bollinger --bars 365 --ti
 uv run python research.py --symbol ETH/USDT --strategy rsrs --bars 730 --leverage 2
 ```
 
-`--strategy` 可填菜单序号 `1`-`4`，也可填别名 `dual-ma` / `trend-reversion` / `bollinger` / `rsrs`。
+`--strategy` 可填菜单序号 `1`-`5`，也可填别名 `dual-ma` / `trend-reversion` / `bollinger` / `rsrs` / `donchian`。
 每次回测都会把资金曲线图写到 `data/results/<SYMBOL>_<策略名>.png`，同时把净值/基准/回撤序列写成同名 `_equity.csv`（pi 扩展里的字符曲线读它），不需要额外确认。
 
 行情来自 OKX（ccxt 公共接口），国内网络需先配代理：
@@ -151,7 +151,7 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 
 ```text
 data/              数据湖（不入版本库）：storage/ 行情与资金费率缓存、results/ 回测产物与复现指纹
-scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）
+scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）、趋势对比（trend_duel）
 src/analytics/     绩效指标（单一出处）
 src/cli/           研究回测的命令行与交互菜单
 src/config/        环境配置读取、路径常量、实盘参数表
@@ -161,7 +161,7 @@ src/simulation/    事件驱动：engine、mock_gateway、replay_loader
 src/strategies/    事件驱动策略（dual_ma）
 src/utils/         数据调度与数据源
 run.py / research.py  两个薄壳入口（逻辑在 src/cli/ 与 src/simulation/）
-docs/              因子/模型/书目/交易者笔记/执行研究
+docs/              因子/模型/书目/交易者笔记/执行与信号研究/趋势研究
 ```
 
 ## 依赖与源
@@ -178,3 +178,5 @@ docs/              因子/模型/书目/交易者笔记/执行研究
 | `docs/library/` | 书籍与视频剪藏 |
 | `docs/wisdom/` | 交易者思想摘录 |
 | `docs/src.md/` | 策略源码说明 |
+| `docs/execution/` | 执行与信号研究：被动挂单成交率与逆向选择、1m 方向性信号扫描 |
+| `docs/trend/` | 趋势追踪研究：经典唐奇安与自适应双均线的对比 |
