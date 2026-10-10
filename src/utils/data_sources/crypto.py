@@ -164,8 +164,10 @@ class CCXTSource(BaseDataSource):
 
             all_candles.extend(ohlcv)  # type: ignore
             since_ts = last_ts + 1
-            # 限速交给 ccxt 的 enableRateLimit（按交易所 rateLimit 自动节流）；
-            # 这里再 sleep 一次等于速度砍半（实测 967 → 1981 根/秒）
+            # ccxt 的 enableRateLimit 只保证「两次请求间隔 ≥ rateLimit」，网络一快就贴到
+            # 交易所上限；实测省掉这段显式节流时，翻到第 6 段即被 OKX 判限速（连接级
+            # NetworkError，而同一区间单发请求正常），故这 100ms 不能省
+            time.sleep(self.exchange.rateLimit / 1000)
 
         if not all_candles:
             return pd.DataFrame()
