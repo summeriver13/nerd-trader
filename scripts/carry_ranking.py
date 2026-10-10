@@ -1,12 +1,13 @@
-"""carry 排序与跨源校验：30 只永续的净 carry 排名，以及 Binance 费率代理 OKX 的误差。
+"""carry 排序、跨源校验与多重检验校正：30 只永续的净 carry 值不值得做。
 
-两个问题：
-1. 30 只标的里，扣掉手续费与再平衡成本后，carry 还剩多少、谁最高（净年化排序）；
-2. 「费率取 Binance、执行按 OKX」这一跨源代理假设误差多大——用两所同期 103 天
-   重叠期做逐日对比，给出日均费率差、相关性与符号一致率。
+四张表回答四个问题：
+1. 跨源校验——「费率取 Binance、执行按 OKX」这个代理假设误差多大；
+2. 排名——扣掉成本与资本占用后，各标的近 365 天还剩多少；
+3. 风险调整与 DSR——从 29 只里挑出来的冠军，能不能与「试 N 次碰运气」区分；
+4. 等权组合与分段——分散能不能把「单标的费率转负」摊掉，各时期是否都成立。
 
-口径：收益按日求和（结算间隔 4h/8h 混用时仍可比），成本与资本占用沿用
-src/research/carry.py 的假设；排序同时给全历史与最近 365 天两列，后者才是可比口径。
+分析逻辑在 src/research/carry_ranking.py，本脚本只负责打印与落盘。
+输出：data/results/carry/{carry_daily,carry_ranking,carry_cross_check}.parquet
 
 用法：
     uv run python scripts/carry_ranking.py
@@ -18,122 +19,55 @@ src/research/carry.py 的假设；排序同时给全历史与最近 365 天两�
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
-from pathlib import Path
-from typing import cast
 
 import numpy as np
 import pandas as pd
 
-from src.analytics.metrics import ANNUAL_DAYS, annualize, total_return
-from src.config.paths import CRYPTO_ROOT, MARKET_FUNDING, crypto_dataset_dir
-from src.research.carry import CarryReport, build_carry_report
-from src.utils.data_sources.funding import daily_rates
+from src.analytics.metrics import (
+    ANNUAL_DAYS,
+    annualize,
+    annualized_sharpe,
+    max_drawdown,
+    total_return,
+)
+from src.research.carry_ranking import (
+    COMPARISON_EXCHANGE,
+    LONG_HISTORY_EXCHANGE,
+    CrossRow,
+    RankRow,
+    RiskRow,
+    SegmentRow,
+    cross_row,
+    list_stems,
+    load_daily,
+    net_recent_daily,
+    portfolio_daily,
+    rank_row,
+    risk_rows,
+    save_outputs,
+    segment_rows,
+)
 
-FUNDING_TIMEFRAME = "8h"
-FUNDING_EXCHANGES = ("binance", "okx")
-LONG_HISTORY_EXCHANGE = "binance"  # 排序主口径：唯一有长历史的源
-# 跨源对比需要足够的重叠期，太短的相关性没有意义
-MIN_OVERLAP_DAYS = 30
-BP = 1e4
 NAME_WIDTH = 14
+BP = 1e4
 
 
-@dataclass(frozen=True)
-class CrossRow:
-    """一只标的的跨源同期对比。"""
-
-    stem: str
-    days: int
-    binance_bp: float
-    okx_bp: float
-    diff_bp: float
-    annual_diff: float
-    corr: float
-    sign_agree: float
-
-
-@dataclass(frozen=True)
-class RankRow:
-    """一只标的的 carry 排名数据。"""
-
-    report: CarryReport
-    recent_net: float
-    recent_days: int
-
-
-def cache_dir(exchange_id: str) -> Path:
-    """资金费率缓存目录。"""
-    return crypto_dataset_dir(
-        exchange_id, MARKET_FUNDING, FUNDING_TIMEFRAME, root=CRYPTO_ROOT
-    )
-
-
-def list_stems(exchange_id: str) -> list[str]:
-    """扫描该交易所缓存目录下的全部标的。"""
-    directory = cache_dir(exchange_id)
-    if not directory.exists():
-        return []
-    return sorted(path.stem for path in directory.glob("*.parquet"))
-
-
-def load_rates(exchange_id: str, stem: str) -> pd.Series:
-    """读一只标的的费率序列（index 为 UTC 结算时刻）。"""
-    frame = pd.read_parquet(cache_dir(exchange_id) / f"{stem}.parquet")
-    frame.index = pd.to_datetime(frame.index, utc=True)
-    return cast(pd.Series, frame.sort_index()["rate"])
-
-
-def cross_check(stem: str) -> CrossRow | None:
-    """同期对比两所的费率：重叠期不足或任一缺失则返回 None。"""
-    binance_daily = daily_rates(load_rates("binance", stem))
-    okx_daily = daily_rates(load_rates("okx", stem))
-    common = binance_daily.index.intersection(okx_daily.index)
-    if len(common) < MIN_OVERLAP_DAYS:
-        return None
-    left = cast(pd.Series, binance_daily.loc[common]).dropna()
-    right = cast(pd.Series, okx_daily.loc[common]).dropna()
-    shared = left.index.intersection(right.index)
-    left = cast(pd.Series, left.loc[shared])
-    right = cast(pd.Series, right.loc[shared])
-    if len(shared) < MIN_OVERLAP_DAYS:
-        return None
-    deviation = left - right
-    return CrossRow(
-        stem=stem,
-        days=len(shared),
-        binance_bp=float(left.mean()) * BP,
-        okx_bp=float(right.mean()) * BP,
-        diff_bp=float(deviation.mean()) * BP,
-        annual_diff=annualize(total_return(left), len(left))
-        - annualize(total_return(right), len(right)),
-        corr=float(cast(float, left.corr(right))),
-        sign_agree=float((np.sign(left) == np.sign(right)).mean()),
-    )
-
-
-def rank_row(stem: str, recent_days: int) -> RankRow:
-    """用长历史交易所的费率算一只标的的 carry 报告与近期口径。"""
-    rates = load_rates(LONG_HISTORY_EXCHANGE, stem)
-    report = build_carry_report(stem, rates)
-    daily = daily_rates(rates)
-    recent = cast(pd.Series, daily.iloc[-recent_days:])
-    recent_net = (
-        annualize(total_return(recent), len(recent)) / 1.5 if len(recent) else 0.0
-    )
-    return RankRow(report=report, recent_net=recent_net, recent_days=len(recent))
+def _rule(width: int) -> str:
+    return "-" * width
 
 
 def print_cross_table(rows: list[CrossRow]) -> None:
-    """打印跨源同期对比表。"""
-    print("\n=== 跨源校验：同期 Binance 费率 vs OKX 费率 ===")
+    """跨源同期对比表。"""
+    print(
+        f"\n=== 跨源校验：同期 {LONG_HISTORY_EXCHANGE} 费率 vs {COMPARISON_EXCHANGE} 费率 ==="
+    )
     print("同一时段（两所都有数据的重叠期）按日求和的费率对比；diff = Binance - OKX")
     header = (
         f"{'symbol':<{NAME_WIDTH}}{'days':>6}{'binance_bp':>12}{'okx_bp':>10}"
         f"{'diff_bp':>10}{'annual_diff':>13}{'corr':>8}{'sign_agree':>12}"
     )
     print(header)
-    print("-" * len(header))
+    print(_rule(len(header)))
     for row in rows:
         print(
             f"{row.stem:<{NAME_WIDTH}}{row.days:>6}{row.binance_bp:>12.4f}"
@@ -141,37 +75,35 @@ def print_cross_table(rows: list[CrossRow]) -> None:
             f"{row.corr:>8.3f}{row.sign_agree:>12.1%}"
         )
     if not rows:
+        print("（无足够重叠期）")
         return
     diffs = np.array([row.diff_bp for row in rows])
     corrs = np.array([row.corr for row in rows])
-    print("-" * len(header))
+    print(_rule(len(header)))
     print(
         f"{'median':<{NAME_WIDTH}}{'':>6}{'':>12}{'':>10}"
         f"{float(np.median(diffs)):>10.4f}{'':>13}{float(np.median(corrs)):>8.3f}"
     )
     print(
         f"\n费率单位 bp/日（1bp = 0.01%）。日均差中位 {float(np.median(diffs)):.4f} bp、"
-        f"相关中位 {float(np.median(corrs)):.3f}；"
-        f"差值的年化影响 = 日均差 × 365，可见量级。"
+        f"相关中位 {float(np.median(corrs)):.3f}；annual_diff = 日均差 × 365。"
     )
 
 
 def print_rank_table(rows: list[RankRow], recent_days: int) -> None:
-    """打印 carry 净收益排名表（按近期口径排序）。"""
+    """净 carry 排名表。"""
     print(f"\n=== carry 净收益排名（按最近 {recent_days} 天口径降序）===")
     print(
-        "net_annual 已扣双腿进出费与再平衡，并按资本占用 1.5x 折算；"
-        "all_net = 该标的全历史口径（天数不同不可直接横比）"
+        "recent_net 已扣双腿进出费与再平衡并按资本占用 1.5x 折算；hist_net 为全历史口径"
     )
     header = (
         f"{'symbol':<{NAME_WIDTH}}{'days':>7}{'hist_days':>10}{'recent_net':>12}"
-        f"{'all_net':>10}{'roll_p5':>10}{'neg_share':>11}{'pos_share':>11}{'start':>12}"
+        f"{'hist_net':>10}{'roll_p5':>10}{'neg_share':>11}{'pos_share':>11}{'start':>12}"
     )
     print(header)
-    print("-" * len(header))
+    print(_rule(len(header)))
     for row in rows:
         report = row.report
-        # datetime 的 __format__ 走 strftime，不能在同一格式串里再写对齐宽度
         start = f"{report.start:%Y-%m-%d}"
         print(
             f"{report.symbol:<{NAME_WIDTH}}{row.recent_days:>7}{report.days:>10}"
@@ -181,12 +113,81 @@ def print_rank_table(rows: list[RankRow], recent_days: int) -> None:
         )
 
 
+def print_risk_table(rows: list[RiskRow], expected_max: float) -> None:
+    """风险调整指标与去膨胀夏普表。"""
+    print("\n=== 风险调整与多重检验校正（近期窗口，已扣成本）===")
+    print(
+        f"零假设「{len(rows)} 次试验的最大夏普」期望值：{expected_max:.4f} 逐日 / "
+        f"{expected_max * float(np.sqrt(ANNUAL_DAYS)):.2f} 年化"
+        f"（sr/bar 低于它就无法与运气区分）"
+    )
+    header = (
+        f"{'symbol':<{NAME_WIDTH}}{'days':>6}{'ann_vol':>10}{'sharpe':>9}"
+        f"{'max_dd':>10}{'sr/bar':>9}{'dsr':>8}{'obs':>6}{'pass':>7}"
+    )
+    print(header)
+    print(_rule(len(header)))
+    for row in sorted(rows, key=lambda item: item.dsr, reverse=True):
+        print(
+            f"{row.stem:<{NAME_WIDTH}}{row.days:>6}{row.annual_vol:>10.2%}"
+            f"{row.annual_sharpe:>9.2f}{row.max_dd:>10.2%}{row.daily_sharpe:>9.4f}"
+            f"{row.dsr:>8.3f}{row.observations:>6}{'PASS' if row.passed else 'fail':>7}"
+        )
+    passed = sum(1 for row in rows if row.passed)
+    print(_rule(len(header)))
+    print(
+        f"\n通过 DSR 门槛（0.95）的标的：{passed}/{len(rows)}。"
+        f"未通过 = 该标的的夏普无法与「在同样多次试验里靠运气拿到」区分。"
+    )
+
+
+def print_portfolio(
+    wide: pd.DataFrame, segments: list[SegmentRow], recent_days: int
+) -> None:
+    """等权组合的区间表现与分段稳定性。"""
+    portfolio = portfolio_daily(wide)
+    if portfolio.empty:
+        print("\n（组合成员数不足，未生成组合统计）")
+        return
+    recent = net_recent_daily(portfolio, recent_days)
+    print(f"\n=== 等权组合（{wide.shape[1]} 只标的，{len(portfolio)} 天）===")
+    print("组合日收益 = 当天有结算的标的的等权平均；年化与回撤按资本占用 1.5x 折算")
+    print(
+        f"全区间：年化 {annualize(total_return(portfolio), len(portfolio)) / 1.5:>8.2%}"
+        f" | 夏普 {annualized_sharpe(portfolio, ANNUAL_DAYS):>5.2f}"
+        f" | 最大回撤 {max_drawdown(portfolio):>8.2%}"
+        f"（名义口径，未折算）"
+    )
+    print(
+        f"近 {len(recent)} 天：年化 {annualize(total_return(recent), len(recent)) / 1.5:>8.2%}"
+        f" | 夏普 {annualized_sharpe(recent, ANNUAL_DAYS):>5.2f}"
+        f" | 最大回撤 {max_drawdown(recent):>8.2%}"
+    )
+
+    print("\n分段（日历等分；positive 是段内日均费率为正的标的数）")
+    header = (
+        f"{'segment':<18}{'days':>7}{'members':>9}{'positive':>10}"
+        f"{'annual':>10}{'sharpe':>9}"
+    )
+    print(header)
+    print(_rule(len(header)))
+    for row in segments:
+        print(
+            f"{row.label:<18}{row.days:>7}{row.members:>9}{row.positive:>10}"
+            f"{row.annual:>9.2%}{row.sharpe:>9.2f}"
+        )
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="carry 净收益排名与跨源费率校验")
+    parser = argparse.ArgumentParser(
+        description="carry 净收益排名、跨源校验与多重检验校正"
+    )
     parser.add_argument(
         "--recent-days", type=int, default=ANNUAL_DAYS, help="近期口径天数，默认 365"
     )
-    parser.add_argument("--top", type=int, default=0, help="只显示前 N 行，0 为全部")
+    parser.add_argument(
+        "--top", type=int, default=0, help="排名表只显示前 N 行，0 为全部"
+    )
     args = parser.parse_args()
 
     stems = list_stems(LONG_HISTORY_EXCHANGE)
@@ -195,13 +196,14 @@ def main() -> int:
             f"未找到 {LONG_HISTORY_EXCHANGE} 资金费率缓存，先跑 scripts/fetch_funding_history.py"
         )
         return 1
-
     print(
         f"\n长历史源 {LONG_HISTORY_EXCHANGE}：{len(stems)} 个标的"
-        f" | 对照源 okx：{len(list_stems('okx'))} 个标的"
+        f" | 对照源 {COMPARISON_EXCHANGE}：{len(list_stems(COMPARISON_EXCHANGE))} 个标的"
     )
 
-    cross_rows = [row for stem in stems if (row := cross_check(stem)) is not None]
+    wide = load_daily(LONG_HISTORY_EXCHANGE, stems)
+
+    cross_rows = [row for stem in stems if (row := cross_row(stem)) is not None]
     print_cross_table(cross_rows)
 
     rank_rows = sorted(
@@ -209,9 +211,21 @@ def main() -> int:
         key=lambda row: row.recent_net,
         reverse=True,
     )
-    if args.top > 0:
-        rank_rows = rank_rows[: args.top]
-    print_rank_table(rank_rows, args.recent_days)
+    print_rank_table(
+        rank_rows[: args.top] if args.top > 0 else rank_rows, args.recent_days
+    )
+
+    risk_list, expected_max = risk_rows(wide, args.recent_days, len(stems))
+    print_risk_table(risk_list, expected_max)
+
+    segments = segment_rows(wide)
+    print_portfolio(wide, segments, args.recent_days)
+
+    risk_by_stem = {row.stem: row for row in risk_list}
+    written = save_outputs(wide, rank_rows, cross_rows, risk_by_stem)
+    print("\n落盘：")
+    for path in written:
+        print(f"  {path}")
     return 0
 
 
