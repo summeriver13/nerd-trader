@@ -46,6 +46,16 @@ STRATEGY_ALIASES: dict[str, str] = {
     "donchian": "5",
 }
 
+# 策略短名：控制台表格的列宽需要，长中文名会破坏对齐；含基准，故不只列可选策略
+STRATEGY_SHORT_NAMES: dict[str, str] = {
+    "buy-and-hold": "BuyHold",
+    "1": "DualMA",
+    "2": "TrendRev",
+    "3": "Bollinger",
+    "4": "RSRS",
+    "5": "Donchian",
+}
+
 # === 策略映射表 ===
 STRATEGY_MAP: dict[str, dict[str, Any]] = {
     "1": {
