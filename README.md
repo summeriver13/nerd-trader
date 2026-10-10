@@ -161,7 +161,7 @@ src/simulation/    事件驱动：engine、mock_gateway、replay_loader
 src/strategies/    事件驱动策略（dual_ma）
 src/utils/         数据调度与数据源
 run.py / research.py  两个薄壳入口（逻辑在 src/cli/ 与 src/simulation/）
-docs/              因子/模型/书目/交易者笔记/执行与信号研究/趋势研究/组合研究/carry 研究
+docs/              因子/模型/书目/交易者笔记/执行与信号研究/趋势研究/组合研究/carry 研究/链上研究
 ```
 
 ## 依赖与源
@@ -182,3 +182,4 @@ docs/              因子/模型/书目/交易者笔记/执行与信号研究/�
 | `docs/trend/` | 趋势追踪研究：经典唐奇安与自适应双均线的对比 |
 | `docs/portfolio/` | 组合研究：单策略统一测试、重合度与等权组合 |
 | `docs/carry/` | 资金费率 carry：净收益排名、跨源校验、多重检验校正与基差 |
+| `docs/onchain/` | 链上研究：聪明钱数据源可行性侦察 |
