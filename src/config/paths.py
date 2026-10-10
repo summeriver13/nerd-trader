@@ -52,6 +52,7 @@ def crypto_bar_path(
     exchange: str, symbol: str, timeframe: str, *, root: Path = CRYPTO_ROOT
 ) -> Path:
     """行情文件路径；市场层级由符号本身推断，调用方不必重复判断。"""
-    return crypto_dataset_dir(
-        exchange, symbol_market(symbol), timeframe, root=root
-    ) / f"{symbol_stem(symbol)}.parquet"
+    return (
+        crypto_dataset_dir(exchange, symbol_market(symbol), timeframe, root=root)
+        / f"{symbol_stem(symbol)}.parquet"
+    )
