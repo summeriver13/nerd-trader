@@ -151,12 +151,12 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 
 ```text
 data/              数据湖（不入版本库）：storage/ 行情与资金费率缓存、results/ 回测产物与复现指纹
-scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）、趋势对比（trend_duel）、单策略统一测试（strategy_suite）、重合度与组合（strategy_correlation）、资金费率抓取（fetch_funding_history）与 carry 排名（carry_ranking）
+scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）、趋势对比（trend_duel）、单策略统一测试（strategy_suite）、重合度与组合（strategy_correlation）、资金费率抓取（fetch_funding_history）、carry 排名（carry_ranking）与截面因子测试（factor_suite）
 src/analytics/     绩效指标（单一出处）
 src/cli/           研究回测的命令行与交互菜单
 src/config/        环境配置读取、路径常量、实盘参数表
 src/core/          事件引擎、数据类型、BarGenerator/ArrayManager、成本模型
-src/research/      向量化回测：engine、domains（市场规则）、strategies、robustness、overfitting、position_sizing、carry、execution（maker 挂单执行）、provenance（复现指纹）
+src/research/      向量化回测：engine、domains（市场规则）、strategies、robustness、overfitting、position_sizing、carry、factors（截面因子）、execution（maker 挂单执行）、provenance（复现指纹）
 src/simulation/    事件驱动：engine、mock_gateway、replay_loader
 src/strategies/    事件驱动策略（dual_ma）
 src/utils/         数据调度与数据源
@@ -173,7 +173,7 @@ docs/              因子/模型/书目/交易者笔记/执行与信号研究/�
 
 | 目录 | 内容 |
 | --- | --- |
-| `docs/factors/` | 因子笔记：动量、价值、波动率、风险、质量 |
+| `docs/factors/` | 因子笔记（动量/波动率/价值/质量/风险）与截面因子统一测试 |
 | `docs/models/` | 模型笔记 |
 | `docs/library/` | 书籍与视频剪藏 |
 | `docs/wisdom/` | 交易者思想摘录 |

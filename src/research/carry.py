@@ -156,7 +156,8 @@ def yearly_stats(
     rolling_year = _years(rolling.index)
     out: list[YearStats] = []
     for year in sorted({int(value) for value in daily_year}):
-        group = daily[daily_year == year]
+        # stub 把布尔索引的返回标成 Series | ndarray，运行时必为 Series
+        group = cast(pd.Series, daily[daily_year == year])
         same_year = funding[funding_year == year]
         window = rolling[rolling_year == year]
         out.append(
