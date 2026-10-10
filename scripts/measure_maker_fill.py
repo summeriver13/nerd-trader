@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Final
 
-from src.config.settings import GLOBAL_CONFIG, create_exchange
+from src.config.settings import GLOBAL_CONFIG, create_data_exchange, create_exchange
 from src.utils.console import pad
 
 # 探针参数
@@ -129,13 +129,17 @@ def _bar_reaches(exchange: Any, trial: Trial, since: float) -> bool:
     return False
 
 
-def _watch(exchange: Any, plan: ProbePlan, trial: Trial) -> None:
-    """盯订单：成交就提前结束，否则等满窗口后撤单，最后用 1m K 线补判触及。"""
+def _watch(trade: Any, market: Any, plan: ProbePlan, trial: Trial) -> None:
+    """盯订单：成交就提前结束，否则等满窗口后撤单，最后用 1m K 线补判触及。
+
+    成交状态以模拟盘客户端为准（下单就在那里），触及判定走实盘行情客户端：
+    沙盒 feed 是整体微扰的另一套数据，拿它判触及等于用扰动后的价格当市场。
+    """
     started = time.time()
     deadline = started + plan.window
     while time.time() < deadline:
         time.sleep(POLL_SECONDS)
-        order = exchange.fetch_order(trial.order_id, SYMBOL)
+        order = trade.fetch_order(trial.order_id, SYMBOL)
         trial.filled_amount = float(order.get("filled") or 0.0)
         if trial.filled_amount > 0:
             trial.filled = True
@@ -143,9 +147,9 @@ def _watch(exchange: Any, plan: ProbePlan, trial: Trial) -> None:
             break
     trial.seconds = time.time() - started
     if not trial.filled:
-        exchange.cancel_order(trial.order_id, SYMBOL)
+        trade.cancel_order(trial.order_id, SYMBOL)
     # 成交必然意味着触及：K 线口径会漏掉刚好在窗口边界的那一根，所以取并集
-    trial.touched = trial.filled or _bar_reaches(exchange, trial, started)
+    trial.touched = trial.filled or _bar_reaches(market, trial, started)
 
 
 def _cancel_leftovers(exchange: Any) -> int:
@@ -167,7 +171,7 @@ def _safe_cancel(exchange: Any, trial: Trial) -> None:
         )
 
 
-def run_trials(exchange: Any, plan: ProbePlan) -> list[Trial]:
+def run_trials(trade: Any, market: Any, plan: ProbePlan) -> list[Trial]:
     """顺序跑完所有 trial（并发会互相抢同一档价位，成交率就不独立了）。
 
     单个 trial 撞上网络抖动只跳它自己——网络在这台机器上长期不稳，一次抖动不该让整轮
@@ -175,7 +179,7 @@ def run_trials(exchange: Any, plan: ProbePlan) -> list[Trial]:
     """
     results: list[Trial] = []
     for index in range(1, plan.trials + 1):
-        trial = _place(exchange, plan, index)
+        trial = _place(trade, plan, index)
         print(
             f"  trial {index:2d}/{plan.trials} 挂 {trial.side} @ {trial.limit:.2f}"
             f"（价差 {trial.spread_bp:.2f}bp）...",
@@ -183,10 +187,10 @@ def run_trials(exchange: Any, plan: ProbePlan) -> list[Trial]:
             flush=True,
         )
         try:
-            _watch(exchange, plan, trial)
+            _watch(trade, market, plan, trial)
         except Exception as e:
             print(f" 中断（{type(e).__name__}: {str(e)[:80]}）", flush=True)
-            _safe_cancel(exchange, trial)
+            _safe_cancel(trade, trial)
             continue
         verdict = (
             "成交" if trial.filled else ("触及未成交" if trial.touched else "未触及")
@@ -282,6 +286,7 @@ def _run(args: argparse.Namespace) -> int:
         return 2
     plan = ProbePlan(side=args.side, trials=args.trials, notional=args.notional)
     exchange: Any = create_exchange("okx")
+    market: Any = create_data_exchange("okx")  # 触及判定用实盘行情，不用沙盒 feed
     try:
         exchange.load_markets()
         ticker = exchange.fetch_ticker(SYMBOL)
@@ -302,7 +307,7 @@ def _run(args: argparse.Namespace) -> int:
         leftovers = _cancel_leftovers(exchange)
         if leftovers:
             print(f"启动前清理了 {leftovers} 张上一轮残留的挂单")
-        report(exchange, plan, run_trials(exchange, plan))
+        report(exchange, plan, run_trials(exchange, market, plan))
     except Exception as e:
         # 「未完成」（网络/权限）与「未通过」（数字不对）必须分开报
         print(f"\n未完成：{type(e).__name__}: {str(e)[:200]}")
@@ -314,6 +319,7 @@ def _run(args: argparse.Namespace) -> int:
         return 2
     finally:
         exchange.close()
+        market.close()
     return 0
 
 
