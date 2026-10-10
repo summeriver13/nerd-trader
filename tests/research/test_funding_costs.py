@@ -50,8 +50,9 @@ def test_funding_scales_with_leverage_and_aligns_intraday() -> None:
         funding=funding,
     ).run(frame)
 
-    # 8 根里只有 7 根持仓（信号次日生效）× 0.1% × 2 倍杠杆 = 1.4%
-    assert result["total_funding"] == pytest.approx(0.014)
+    # 8 根 12h = 4 天，每天 0.1% 由当天 2 根分摊（每根 0.05%）；
+    # 8 根里只有 7 根持仓（信号次日生效）× 0.05% × 2 倍杠杆 = 0.7%
+    assert result["total_funding"] == pytest.approx(0.007)
     assert np.isclose(
         result["total_funding"], float(result["df"]["funding_cost"].sum())
     )

@@ -95,6 +95,15 @@ def _print_result(result: dict[str, Any], symbol: str) -> None:
         f"| 平均持仓: {result['avg_hold_bars']:.1f} 根 "
         f"| 费用: {result['total_cost']:.2f} USDT"
     )
+    print(
+        f"⏱️ 持仓时间: {result['exposure']:.1%}"
+        f"（多 {result['long_share']:.1%} / 空 {result['short_share']:.1%}，"
+        f"平均仓位 {result['avg_abs_pos']:.2f}）"
+    )
+    print(
+        f"↕️ 多空归因（几何毛收益，未扣成本）: 多 {result['long_pnl']:+.1%} / "
+        f"空 {result['short_pnl']:+.1%}"
+    )
     fill_rate = result.get("maker_fill_rate")
     if fill_rate is not None:
         fills = result["fills"]

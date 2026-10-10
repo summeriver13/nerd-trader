@@ -29,12 +29,15 @@ RATE_LIMIT_SLEEP = 0.3
 UTC_TZ = "UTC"
 
 
-def create_funding_exchange() -> ccxt.Exchange:
-    """构造 Binance 永续客户端（只用公共接口，代理沿用 OKX 配置）。"""
+def create_funding_exchange(default_type: str = "future") -> ccxt.Exchange:
+    """构造 Binance 客户端（只用公共接口，代理沿用 OKX 配置）。
+
+    资金费率走永续（future）；跨源比价要的是现货，才与 OKX 缓存的现货口径一致。
+    """
     config: dict[str, Any] = {
         "enableRateLimit": True,
         "timeout": REQUEST_TIMEOUT_MS,
-        "options": {"defaultType": "future"},
+        "options": {"defaultType": default_type},
     }
     if GLOBAL_CONFIG.use_proxy and GLOBAL_CONFIG.proxy_url:
         proxy = GLOBAL_CONFIG.proxy_url

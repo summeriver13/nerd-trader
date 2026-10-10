@@ -17,7 +17,7 @@ from typing import Protocol, cast
 import ccxt
 import pandas as pd
 
-from src.config.settings import create_exchange
+from src.config.settings import create_data_exchange
 from src.utils.data_loader import MarketDataHandler, TimeFrameStr
 from src.utils.data_sources.crypto import CCXTSource
 from src.utils.data_sources.funding import FundingSource, daily_rates
@@ -111,7 +111,7 @@ def load_funding_rates(
 @contextmanager
 def open_loader() -> Iterator[MarketDataHandler]:
     """每次运行只开一个交易所会话，结束后关闭（不关会随多标的批量累积）。"""
-    exchange = create_exchange("okx")
+    exchange = create_data_exchange("okx")
     try:
         yield MarketDataHandler(CCXTSource(exchange))
     finally:

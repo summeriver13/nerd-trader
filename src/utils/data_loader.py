@@ -4,6 +4,7 @@ src/utils/data_loader.py
 
 职责分工：本模块只负责「拿到一段可用历史」，窗口裁剪由调用方（runners.load_window）决定。
 已知陷阱：合并只覆盖 incoming 出现的键，删不掉旧坏行——坏行修正只能删 parquet 重建。
+已知陷阱：数据源会给出数值上不可能的 K 线（详见 bar_quality），落盘前丢弃 + 告警。
 旁挂 .meta.json 记「已问过的最早起点」：年轻标的的请求起点永远早于上市起点，
 不记就会每次运行全量重下（源侧给不出更早历史）。
 """
@@ -21,6 +22,12 @@ import pandas as pd
 
 from src.config.paths import STORAGE_ROOT
 
+from .bar_quality import (
+    SPIKE_RATIO,
+    impossible_bars,
+    sample_times,
+    suspicious_spikes,
+)
 from .data_sources.base import BaseDataSource, DataSourceError
 
 logger = logging.getLogger(__name__)
@@ -119,12 +126,10 @@ class MarketDataHandler:
                 # 记下问过的起点：源侧给不出更早历史时，下次不再全量重下
                 self._write_asked_start(file_path, target_start_dt)
             if not df_new.empty:
-                if df_local is not None and not df_local.empty and not force_update:
-                    df_local = self._clean_and_save(
-                        pd.concat([df_local, df_new]), file_path
-                    )
-                else:
-                    df_local = self._clean_and_save(df_new, file_path)
+                # 永远合并、不替换：force_update 只该重问数据源，不该丢掉本地已有的历史
+                # （曾因此把 8 年缓存截断成 20 根）。重复时间戳保留新值，见 _clean_and_save。
+                merged = df_new if df_local is None else pd.concat([df_local, df_new])
+                df_local = self._clean_and_save(merged, file_path)
             elif df_local is not None and not df_local.empty:
                 logger.info(f"[{symbol}] 数据源本次未返回新数据")
             else:
@@ -230,19 +235,26 @@ class MarketDataHandler:
         值域校验放在采集侧：QMT 那类「成交额正常但 OHLC 全为 0」的脏行不该入库后再清。
         """
         cleaned_df = df.copy()
-        cleaned_df = cleaned_df[~cleaned_df.index.duplicated(keep="last")]
+        # 用 .loc 而非 [] 索引：pandas-stubs 把 ndarray 布尔掩码的 [] 推断成 DataFrame | ndarray
+        cleaned_df = cleaned_df.loc[~cleaned_df.index.duplicated(keep="last")]
         cleaned_df = cleaned_df.sort_index()
 
-        bad = (
-            (cleaned_df["close"] <= 0)
-            | (cleaned_df["high"] < cleaned_df["low"])
-            | (cleaned_df["volume"] < 0)
-        )
+        bad = impossible_bars(cleaned_df)
         if bad.any():
             logger.warning(
-                f"{path.name} 丢弃 {int(bad.sum())} 根非法 K 线（非正价 / 高低倒挂 / 负成交量）"
+                f"{path.name} 丢弃 {int(bad.sum())} 根非法 K 线（非正价 / 高低倒挂 / "
+                f"包络违反 / 负成交量 / 缺失值）: {sample_times(cleaned_df.index[bad.to_numpy()])}"
             )
-            cleaned_df = cleaned_df[~bad]
+            cleaned_df = cleaned_df.loc[~bad]
+
+        spikes = suspicious_spikes(cleaned_df)
+        if spikes.any():
+            logger.warning(
+                f"{path.name} ⚠️ {int(spikes.sum())} 根 K 线偏离邻域中位数 "
+                f"{SPIKE_RATIO:.0f} 倍以上（数据源污染或真实插针，已保留；"
+                f"跑 scripts/crosscheck_crypto_bars.py 对账确认）: "
+                f"{sample_times(cleaned_df.index[spikes.to_numpy()])}"
+            )
 
         try:
             path.parent.mkdir(parents=True, exist_ok=True)

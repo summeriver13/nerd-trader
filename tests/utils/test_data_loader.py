@@ -91,6 +91,39 @@ def test_value_validation_drops_dirty_rows(tmp_path: Path) -> None:
     assert len(out) == 1
 
 
+def test_ohlc_envelope_violation_is_dropped(tmp_path: Path) -> None:
+    """包络违反（收盘高于最高价）只可能是数据源混了字段。
+
+    实测：ccxt 的 OKX 路径把别处的值塞进 high/close，给过 H=3616 万、C=13.3 万。
+    """
+    frame = _frame(3)
+    frame.loc[frame.index[1], ["open", "high", "low", "close"]] = [
+        30500.0,
+        31000.0,
+        29400.0,
+        133653.0,  # 收盘高于最高价
+    ]
+    handler = MarketDataHandler(_FakeSource(frame), data_root=tmp_path)
+    out = handler.prepare_data("TEST/USDT", "1d", days_back=10, force_update=True)
+    assert len(out) == 2
+
+
+def test_suspicious_spike_warns_but_is_kept(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """孤立尖峰只告警不丢弃：真实插针与数据源污染本地分不清，删真数据比留脏数据更糟。"""
+    frame = _frame(13)
+    frame.loc[frame.index[6], "high"] = 1_000_000.0  # 邻域中位数 1.0 → 百万倍
+    handler = MarketDataHandler(_FakeSource(frame), data_root=tmp_path)
+
+    with caplog.at_level(logging.WARNING):
+        out = handler.prepare_data("TEST/USDT", "1d", days_back=20, force_update=True)
+
+    assert len(out) == 13
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("偏离邻域中位数" in message for message in messages)
+
+
 def test_fetch_failure_raises_instead_of_returning_stale_cache(tmp_path: Path) -> None:
     """取数失败必须上抛：静默回退到旧缓存会让人拿过期数据做决策。"""
     handler = MarketDataHandler(_FakeSource(error=True), data_root=tmp_path)
@@ -112,6 +145,23 @@ def test_young_symbol_does_not_resync_full_history_every_run(tmp_path: Path) -> 
     assert len(source.calls) == 1
     assert source.calls[0][0] == cast(pd.Timestamp, frame.index[-1]).to_pydatetime()
     assert source.calls[0][0] > first_start
+
+
+def test_force_update_keeps_local_history(tmp_path: Path) -> None:
+    """force_update 只该重问数据源，不能丢掉本地已有的历史。
+
+    历史教训：force_update 走「替换」分支，把 8 年缓存（3194 根）截断成请求窗口的 20 根。
+    """
+    MarketDataHandler(_FakeSource(_recent_frame(60)), data_root=tmp_path).prepare_data(
+        "TEST/USDT", "1d", days_back=60
+    )
+    # 第二次强制更新：源侧这次只返回 3 根，本地 60 根不能被替换掉
+    MarketDataHandler(_FakeSource(_recent_frame(3)), data_root=tmp_path).prepare_data(
+        "TEST/USDT", "1d", days_back=3, force_update=True
+    )
+
+    cached = pd.read_parquet(next(tmp_path.rglob("*.parquet")))
+    assert len(cached) == 60
 
 
 def test_short_frame_still_reports_staleness(

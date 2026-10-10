@@ -68,3 +68,20 @@ def create_exchange(exchange_id: str = "okx") -> Any:
     if GLOBAL_CONFIG.sandbox_mode:
         exchange.set_sandbox_mode(True)
     return exchange
+
+
+def create_data_exchange(exchange_id: str = "okx") -> Any:
+    """构造行情取数客户端：不带凭据、不打沙盒头。
+
+    OKX 的模拟环境（x-simulated-trading 头）返回的是另一套历史 K 线：实测
+    2023-07-02 沙盒给 H=36162247.1/C=133653.3、实盘给 H=30800.4/C=30615.6；
+    而且沙盒 feed 是整体微扰（1d BTC 与实盘逐根一致仅 4/20，中位偏差 0.71bp）
+    且只回溯到 2022-05-27（实盘可到 2019-01）。行情取数带沙盒头会静默污染缓存。
+
+    ccxt 基类把 fetch_* 声明成抛 NotImplementedError（返回 Never），
+    静态分析会把调用之后的代码全判成不可达，故返回 Any。
+    """
+    config = GLOBAL_CONFIG.to_ccxt_config()
+    # 公开行情不需要凭据；带 key 走实盘会触发 AuthenticationError
+    config.update({"apiKey": None, "secret": None, "password": None})
+    return getattr(ccxt, exchange_id)(config)

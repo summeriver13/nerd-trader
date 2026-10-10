@@ -48,14 +48,22 @@ class BacktestEngine:
     def _funding_cost(self, index: pd.Index, pos: pd.Series) -> pd.Series:
         """永续资金费率：多头付正费率、空头收正费率，按持仓名义×杠杆计。
 
-        逐次结算已按日汇总，同一天内的每根 K 线分摊同一个日费率；
+        逐次结算已按日汇总，日费率按当天实际有几根 K 线分摊（1d 一根正好一天，
+        4h 六根各占 1/6）：不摊的话日内周期会把同一天的费率重复计，4h 放大 6 倍。
         缓存没覆盖到的日子按 0 计，覆盖情况由取数侧打印，不在这里静默。
         """
         if self.funding is None:
             return pd.Series(0.0, index=index)
         days = pd.DatetimeIndex(pd.DatetimeIndex(index).to_series().dt.normalize())
         rate = np.nan_to_num(self.funding.reindex(days).to_numpy(dtype=float), nan=0.0)
-        return pd.Series(pos.to_numpy(dtype=float) * rate * self.leverage, index=index)
+        # 按当天实际根数分摊（当天缺根时不会少算：那一天合计仍是完整日费率）
+        _, inverse, counts = np.unique(
+            days.to_numpy(), return_inverse=True, return_counts=True
+        )
+        share = 1.0 / counts[inverse]
+        return pd.Series(
+            pos.to_numpy(dtype=float) * rate * share * self.leverage, index=index
+        )
 
     def _resolve_fills(
         self, df: pd.DataFrame, target_pos: pd.Series
@@ -189,6 +197,17 @@ class BacktestEngine:
         )
         hold_bars = df[active].groupby(segment[active]).size()
 
+        # 持仓时间占比：策略只在部分时间有仓位，拿它跟满仓基准比收益率本来就不公平
+        exposure = float(active.mean())
+        long_share = float((pos > 0).mean())
+        short_share = float((pos < 0).mean())
+
+        # 多空归因：毛收益按方向拆开，用对数收益求和（几何口径）。
+        # 简单求和会被波动率放大——高波动标的上「求和 +1882% 而实际净值 −27%」，读起来会带偏。
+        gross = cast(pd.Series, df["strategy_raw_ret"])
+        long_pnl = float(np.expm1(np.log1p(gross.loc[pos > 0]).sum()))
+        short_pnl = float(np.expm1(np.log1p(gross.loc[pos < 0]).sum()))
+
         gross_gain = float(trade_ret[trade_ret > 0].sum())
         gross_loss = abs(float(trade_ret[trade_ret < 0].sum()))
 
@@ -207,6 +226,12 @@ class BacktestEngine:
             "calmar_ratio": calmar_ratio,
             "trade_count": int(len(trade_ret)),
             "order_count": float(df["pos_change"].sum()),
+            "exposure": exposure,
+            "long_share": long_share,
+            "short_share": short_share,
+            "avg_abs_pos": float(pos.abs().mean()),
+            "long_pnl": long_pnl,
+            "short_pnl": short_pnl,
             "win_rate": float((trade_ret > 0).mean()) if len(trade_ret) else 0.0,
             "profit_factor": gross_gain / gross_loss if gross_loss else 0.0,
             "avg_hold_bars": float(hold_bars.mean()) if len(hold_bars) else 0.0,
