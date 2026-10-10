@@ -4,10 +4,12 @@
 1. 跨源校验——「费率取 Binance、执行按 OKX」这个代理假设误差多大；
 2. 排名——扣掉成本与资本占用后，各标的近 365 天还剩多少；
 3. 风险调整与 DSR——从 29 只里挑出来的冠军，能不能与「试 N 次碰运气」区分；
-4. 等权组合与分段——分散能不能把「单标的费率转负」摊掉，各时期是否都成立。
+4. 等权组合与分段——分散能不能把「单标的费率转负」摊掉，各时期是否都成立；
+5. 基差——真实损益 = 资金费 − Δbasis，这一项到底占多少。
 
-分析逻辑在 src/research/carry_ranking.py，本脚本只负责打印与落盘。
-输出：data/results/carry/{carry_daily,carry_ranking,carry_cross_check}.parquet
+分析逻辑在 src/research/carry_ranking.py 与 src/research/carry_basis.py，
+本脚本只负责打印与落盘。
+输出：data/results/carry/{carry_daily,carry_ranking,carry_cross_check,carry_basis}.parquet
 
 用法：
     uv run python scripts/carry_ranking.py
@@ -30,9 +32,11 @@ from src.analytics.metrics import (
     max_drawdown,
     total_return,
 )
+from src.research.carry_basis import BasisRow, basis_rows
 from src.research.carry_ranking import (
     COMPARISON_EXCHANGE,
     LONG_HISTORY_EXCHANGE,
+    OUTPUT_DIR,
     CrossRow,
     RankRow,
     RiskRow,
@@ -50,6 +54,8 @@ from src.research.carry_ranking import (
 
 NAME_WIDTH = 14
 BP = 1e4
+# 基差用全历史：telescope 求和（basis_first − basis_last）需要完整区间才有意义
+BASIS_DEFAULT_DAYS = 3300
 
 
 def _rule(width: int) -> str:
@@ -178,6 +184,49 @@ def print_portfolio(
         )
 
 
+def print_basis_table(rows: list[BasisRow]) -> None:
+    """基差维度：真实损益 = 资金费 − Δbasis。"""
+    print("\n=== 基差维度：真实损益 = 资金费 − Δbasis ===")
+    print(
+        "basis = (永续 − 现货) / 现货；累计贡献 = basis_first − basis_last（telescope 求和）；"
+        "ratio = |基差贡献| / |资金费贡献|，drop 为剔除的异常日数"
+    )
+    header = (
+        f"{'symbol':<{NAME_WIDTH}}{'days':>6}{'basis_mean':>12}{'basis_std':>11}"
+        f"{'funding_sum':>13}{'basis_sum':>11}{'adjusted':>11}{'ratio':>8}{'drop':>6}"
+    )
+    print(header)
+    print(_rule(len(header)))
+    for row in rows:
+        ratio = (
+            abs(row.basis_sum) / abs(row.funding_sum)
+            if row.funding_sum
+            else float("nan")
+        )
+        print(
+            f"{row.stem:<{NAME_WIDTH}}{row.days:>6}{row.basis_mean:>12.4%}"
+            f"{row.basis_std:>11.4%}{row.funding_sum:>13.2%}{row.basis_sum:>11.2%}"
+            f"{row.adjusted_sum:>11.2%}{ratio:>8.3f}{row.dropped:>6}"
+        )
+    if not rows:
+        print("（无可用标的：缺现货或数据不足）")
+        return
+    ratios = [
+        abs(row.basis_sum) / abs(row.funding_sum) for row in rows if row.funding_sum
+    ]
+    abs_basis = [abs(row.basis_sum) for row in rows]
+    if ratios:
+        print(_rule(len(header)))
+        print(
+            f"中位：|基差贡献| {float(np.median(abs_basis)):.2%}、"
+            f"ratio {float(np.median(ratios)):.3f}、最大 ratio {max(ratios):.3f}"
+        )
+    print(
+        "\n基差对长期收益的贡献很小（相对资金费），可以忽略；"
+        "但 basis_std 是永续空头的日间保证金风险来源。"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="carry 净收益排名、跨源校验与多重检验校正"
@@ -187,6 +236,12 @@ def main() -> int:
     )
     parser.add_argument(
         "--top", type=int, default=0, help="排名表只显示前 N 行，0 为全部"
+    )
+    parser.add_argument(
+        "--basis-days",
+        type=int,
+        default=BASIS_DEFAULT_DAYS,
+        help=f"基差口径的资金费天数，默认 {BASIS_DEFAULT_DAYS}（全历史）",
     )
     args = parser.parse_args()
 
@@ -221,8 +276,17 @@ def main() -> int:
     segments = segment_rows(wide)
     print_portfolio(wide, segments, args.recent_days)
 
+    basis_list = basis_rows(stems, args.basis_days)
+    print_basis_table(basis_list)
+
     risk_by_stem = {row.stem: row for row in risk_list}
     written = save_outputs(wide, rank_rows, cross_rows, risk_by_stem)
+    if basis_list:
+        basis_path = OUTPUT_DIR / "carry_basis.parquet"
+        pd.DataFrame([row.__dict__ for row in basis_list]).to_parquet(
+            basis_path, index=False
+        )
+        written.append(basis_path)
     print("\n落盘：")
     for path in written:
         print(f"  {path}")
