@@ -151,7 +151,7 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 
 ```text
 data/              数据湖（不入版本库）：storage/ 行情与资金费率缓存、results/ 回测产物与复现指纹
-scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账
+scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）
 src/analytics/     绩效指标（单一出处）
 src/cli/           研究回测的命令行与交互菜单
 src/config/        环境配置读取、路径常量、实盘参数表
@@ -161,7 +161,7 @@ src/simulation/    事件驱动：engine、mock_gateway、replay_loader
 src/strategies/    事件驱动策略（dual_ma）
 src/utils/         数据调度与数据源
 run.py / research.py  两个薄壳入口（逻辑在 src/cli/ 与 src/simulation/）
-docs/              因子/模型/书目/交易者笔记
+docs/              因子/模型/书目/交易者笔记/执行研究
 ```
 
 ## 依赖与源
