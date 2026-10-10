@@ -117,7 +117,9 @@ def record_run(
     mode: str, config: dict[str, Any], symbols: list[str], timeframe: str
 ) -> Path:
     """写指纹文件并打印一行。同一命令 → 同一文件、同一 hash。"""
-    run_id = f"{mode}_{timeframe}_{config.get('bars', 'na')}_{'+'.join(s.replace('/', '-') for s in symbols)}"
+    # 符号里的 '/' 与 ':' 都不能进文件名（':' 是 Windows 的备用数据流分隔符）
+    symbol_tags = "+".join(s.replace("/", "-").replace(":", "-") for s in symbols)
+    run_id = f"{mode}_{timeframe}_{config.get('bars', 'na')}_{symbol_tags}"
     record: dict[str, Any] = {
         "run_id": run_id,
         "mode": mode,

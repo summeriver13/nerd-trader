@@ -124,7 +124,10 @@ def _persist_outputs(
     result: dict[str, Any], symbol: str, strategy_name: str, engine: BacktestEngine
 ) -> None:
     """图表与净值序列落盘：批量与定时任务不询问，直接写。"""
-    save_path = RESULTS_ROOT / f"{symbol.replace('/', '_')}_{strategy_name}.png"
+    # 符号里的 ':' 必须清掉：Windows 把它当 NTFS 备用数据流语法，
+    # 永续 BTC/USDT:USDT 的结果会写进 0 字节宿主文件的隐藏流，普通方式看不见
+    safe_symbol = symbol.replace("/", "_").replace(":", "_")
+    save_path = RESULTS_ROOT / f"{safe_symbol}_{strategy_name}.png"
     save_path.parent.mkdir(parents=True, exist_ok=True)
     engine.plot(result, title=f"{symbol} - {strategy_name}", save_path=str(save_path))
 
