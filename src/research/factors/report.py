@@ -35,6 +35,7 @@ from src.research.factors.diagnostics import (
 )
 from src.research.factors.evaluation import ic_stats
 from src.research.factors.library import FACTOR_LIBRARY, FactorSpec
+from src.research.factors.orthogonal import double_sort_frame, orthogonal_frame
 from src.research.factors.panel import (
     Panel,
     UniverseRule,
@@ -69,6 +70,9 @@ class FactorReport:
     correlation: pd.DataFrame
     capacity: pd.DataFrame
     survivorship: pd.DataFrame
+    # vol_30 与 liq_30 的正交化：唯一可能推翻「低波动异象」的检验
+    orthogonal: pd.DataFrame
+    double_sort: pd.DataFrame
     # 多重检验：试验次数 = 因子数 × horizon 数
     trials: int
     critical_t: float
@@ -111,6 +115,8 @@ def build_report(
         correlation=factor_correlation(specs, panel, mask),
         capacity=capacity_frame(specs, panel, mask, quantiles),
         survivorship=survivorship_frame(panel, rule, horizons),
+        orthogonal=orthogonal_frame(panel, mask, horizons),
+        double_sort=double_sort_frame(panel, mask, horizons),
         trials=trials,
         critical_t=threshold,
     )
@@ -253,7 +259,7 @@ def survivorship_frame(
 
 
 def save_outputs(report: FactorReport, out_dir: Path = OUTPUT_DIR) -> list[Path]:
-    """把六张表写到 data/results/factors/，供下游组合分析复用。"""
+    """把八张表写到 data/results/factors/，供下游组合分析复用。"""
     out_dir.mkdir(parents=True, exist_ok=True)
     tables: dict[str, pd.DataFrame] = {
         "factor_universe": report.universe,
@@ -262,6 +268,8 @@ def save_outputs(report: FactorReport, out_dir: Path = OUTPUT_DIR) -> list[Path]
         "factor_correlation": report.correlation,
         "factor_capacity": report.capacity,
         "factor_survivorship": report.survivorship,
+        "factor_orthogonal": report.orthogonal,
+        "factor_double_sort": report.double_sort,
     }
     paths: list[Path] = []
     for name, frame in tables.items():

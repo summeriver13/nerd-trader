@@ -1,6 +1,6 @@
 """
 scripts/factor_suite.py
-截面因子统一测试台：读本地面板，跑 IC / 分位组合 / 相关 / 容量 / 幸存者偏差。
+截面因子统一测试台：读本地面板，跑 IC / 分位组合 / 相关 / 容量 / 幸存者偏差 / 正交化。
 
 用法：
     uv run python scripts/factor_suite.py
@@ -182,6 +182,51 @@ def print_survivorship(report: FactorReport) -> None:
         )
 
 
+def print_orthogonal(report: FactorReport) -> None:
+    """正交化：控制一个因子后目标因子还剩多少 IC，附双重排序旁证。
+
+    判定用同一把 Bonferroni 门槛（与 IC 表一致）：控制后 t 过门槛且同号 = 目标因子
+    带的是控制变量之外的信息；过不了门槛 = 它只是控制变量的代理。
+    """
+    threshold = report.critical_t
+    print(f"\n=== 正交化：控制后还剩多少 IC（门槛 |t| > {threshold:.2f}）===")
+    print(
+        f"{'目标':<{FACTOR_WIDTH}}{'控制':<{FACTOR_WIDTH}}{'h':>3}{'原始IC':>9}"
+        f"{'原始t':>8}{'控制后IC':>10}{'控制后t':>9}{'保留':>7}{'判定':>9}"
+    )
+    for _, row in report.orthogonal.iterrows():
+        print(
+            f"{row['target']:<{FACTOR_WIDTH}}{row['control']:<{FACTOR_WIDTH}}"
+            f"{int(row['horizon']):>3}{row['raw_ic']:>9.4f}{row['raw_t']:>8.2f}"
+            f"{row['residual_ic']:>10.4f}{row['residual_t']:>9.2f}"
+            f"{row['decay']:>7.2f}{_verdict(row, threshold):>9}"
+        )
+    print(
+        "\n-- 双重排序（Q1 = 控制变量最小档；控制中位是控制因子的原始值中位："
+        "liq_30 为 log 名义额，vol_30 为日波动率）--"
+    )
+    print(
+        f"{'目标':<{FACTOR_WIDTH}}{'控制':<{FACTOR_WIDTH}}{'h':>3}{'档':>3}"
+        f"{'控制中位':>10}{'档内IC':>9}{'t':>8}{'期数':>6}{'标的数':>7}"
+    )
+    for _, row in report.double_sort.iterrows():
+        print(
+            f"{row['target']:<{FACTOR_WIDTH}}{row['control']:<{FACTOR_WIDTH}}"
+            f"{int(row['horizon']):>3}{int(row['bucket']):>3}"
+            f"{row['control_median']:>10.4g}{row['ic']:>9.4f}{row['t_stat']:>8.2f}"
+            f"{int(row['periods']):>6}{row['names']:>7.1f}"
+        )
+
+
+def _verdict(row: pd.Series, threshold: float) -> str:
+    """控制后是否还有信息：过门槛且同号为「剩余有效」，反号为「符号翻转」。"""
+    if abs(float(row["residual_t"])) <= threshold:
+        return "被吸收"
+    if float(row["residual_ic"]) * float(row["raw_ic"]) < 0:
+        return "符号翻转"
+    return "剩余有效"
+
+
 def main() -> int:
     args = parse_args()
     warnings.filterwarnings("ignore", category=FutureWarning)
@@ -208,6 +253,7 @@ def main() -> int:
     print_correlation(report)
     print_capacity(report)
     print_survivorship(report)
+    print_orthogonal(report)
 
     if not args.no_save:
         print("\n落盘：")

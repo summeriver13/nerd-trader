@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+import numpy as np
 import pandas as pd
 
 from src.research.factors.library import FactorSpec
@@ -75,21 +76,82 @@ def ic_stats(
     if ic.empty:
         return ICStats(spec.key, horizon, 0.0, 0.0, 0.0, 0.0, 0, 0, 0.0)
 
-    independent = ic.iloc[::horizon]
-    std = float(independent.std(ddof=1)) if independent.size > 1 else 0.0
-    t_stat = (
-        float(independent.mean() / (std / independent.size**0.5)) if std > 0 else 0.0
-    )
+    t_stat, independent_count = non_overlapping_t(ic, horizon)
     return ICStats(
         factor=spec.key,
         horizon=horizon,
         mean=float(ic.mean()),
         std=float(ic.std(ddof=1)),
         t_stat=t_stat,
-        mean_independent=float(independent.mean()),
+        mean_independent=float(ic.iloc[::horizon].mean()),
         periods=int(ic.size),
-        independent=int(independent.size),
+        independent=independent_count,
         names=float(
             spec.values(panel).where(mask).notna().sum(axis=1).reindex(ic.index).mean()
         ),
     )
+
+
+# === 秩空间的统计原语（正交化检验与 IC 表共用，口径只在这里出一次）===
+
+
+def spearman(left: np.ndarray, right: np.ndarray) -> float:
+    """秩相关：两边各自排名后算 Pearson（不为一次相关引入 scipy）。"""
+    a = pd.Series(left).rank().to_numpy(dtype=float)
+    b = pd.Series(right).rank().to_numpy(dtype=float)
+    a_centered = a - a.mean()
+    b_centered = b - b.mean()
+    denominator = float(np.sqrt((a_centered**2).sum() * (b_centered**2).sum()))
+    if denominator <= 0.0:
+        return float("nan")
+    return float((a_centered * b_centered).sum() / denominator)
+
+
+def non_overlapping_t(series: pd.Series, horizon: int) -> tuple[float, int]:
+    """非重叠子样本的 t 值与独立期数：全项目唯一出处（含 IC 表与正交化表）。"""
+    independent = series.iloc[::horizon]
+    if independent.size < 2:
+        return 0.0, int(independent.size)
+    std = float(independent.std(ddof=1))
+    if not np.isfinite(std) or std <= 0.0:
+        return 0.0, int(independent.size)
+    t_stat = float(independent.mean() / (std / independent.size**0.5))
+    return t_stat, int(independent.size)
+
+
+def residual_ic_series(
+    target_rank: pd.DataFrame, control_rank: pd.DataFrame, forward: pd.DataFrame
+) -> pd.Series:
+    """逐期残差 IC：残差 = 目标秩 − 目标秩对控制秩的 OLS 拟合值。
+
+    控制变量在截面上完全相同时（零方差）斜率取 0，而不是丢掉这一期：去均值是单调
+    变换、秩不变，所以此时残差 IC 恰好等于目标自己的 IC。丢期会让「控制变量越退化、
+    样本越少」变成看不见的偏差。
+    """
+    target = target_rank.to_numpy(dtype=float)
+    control = control_rank.to_numpy(dtype=float)
+    ahead = forward.to_numpy(dtype=float)
+    values: dict[pd.Timestamp, float] = {}
+    for position, stamp in enumerate(target_rank.index):
+        valid = (
+            np.isfinite(target[position])
+            & np.isfinite(control[position])
+            & np.isfinite(ahead[position])
+        )
+        if int(valid.sum()) < MIN_NAMES_PER_PERIOD:
+            continue
+        y = target[position][valid]
+        x = control[position][valid]
+        x_centered = x - x.mean()
+        y_centered = y - y.mean()
+        denominator = float((x_centered**2).sum())
+        slope = (
+            float((x_centered * y_centered).sum()) / denominator
+            if denominator > 0.0
+            else 0.0
+        )
+        residual = y_centered - slope * x_centered
+        ic = spearman(residual, ahead[position][valid])
+        if np.isfinite(ic):
+            values[stamp] = ic
+    return pd.Series(values, dtype=float)
