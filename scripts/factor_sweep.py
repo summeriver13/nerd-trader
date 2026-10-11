@@ -83,16 +83,21 @@ def print_header(panel: Panel, mask: pd.DataFrame, args: argparse.Namespace) -> 
 
 
 def print_thresholds(result: SweepResult) -> None:
-    """门槛表：有效试验数才是该用的那个，名义门槛会杀掉真信号。"""
-    print("\n=== 门槛（有效试验数校正）===")
+    """门槛表：名义 Bonferroni 是诚实基线，有效试验数只是描述性参考。
+
+    有效试验数由样本内 IC 相关矩阵导出，而 de Prado & Fabozzi (2026) 证明搜索-选择
+    过程下的 FDR 无法从样本内统计量识别；它的作用方向是放松门槛，即低估假发现率。
+    决策用 `src/research/overfitting.py` 的 PBO/DSR。
+    """
+    print("\n=== 门槛（名义 Bonferroni 为基线；有效门槛仅供参考，无理论保证）===")
     print(
-        f"{'期限':>4}{'名义试验数':>12}{'有效试验数':>12}{'有效门槛':>10}{'名义门槛':>10}"
+        f"{'期限':>4}{'名义试验数':>12}{'有效试验数':>12}{'名义门槛':>10}{'有效门槛':>12}"
     )
     for row in result.tests.to_dict(orient="records"):
         print(
             f"{row['horizon']:>4}{row['nominal_tests']:>12}"
             f"{row['effective_tests']:>12.1f}"
-            f"{row['critical_t']:>10.2f}{row['bonferroni_t']:>10.2f}"
+            f"{row['bonferroni_t']:>10.2f}{row['critical_t']:>12.2f}"
         )
 
 

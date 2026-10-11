@@ -104,14 +104,21 @@ def resolve_families(names: str | None = None) -> list[SweepFamily]:
     return [SWEEP_FAMILIES[name] for name in chosen]
 
 
-# === 显著性门槛：按有效试验数校正 ===
+# === 显著性门槛：名义 Bonferroni 是基线，有效试验数只是描述性参考 ===
 
 
 def effective_tests(series: pd.DataFrame) -> float:
     """有效试验数：IC 序列相关矩阵特征值谱的 Li-Ji 估计 `(Σλ)² / Σλ²`。
 
-    相邻窗口的 IC 序列几乎同一条线，名义上几百个检验其实只有几十个独立方向。
-    按名义数做 Bonferroni 会把真信号一起杀掉，不校正则必然撞出噪音。
+    相邻窗口的 IC 序列几乎同一条线，名义上几百个检验其实只跨几个独立方向。
+
+    这是**描述性统计，不是有效的多重检验校正**：它完全由样本内统计量导出，而
+    de Prado & Fabozzi (2026)《The False Discovery Rate in Finance: Identification
+    Failure and Search-Adjusted Estimation》证明，当结果来自搜索-选择过程时，FDR
+    无法仅从样本内统计量识别，且这类推断会**低估**真实假发现率。本函数给出的门槛
+    低于名义 Bonferroni，正属于低估方向；它也只数了本次扫描**内部**的冗余，没数
+    历史上试过的所有东西。**决策请用 `src/research/overfitting.py` 的 PBO/DSR。**
+
     两两不相交的候选（从无重叠期次）视为不相关，取 0。
     """
     count = series.shape[1]
@@ -126,7 +133,11 @@ def effective_tests(series: pd.DataFrame) -> float:
 
 
 def critical_t(tests: float, alpha: float = DEFAULT_ALPHA) -> float:
-    """双侧 Bonferroni 门槛（正态近似，与既有套件的 2.99 / 3.48 同口径）。"""
+    """双侧 Bonferroni 门槛（正态近似，与既有套件的 2.99 / 3.48 同口径）。
+
+    `tests` 传名义试验数才是诚实的基线；传 `effective_tests()` 的结果只是一个
+    更松的描述性参考（见该函数的说明）。
+    """
     return float(NormalDist().inv_cdf(1.0 - alpha / (2.0 * max(tests, 1.0))))
 
 
