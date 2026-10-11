@@ -38,6 +38,10 @@ NON_MARKET: frozenset[str] = frozenset({"AUDF-USDT", "AUDM-USDT", "XTESTA-USDT"}
 
 # 缓存目录里的交易所名（自持数据按 <venue>/<market>/<timeframe>/<标的>.parquet 组织）
 SOURCE_VENUE: str = "okx"
+# 退市标的补集所在的数据集：OKX 对退市标的**不保留任何历史**（instruments 只列
+# live/preopen、history-candles 返回 51001），实测缓存标的与 OKX 官方退市名单零交集。
+# 该数据集由 scripts/fetch_delisted_bars.py 从 Binance 回填（那里退市标的的日线仍可用）。
+DELISTED_VENUE: str = "binance"
 
 
 @dataclass(frozen=True)
@@ -97,12 +101,18 @@ def load_panel(
     root: Path = CRYPTO_ROOT,
     *,
     market: str = MARKET_SPOT,
+    include_delisted: bool = False,
 ) -> Panel:
     """读本地缓存构建面板，并按池子规则做静态剔除（只读，不触发采集）。
 
     静态剔除是与时间无关的口径（代币化股票、外汇、测试仪器）；与时间有关的条件
     （流动性、上市天数）在 tradable_mask 里逐日判定。默认读现货：池子过滤规则
     （X 前缀代币化股票等）与现货缓存的口径一致。
+
+    `include_delisted` 打开时并入退市标的补集（见 DELISTED_VENUE）：只用 okx 缓存
+    做截面研究，等于默认「买过的小币都不会死」，小市值类结论会被系统性抬高。
+    补集与主池按构造互斥（同一批标的不会既在 OKX 交易又已从 OKX 退市）；若某标的
+    被 OKX 重新上架而两边都有，以主池行情为准。
     """
     rule = rule or UniverseRule()
     venue_dir = Path(root) / SOURCE_VENUE / market / timeframe
@@ -111,11 +121,10 @@ def load_panel(
             f"{venue_dir} 不存在：先跑一次回测把 {timeframe} 行情抓到本地"
         )
 
-    frames = {
-        path.stem: frame
-        for path in sorted(venue_dir.glob("*.parquet"))
-        if not (frame := pd.read_parquet(path)).empty
-    }
+    frames = _read_venue(venue_dir)
+    if include_delisted:
+        delisted_dir = Path(root) / DELISTED_VENUE / market / timeframe
+        frames = {**_read_venue(delisted_dir), **frames}
     if not frames:
         raise FileNotFoundError(f"{venue_dir} 下没有非空 parquet")
 
@@ -169,6 +178,17 @@ def tradable_mask(panel: Panel, rule: UniverseRule | None = None) -> pd.DataFram
 def tradable_counts(mask: pd.DataFrame) -> pd.Series:
     """逐日可交易标的数（面板宽度）：截面 N 有多宽，读结论时就要看这条曲线。"""
     return mask.sum(axis=1)
+
+
+def _read_venue(directory: Path) -> dict[str, pd.DataFrame]:
+    """读一个数据集目录下的全部非空 parquet；目录缺失返回空（补集可能还没抓）。"""
+    if not directory.is_dir():
+        return {}
+    return {
+        path.stem: frame
+        for path in sorted(directory.glob("*.parquet"))
+        if not (frame := pd.read_parquet(path)).empty
+    }
 
 
 def _is_non_crypto(symbol: str) -> bool:

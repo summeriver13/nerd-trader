@@ -24,15 +24,22 @@ TIMEFRAME = "1d"
 
 
 def _write_cache(
-    root: Path, symbol: str, start: str, days: int, notional: float
+    root: Path,
+    symbol: str,
+    start: str,
+    days: int,
+    notional: float,
+    *,
+    venue: str = "okx",
+    close: float = 100.0,
 ) -> None:
     """在临时目录写一份最小缓存：只有面板需要的 close/volume 两列。"""
     index = pd.date_range(start, periods=days, freq="1D", tz="UTC")
     frame = pd.DataFrame(
-        {"close": 100.0, "volume": notional / 100.0},
+        {"close": close, "volume": notional / close},
         index=index,
     )
-    target = root / "okx" / "spot" / TIMEFRAME
+    target = root / venue / "spot" / TIMEFRAME
     target.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(target / f"{symbol}.parquet")
 
@@ -54,6 +61,28 @@ def test_non_crypto_instruments_are_excluded(tmp_path: Path) -> None:
 
     kept = load_panel(TIMEFRAME, rule=UniverseRule(keep_non_crypto=True), root=tmp_path)
     assert set(kept.symbols) == {"BTC-USDT", "XRP-USDT", "XTSLA-USDT", "XTESTA-USDT"}
+
+
+def test_include_delisted_is_opt_in(tmp_path: Path) -> None:
+    """退市补集默认不并入：不做幸存者修正时面板必须与历史口径一致。"""
+    _write_cache(tmp_path, "LIVE-USDT", "2020-01-01", 100, 5e6)
+    _write_cache(tmp_path, "DEAD-USDT", "2020-01-01", 100, 5e6, venue="binance")
+
+    assert list(load_panel(TIMEFRAME, root=tmp_path).symbols) == ["LIVE-USDT"]
+    merged = load_panel(TIMEFRAME, root=tmp_path, include_delisted=True)
+    assert set(merged.symbols) == {"LIVE-USDT", "DEAD-USDT"}
+
+
+def test_delisted_does_not_override_main_pool(tmp_path: Path) -> None:
+    """两边都有同一标的时以主池为准：被 OKX 重新上架的标的要读 OKX 行情。"""
+    _write_cache(tmp_path, "SAME-USDT", "2020-01-01", 100, 5e6, close=100.0)
+    _write_cache(
+        tmp_path, "SAME-USDT", "2020-01-01", 100, 5e6, venue="binance", close=7.0
+    )
+
+    panel = load_panel(TIMEFRAME, root=tmp_path, include_delisted=True)
+    assert list(panel.symbols) == ["SAME-USDT"]
+    assert panel.close["SAME-USDT"].iloc[0] == 100.0
 
 
 def test_listing_age_days_counts_from_first_bar(tmp_path: Path) -> None:

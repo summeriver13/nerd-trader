@@ -66,6 +66,11 @@ def parse_args() -> argparse.Namespace:
         help=f"单边成本（bp），默认 {DEFAULT_ONE_WAY_COST * 1e4:.1f}",
     )
     parser.add_argument("--no-save", action="store_true", help="不落盘，只打印")
+    parser.add_argument(
+        "--include-delisted",
+        action="store_true",
+        help="并入退市标的补集（幸存者修正），默认只用 okx 缓存",
+    )
     return parser.parse_args()
 
 
@@ -175,7 +180,11 @@ def print_capacity(report: FactorReport) -> None:
 
 
 def print_survivorship(report: FactorReport) -> None:
-    """幸存者偏差代理：缓存里 0 个退市标的，上市初期的收益不可当证据。"""
+    """幸存者偏差代理：上市初期 vs 成熟期的收益缺口。
+
+    注意这是**未修正**口径：只反映「新币上市初期收益偏高」这个现象本身。
+    退市补集的量化影响见 docs/factors/README.md 第八节（`--include-delisted`）。
+    """
     print("\n=== 幸存者偏差代理（上市初期 vs 成熟期）===")
     print(f"{'h':>4}{'初期均值':>11}{'成熟期均值':>12}{'缺口':>10}{'初期观测':>10}")
     for _, row in report.survivorship.iterrows():
@@ -238,7 +247,12 @@ def main() -> int:
     rule = UniverseRule(
         min_notional_usd=args.min_notional, min_listed_days=args.min_listed_days
     )
-    panel = load_panel(args.timeframe, rule, market=args.market)
+    panel = load_panel(
+        args.timeframe,
+        rule,
+        market=args.market,
+        include_delisted=args.include_delisted,
+    )
     report = build_report(
         panel,
         rule,
