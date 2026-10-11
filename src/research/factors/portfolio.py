@@ -90,10 +90,29 @@ class PortfolioOptions:
     horizon: int = 30
     quantiles: int = 5
     cost_one_way: float = DEFAULT_ONE_WAY_COST
+    # 非重叠网格的锚点。默认 None = 从 spec.warmup 起算（单因子回测的口径）；
+    # 跨候选比较时（PBO 要求共同时间轴）必须给同一个锚点，否则不同窗口的相位不同，
+    # h=2 时奇偶窗口的网格甚至完全不相交，交集为空
+    anchor: int | None = None
 
     @property
     def cost_label(self) -> str:
         return f"{self.cost_one_way * 1e4:.1f}bp/边"
+
+
+def break_even_cost(gross: float, turnover: float) -> float:
+    """盈亏平衡成本（单边）：把毛价差吃到零的那个费率。
+
+    与实测成本并排看才知道一个因子是「信号不行」还是「成本不允许」：平衡成本
+    远高于 10bp（taker）说明还有余地，低于 maker 费率（2bp）说明这个频率下根本
+    做不了。毛价差为负时返回 0（无成本也不赚，谈不上平衡点）。
+
+    传**定向后**的毛价差：扫描不预设方向，做空高分位的候选（如 mom 族）原始价差
+    为负，直接传原始值会把它的平衡成本错报成 0。
+    """
+    if turnover <= 0.0 or gross <= 0.0:
+        return 0.0
+    return gross / (_REBALANCE_TRADES * turnover)
 
 
 @dataclass(frozen=True)
@@ -105,6 +124,9 @@ class PortfolioStats:
     quantiles: int
     periods: int
     quantile_returns: pd.Series
+    # 逐期多空价差序列：gross_spread 只是它的均值。PBO/CSCV 要把样本切成两半
+    # 比排名，折叠成均值就没得比，所以未折叠的原始序列必须留着
+    spread_returns: pd.Series
     gross_spread: float
     net_spread: float
     # 两条腿的平均换手（多空价差的成本口径）
@@ -158,15 +180,8 @@ class PortfolioStats:
 
     @property
     def break_even_cost(self) -> float:
-        """盈亏平衡成本（单边）：把毛价差吃到零的那个费率。
-
-        与实测成本并排看才知道一个因子是「信号不行」还是「成本不允许」：
-        平衡成本远高于 10bp（taker）说明还有余地，低于 maker 费率（2bp）说明
-        这个频率下根本做不了。毛价差为负时返回 0（无成本也不赚，谈不上平衡点）。
-        """
-        if self.turnover <= 0.0 or self.gross_spread <= 0.0:
-            return 0.0
-        return self.gross_spread / (_REBALANCE_TRADES * self.turnover)
+        """盈亏平衡成本（单边）：见模块级 `break_even_cost`。"""
+        return break_even_cost(self.gross_spread, self.turnover)
 
 
 def _buy_and_hold_leg(panel: Panel, first_pos: int, last_pos: int) -> LegStats:
@@ -196,7 +211,11 @@ def portfolio_stats(
     """分位组合统计：非重叠期次的等权分位收益、多空价差、换手与净收益。"""
     values = spec.values(panel).where(mask)
     forward = forward_returns(panel, options.horizon).where(mask)
-    dates = panel.index[spec.warmup :: options.horizon]
+    # 锚点固定时所有候选共用同一相位，有效起点仍由 warmup 决定；anchor=None 时
+    # start 就是 warmup，行为与从前一致
+    start = spec.warmup if options.anchor is None else options.anchor
+    grid = panel.index[start :: options.horizon]
+    dates = grid[grid >= panel.index[spec.warmup]]
 
     per_date: list[pd.Series] = []
     market: list[float] = []
@@ -225,6 +244,7 @@ def portfolio_stats(
             quantiles=options.quantiles,
             periods=0,
             quantile_returns=empty,
+            spread_returns=empty,
             gross_spread=0.0,
             net_spread=0.0,
             turnover=0.0,
@@ -249,6 +269,11 @@ def portfolio_stats(
     # stub 把 DataFrame.mean() 标成 Series | float | int，运行时按列归约必为 Series
     average = cast(pd.Series, quantile_returns.mean())
     gross = float(average.iloc[-1] - average.iloc[0])
+    # 逐期多空价差序列：gross_spread 只是它的均值。PBO/CSCV 要把样本切成两半比
+    # 排名，折叠成均值就没得比了，所以未折叠的原始序列必须留着
+    spread_returns = cast(
+        pd.Series, quantile_returns.iloc[:, -1] - quantile_returns.iloc[:, 0]
+    )
     long_turnover, short_turnover = _leg_turnovers(top_holdings, bottom_holdings)
     turnover = (long_turnover + short_turnover) / 2
     cost = _REBALANCE_TRADES * turnover * options.cost_one_way
@@ -272,6 +297,7 @@ def portfolio_stats(
         quantiles=options.quantiles,
         periods=int(quantile_returns.shape[0]),
         quantile_returns=average,
+        spread_returns=spread_returns,
         gross_spread=gross,
         net_spread=net,
         turnover=turnover,
