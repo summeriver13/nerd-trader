@@ -63,25 +63,25 @@ class FactorSpec:
 # === 因子计算（只吃历史：全部用 shift/rolling 的向后看窗口）===
 
 
-def _momentum(panel: Panel, window: int) -> pd.DataFrame:
+def momentum(panel: Panel, window: int) -> pd.DataFrame:
     """过去 window 根的累计收益。"""
     return panel.close / panel.close.shift(window) - 1
 
 
-def _volatility(panel: Panel, window: int) -> pd.DataFrame:
+def volatility(panel: Panel, window: int) -> pd.DataFrame:
     """过去 window 根收益的标准差（已实现波动）。"""
     # stub 按 axis 重载把逐元素结果标成 Series，运行时是 DataFrame；用 cast 收窄
     rolling_std = panel.returns().rolling(window, min_periods=window).std()
     return cast(pd.DataFrame, rolling_std)
 
 
-def _log_notional(panel: Panel, window: int) -> pd.DataFrame:
+def log_notional(panel: Panel, window: int) -> pd.DataFrame:
     """过去 window 根中位名义额的对数：规模/流动性代理。"""
     median = panel.notional.rolling(window, min_periods=window).median()
     return cast(pd.DataFrame, np.log(median.where(median > 0)))
 
 
-def _distance_to_high(panel: Panel, window: int) -> pd.DataFrame:
+def distance_to_high(panel: Panel, window: int) -> pd.DataFrame:
     """距过去 window 根最高收盘价的距离（≤0，越接近 0 越靠近新高）。"""
     highest = panel.close.rolling(window, min_periods=window).max()
     return panel.close / highest - 1
@@ -97,7 +97,7 @@ def _momentum_spec(key: str, window: int, direction: int, label: str) -> FactorS
         family=FAMILY_PRICE_VOLUME,
         direction=direction,
         warmup=window,
-        compute=lambda panel: _momentum(panel, window),
+        compute=lambda panel: momentum(panel, window),
     )
 
 
@@ -109,7 +109,7 @@ def _volatility_spec(window: int) -> FactorSpec:
         family=FAMILY_PRICE_VOLUME,
         direction=DIRECTION_SHORT,  # 低波动异象：波动越大越看空
         warmup=window,
-        compute=lambda panel: _volatility(panel, window),
+        compute=lambda panel: volatility(panel, window),
     )
 
 
@@ -121,7 +121,7 @@ def _liquidity_spec(window: int) -> FactorSpec:
         direction=DIRECTION_SHORT,  # 流动性/规模溢价：越小越看多
         # 名义额无前置 NaN，满 min_periods 落在下标 window-1
         warmup=window - 1,
-        compute=lambda panel: _log_notional(panel, window),
+        compute=lambda panel: log_notional(panel, window),
     )
 
 
@@ -132,7 +132,7 @@ def _high_spec(window: int) -> FactorSpec:
         family=FAMILY_PRICE_VOLUME,
         direction=DIRECTION_LONG,  # 高点邻近效应：越接近新高越看多
         warmup=window - 1,
-        compute=lambda panel: _distance_to_high(panel, window),
+        compute=lambda panel: distance_to_high(panel, window),
     )
 
 

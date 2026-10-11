@@ -56,16 +56,32 @@ def rank_ic_series(
     两类期次直接跳过：标的太少、以及因子值在截面上完全相同的期（相关系数无定义，
     算出来是 NaN 并会让 pandas 抛 ConstantInputWarning）。筛选要在算相关之前做，
     否则警告照报。
+
+    口径是**先取成对完整集、再排名**（等价于逐期对成对完整样本算 Spearman）。
+    先排名再剔除是错的：尾部 h 根的缺失会改变秩的间距，秩序不变但 Pearson 不是
+    单调变换不变量，实测单期最大偏差 0.21（均值只差 1e-6，会让人看不出错）。
+    实现上必须是矩阵化的行内相关，不能用 corrwith——后者逐期调 nancorr，
+    在主池上慢 3.8 倍。
     """
     masked_values = values.where(mask)
-    masked_forward = forward.where(mask)
     valid = (masked_values.notna().sum(axis=1) >= MIN_NAMES_PER_PERIOD) & (
         masked_values.nunique(axis=1) >= MIN_NAMES_PER_PERIOD
     )
     if not valid.any():
         return pd.Series(dtype=float)
-    ic = masked_values[valid].corrwith(masked_forward[valid], axis=1, method="spearman")
-    return ic.dropna()
+    left = masked_values[valid]
+    right = forward.where(mask)[valid]
+    both = left.notna() & right.notna()
+    left_rank = left.where(both).rank(axis=1)
+    right_rank = right.where(both).rank(axis=1)
+    left_centered = left_rank.sub(left_rank.mean(axis=1), axis=0)
+    right_centered = right_rank.sub(right_rank.mean(axis=1), axis=0)
+    numerator = (left_centered * right_centered).sum(axis=1, min_count=1)
+    denominator = np.sqrt(
+        (left_centered**2).sum(axis=1, min_count=1)
+        * (right_centered**2).sum(axis=1, min_count=1)
+    )
+    return (numerator / denominator).dropna()
 
 
 def ic_stats(
