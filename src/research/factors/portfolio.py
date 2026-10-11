@@ -156,6 +156,18 @@ class PortfolioStats:
         """只多腿年化：与 annual_net 同一套期数折算，便于并列比较。"""
         return self.long_only_net * self.periods / self.span_years
 
+    @property
+    def break_even_cost(self) -> float:
+        """盈亏平衡成本（单边）：把毛价差吃到零的那个费率。
+
+        与实测成本并排看才知道一个因子是「信号不行」还是「成本不允许」：
+        平衡成本远高于 10bp（taker）说明还有余地，低于 maker 费率（2bp）说明
+        这个频率下根本做不了。毛价差为负时返回 0（无成本也不赚，谈不上平衡点）。
+        """
+        if self.turnover <= 0.0 or self.gross_spread <= 0.0:
+            return 0.0
+        return self.gross_spread / (_REBALANCE_TRADES * self.turnover)
+
 
 def _buy_and_hold_leg(panel: Panel, first_pos: int, last_pos: int) -> LegStats:
     """BTC 买入持有（与组合同期同起点）的复利口径。

@@ -19,7 +19,7 @@ from typing import cast
 import pandas as pd
 
 from src.research.factors.panel import Panel, UniverseRule, load_panel
-from src.research.factors.portfolio import DEFAULT_ONE_WAY_COST, PortfolioOptions
+from src.research.factors.portfolio import DEFAULT_ONE_WAY_COST
 from src.research.factors.report import (
     DEFAULT_HORIZONS,
     DEFAULT_PORTFOLIO_HORIZON,
@@ -112,6 +112,8 @@ def print_portfolio(report: FactorReport) -> None:
     """分位组合表：多空价差与只多腿并列，单调性说明只多腿是否可信。
 
     这里的「只多年化」是算术折算，不是可复利收益；判定要看 print_benchmark。
+    「平衡成本」= 把毛价差吃到零的单边费率（bp）：与实测成本并排看，才分得清
+    「信号不行」与「成本不允许」——反转就是后者（毛价差年化 +38%、平衡 9.8bp）。
     """
     first = report.portfolio.iloc[0]
     print(
@@ -121,6 +123,7 @@ def print_portfolio(report: FactorReport) -> None:
     print(
         f"{'因子':<{FACTOR_WIDTH}}{'期数':>5}{'Q高':>9}{'Q低':>9}{'多空净':>9}"
         f"{'多空年化':>10}{'只多净':>9}{'只多年化':>10}{'单调性':>8}{'换手':>7}"
+        f"{'平衡成本':>9}"
     )
     for _, row in report.portfolio.iterrows():
         print(
@@ -129,6 +132,7 @@ def print_portfolio(report: FactorReport) -> None:
             f"{row['net_spread']:>9.4f}{row['annual_net']:>10.3f}"
             f"{row['long_only_net']:>9.4f}{row['long_only_annual']:>10.3f}"
             f"{row['monotonicity']:>8.2f}{row['long_turnover']:>7.3f}"
+            f"{row['break_even_cost'] * 1e4:>9.1f}"
         )
 
 
@@ -235,15 +239,15 @@ def main() -> int:
         min_notional_usd=args.min_notional, min_listed_days=args.min_listed_days
     )
     panel = load_panel(args.timeframe, rule, market=args.market)
-    options = PortfolioOptions(
-        horizon=args.portfolio_horizon,
+    report = build_report(
+        panel,
+        rule,
+        horizons=horizons,
+        portfolio_horizon=args.portfolio_horizon,
         quantiles=args.quantiles,
         cost_one_way=(
             DEFAULT_ONE_WAY_COST if args.cost_bp is None else args.cost_bp / 1e4
         ),
-    )
-    report = build_report(
-        panel, rule, horizons=horizons, portfolio_horizon=options.horizon
     )
 
     print_universe(panel, report)

@@ -197,6 +197,8 @@ def _portfolio_row(
         "turnover": stats.turnover,
         "long_turnover": stats.long_turnover,
         "cost_one_way": stats.cost_one_way,
+        # 盈亏平衡成本（单边）：与实测成本并排看，才分得清「信号不行」与「成本不允许」
+        "break_even_cost": stats.break_even_cost,
         # 分位收益与分位序号的秩相关：低单调性说明「只多腿好看」来自极端分位
         # 而非单调排序，这种收益换个起始点就消失
         "monotonicity": _monotonicity(stats.quantile_returns),

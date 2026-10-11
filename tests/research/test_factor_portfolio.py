@@ -82,6 +82,58 @@ def test_turnover_and_cost_formula(
     assert stats.net_spread == pytest.approx(stats.gross_spread - 4 * cost_one_way)
 
 
+def test_break_even_cost_is_the_fee_that_zeroes_the_spread(
+    ranked_panel: tuple[Panel, list[float]],
+) -> None:
+    """平衡成本 = 把毛价差吃到零的单边费率：拿它去跑一遍，净价差恰好为 0。
+
+    这是「信号不行」与「成本不允许」的分界线，必须能反推回零（不是另一个口径）。
+    """
+    panel, _ = ranked_panel
+    mask = panel.close.notna()
+    probe = portfolio_stats(
+        _alternating_spec(panel),
+        panel,
+        mask,
+        PortfolioOptions(horizon=1, quantiles=QUANTILES, cost_one_way=0.0),
+    )
+    assert probe.turnover == pytest.approx(1.0)
+
+    stats = portfolio_stats(
+        _alternating_spec(panel),
+        panel,
+        mask,
+        PortfolioOptions(
+            horizon=1, quantiles=QUANTILES, cost_one_way=probe.break_even_cost
+        ),
+    )
+    assert stats.break_even_cost == pytest.approx(probe.break_even_cost)
+    assert stats.net_spread == pytest.approx(0.0, abs=1e-12)
+
+
+def test_break_even_cost_is_zero_without_gross_edge(
+    ranked_panel: tuple[Panel, list[float]],
+) -> None:
+    """毛价差为负时没有平衡点可谈：返回 0，而不是一个负费率（会被读成「倒贴也不赚」）。"""
+    panel, _ = ranked_panel
+    flipped = FactorSpec(
+        key="flipped",
+        label="反向",
+        family="测试",
+        direction=1,
+        warmup=0,
+        compute=lambda p: p.close * -1.0,
+    )
+    stats = portfolio_stats(
+        flipped,
+        panel,
+        panel.close.notna(),
+        PortfolioOptions(horizon=1, quantiles=QUANTILES, cost_one_way=0.0),
+    )
+    assert stats.gross_spread < 0.0
+    assert stats.break_even_cost == pytest.approx(0.0)
+
+
 def test_long_only_net_equals_top_quantile_when_no_turnover(
     ranked_panel: tuple[Panel, list[float]],
     rank_spec: Callable[..., FactorSpec],
