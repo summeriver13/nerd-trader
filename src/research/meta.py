@@ -102,6 +102,22 @@ def meta_label(returns: pd.Series, side: pd.Series) -> pd.Series:
     return pd.Series((signs > 0).astype(int), index=side.index)
 
 
+def build_classifier(options: MetaLabelOptions) -> RandomForestClassifier:
+    """按 `options` 造一个**未拟合**的分类器。
+
+    超参只应有一处定义：调参（`research.tuning`）要的是「按参数造模型」而不是
+    「造好顺便训了」，所以把构造与拟合拆开，否则两边各写一份 n_estimators/max_depth，
+    迟早会漂移成「模型的差异」冒充「特征的差异」。
+    """
+    return RandomForestClassifier(
+        n_estimators=options.n_estimators,
+        max_depth=options.max_depth,
+        min_samples_leaf=options.min_samples_leaf,
+        random_state=options.seed,
+        n_jobs=-1,
+    )
+
+
 def fit_classifier(
     train: pd.DataFrame,
     features: list[str],
@@ -113,13 +129,7 @@ def fit_classifier(
     超参**上把特征集换成单个特征重训——超参只应有一处定义，否则「特征差异」会与
     「模型差异」混在一起。
     """
-    model = RandomForestClassifier(
-        n_estimators=options.n_estimators,
-        max_depth=options.max_depth,
-        min_samples_leaf=options.min_samples_leaf,
-        random_state=options.seed,
-        n_jobs=-1,
-    )
+    model = build_classifier(options)
     model.fit(
         train[features].to_numpy(),
         train[LABEL_COLUMN].to_numpy(),

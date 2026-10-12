@@ -6,6 +6,7 @@
 
 from collections.abc import Callable
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -14,6 +15,10 @@ from src.research.factors.panel import Panel
 
 type PanelFactory = Callable[[dict[str, list[float]]], Panel]
 type SpecFactory = Callable[[bool], FactorSpec]
+type PanelCodes = tuple[np.ndarray, np.ndarray]
+
+DATE_PANEL_DAYS: int = 40
+DATE_PANEL_PER_DAY: int = 3
 
 DAILY_NOTIONAL: float = 1e6
 # 手算合成数据的口径：第 i 个标的每根收益 = STEP × i，分位与 IC 都能一眼算出
@@ -39,6 +44,14 @@ def panel_factory() -> PanelFactory:
         )
 
     return _make
+
+
+@pytest.fixture
+def coded_panel() -> PanelCodes:
+    """(日期序号, 特征)：同一天内特征相同、天与天之间递增——第 9 章的折切分用它。"""
+    codes = np.repeat(np.arange(DATE_PANEL_DAYS), DATE_PANEL_PER_DAY)
+    features = np.column_stack([codes.astype(float), np.ones(codes.size)])
+    return codes, features
 
 
 @pytest.fixture
