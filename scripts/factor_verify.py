@@ -128,9 +128,7 @@ def main() -> int:
     print(f"\n耗时 {time.time() - started:.0f} 秒")
 
     if not args.no_save:
-        written = save_outputs(
-            result, f"{args.market}_{args.timeframe}_{args.pool}"
-        )
+        written = save_outputs(result, f"{args.market}_{args.timeframe}_{args.pool}")
         print("落盘：")
         for path in written:
             print(f"  {path}")
