@@ -21,6 +21,7 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
+from src.research import ffd
 from src.research.factors.panel import Panel
 
 # 因子族（报告按族分组，便于看「同一族里的因子是否互相重复」）
@@ -33,6 +34,10 @@ REVERSAL_WINDOW: int = 3
 VOLATILITY_WINDOW: int = 30
 LIQUIDITY_WINDOW: int = 30
 HIGH_WINDOW: int = 60
+# 分数阶差分（de Prado 第 5 章）：阶数与固定窗阈值。阈值 1e-3 对应宽度 72 / 54 根，
+# 本仓日线面板中位历史 958 根，196 只里 184~186 只喂得满
+FFD_ORDERS: tuple[float, ...] = (0.2, 0.4)
+FFD_THRESHOLD: float = 1e-3
 
 DIRECTION_LONG: int = 1  # 值越大越看多
 DIRECTION_SHORT: int = -1  # 值越小越看多
@@ -87,6 +92,23 @@ def distance_to_high(panel: Panel, window: int) -> pd.DataFrame:
     return panel.close / highest - 1
 
 
+def fractional_difference(panel: Panel, order: float) -> pd.DataFrame:
+    """对数收盘价的分数阶差分，减掉水平泄漏项（de Prado 第 5 章）。
+
+    实测（swap 日线）：**原始**变换与对数价格水平的逐期截面相关是 +1.000（d=0.2）/
+    +0.997（d=0.4），截面标准差比信号部分大 13~35 倍——直接用就等于拿价格水平当因子。
+    这里减去「权重和 × 对数水平」把泄漏项精确抵消（等价于把权重重新标准化成零和），
+    得到的因子对「整体乘一个常数」完全不变，才是「偏离自身慢趋势」那个信号。
+    """
+    weights = ffd.fractional_weights(order, FFD_THRESHOLD)
+    # numpy 的桩把 DataFrame 的逐元素结果标成 ndarray，运行时是 DataFrame
+    log_close = cast(pd.DataFrame, np.log(panel.close))
+    raw = log_close.apply(
+        lambda column: ffd.fractional_difference(column, order, FFD_THRESHOLD)
+    )
+    return cast(pd.DataFrame, raw) - float(weights.sum()) * log_close
+
+
 # === 因子工厂 ===
 
 
@@ -125,6 +147,20 @@ def _liquidity_spec(window: int) -> FactorSpec:
     )
 
 
+def _ffd_spec(order: float) -> FactorSpec:
+    """分数阶差分因子。方向按实测 IC：去泄漏后「偏离慢趋势越多越看空」。"""
+    return FactorSpec(
+        key=f"ffd_d{order:g}".replace(".", "p"),
+        label=f"{order:g} 阶分数差分（去水平泄漏）",
+        family=FAMILY_PRICE_VOLUME,
+        # 实测原始因子 RankIC −0.060（h=1、t −13.1），与 mom_7 的截面秩相关 +0.73，
+        # 与反转族同向，故方向取 SHORT
+        direction=DIRECTION_SHORT,
+        warmup=ffd.window_width(order, FFD_THRESHOLD),
+        compute=lambda panel: fractional_difference(panel, order),
+    )
+
+
 def _high_spec(window: int) -> FactorSpec:
     return FactorSpec(
         key=f"dth_{window}",
@@ -160,6 +196,7 @@ FACTOR_LIBRARY: dict[str, FactorSpec] = {
         _volatility_spec(VOLATILITY_WINDOW),
         _liquidity_spec(LIQUIDITY_WINDOW),
         _high_spec(HIGH_WINDOW),
+        *(_ffd_spec(order) for order in FFD_ORDERS),
     )
 }
 

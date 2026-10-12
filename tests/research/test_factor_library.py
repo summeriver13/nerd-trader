@@ -4,10 +4,13 @@
 IC 会漂亮到不像话。唯一可靠的防线是「篡改未来、过去必须不变」这类不变量测试。
 """
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from src.research import ffd
 from src.research.factors.library import FACTOR_LIBRARY, resolve_factors
 from src.research.factors.panel import Panel
 
@@ -96,3 +99,44 @@ def test_factor_keys_match_spec_fields() -> None:
     """注册表的键必须与 spec.key 一致（否则 CLI 解析与报告会对不上）。"""
     for key, spec in FACTOR_LIBRARY.items():
         assert key == spec.key
+
+
+def _scaled_panel(scales: list[float]) -> Panel:
+    """同一价格走势按不同倍数缩放：截面上只有价格水平不同，形状完全相同。"""
+    shape = [100.0 * (1.0 + 0.05 * np.sin(step / 9.0)) for step in range(BARS)]
+    return _panel(
+        {
+            f"S{index}-USDT": [value * scale for value in shape]
+            for index, scale in enumerate(scales)
+        }
+    )
+
+
+def test_fractional_difference_factor_is_free_of_the_price_level() -> None:
+    """FFD 因子对「整体乘一个常数」完全不变，否则它就是把价格水平当因子。
+
+    原始变换与对数水平的逐期截面相关实测 +1.000（d=0.2）/ +0.997（d=0.4），
+    所以库里必须减掉「权重和 × 对数水平」这一项。
+    """
+    values = FACTOR_LIBRARY["ffd_d0p4"].values(_scaled_panel([1.0, 5.0]))
+    left = values["S0-USDT"].dropna().to_numpy()
+    right = values["S1-USDT"].dropna().to_numpy()
+    assert left == pytest.approx(right, abs=1e-12)
+    assert np.abs(left).max() > 1e-6  # 防「恰好恒为 0」把上面那条变成空断言
+
+
+def test_fractional_difference_factor_cancels_a_flat_market() -> None:
+    """常数价格（死标的）的因子值必须是 0，而不是与价格水平成正比。"""
+    panel = _panel({"A-USDT": [100.0] * BARS, "B-USDT": [250.0] * BARS})
+    values = FACTOR_LIBRARY["ffd_d0p2"].values(panel).dropna()
+    assert values.to_numpy() == pytest.approx(0.0, abs=1e-9)
+
+
+def test_raw_fractional_difference_is_mostly_the_price_level() -> None:
+    """保留证据：不减泄漏项的原始变换在截面上几乎就是价格水平本身。"""
+    panel = _scaled_panel([1.0, 2.0, 3.0, 5.0, 8.0])
+    # numpy 的桩把 DataFrame 的逐元素结果标成 ndarray，运行时是 DataFrame
+    log_close = cast(pd.DataFrame, np.log(panel.close))
+    raw = log_close.apply(lambda column: ffd.fractional_difference(column, 0.4, 1e-3))
+    correlation = raw.rank(axis=1).corrwith(log_close.rank(axis=1), axis=1).median()
+    assert correlation > 0.99
