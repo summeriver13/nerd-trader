@@ -40,6 +40,7 @@ from src.research.factors.verification import (
     print_verification,
     verify,
 )
+from src.research.trials import ResearchScope
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "factors"
 POOL_PLATEAU: Final[str] = "plateau"
@@ -123,7 +124,13 @@ def main() -> int:
     )
 
     started = time.time()
-    result = verify(picks, panel, mask, trials=args.trials, progress=report_progress)
+    # study 用 factor_sweep：平台池是全候选池的子集，同一个试验空间
+    scope = ResearchScope(
+        study="factor_sweep", market=args.market, timeframe=args.timeframe
+    )
+    result = verify(
+        picks, panel, mask, trials=args.trials, progress=report_progress, scope=scope
+    )
     print_verification(result)
     print(f"\n耗时 {time.time() - started:.0f} 秒")
 

@@ -34,6 +34,7 @@ from src.research.factors.portfolio import (
 from src.research.factors.sweep import SWEEP_FAMILIES
 from src.research.overfitting import build_overfitting_report
 from src.research.overlap import DEFAULT_EMBARGO_RATIO
+from src.research.trials import ResearchScope, Trial, TrialLedger
 
 DEFAULT_QUANTILES: Final[int] = 5
 # 每个候选跑一遍分位组合，是分钟级的活，进度必须能看见
@@ -153,6 +154,9 @@ class VerificationResult:
     series: dict[str, pd.Series]
     # 逐期限的 PBO 与 DSR：同一期限的候选才是直接竞争关系，跨期限混在一起比是错的
     by_horizon: pd.DataFrame
+    # DSR 实际用的试验次数 N，以及本次往账本里新增的条数
+    trials: int = 0
+    ledger_added: int = 0
 
 
 def _row(pick: PlateauPick, stats: PortfolioStats) -> dict[str, object]:
@@ -172,6 +176,43 @@ def _row(pick: PlateauPick, stats: PortfolioStats) -> dict[str, object]:
     }
 
 
+def _candidate_trials(
+    picks: Sequence[PlateauPick], scope: ResearchScope
+) -> list[Trial]:
+    """把候选翻译成账本条目。
+
+    方向不进 params：它是从 IC 符号推出来的，不是我们选择的自由度。算进去会让同一
+    配置因为行情变化而变成两次试验，把 N 悄悄放大。
+    """
+    return [
+        Trial(
+            study=scope.study,
+            market=scope.market,
+            timeframe=scope.timeframe,
+            kind=pick.family,
+            params={"window": pick.window, "horizon": pick.horizon},
+        )
+        for pick in picks
+    ]
+
+
+def _resolve_trials(
+    picks: Sequence[PlateauPick], scope: ResearchScope | None, declared: int | None
+) -> tuple[int, int]:
+    """定出 DSR 用的 N，并把本批候选记进账本，返回 (N, 新增条数)。
+
+    默认给**全库累计**——DSR 问的是「在你试过的全部东西里，这个还算不算技能」，
+    只数本批候选正是 de Prado 第 7 条 pitfall。窄作用域必须由调用方显式声明。
+    """
+    if scope is None:
+        return (declared or len(picks)), 0
+    ledger = TrialLedger()
+    added = ledger.record(_candidate_trials(picks, scope))
+    if declared is not None:
+        return declared, added
+    return max(ledger.count(), len(picks)), added
+
+
 def verify(
     picks: Sequence[PlateauPick],
     panel: Panel,
@@ -179,12 +220,23 @@ def verify(
     cost_one_way: float | None = None,
     trials: int | None = None,
     progress: ProgressFn | None = None,
+    scope: ResearchScope | None = None,
 ) -> VerificationResult:
     """候选列表 → 收益层读数 + 逐期限 PBO/DSR。
 
-    `trials` 是 DSR 的试验次数 N：应当声明**历史上真实试过的次数**，不声明就
-    退化成「本批候选数」，会低估。
+    `trials` 是 DSR 的试验次数 N。**给了 `scope` 就不必声明**：本批候选会被追加进
+    `src/research/trials.py` 的账本，N 取账本的累计数。不给 scope 也不声明 trials
+    时退化成「本批候选数」——那是低估（de Prado 第 7 条 pitfall），所以会打印警告。
     """
+    trial_count, added = _resolve_trials(picks, scope, trials)
+    if scope is None and trials is None:
+        print(
+            "⚠ 未声明 --trials 也未提供 scope：DSR 的 N 退化成「本批候选数」，会低估。\n"
+            "  用 scripts/trials_ledger.py 看当前账本累计数。"
+        )
+    else:
+        print(f"试验账本：本次新增 {added} 条，DSR 用的 N={trial_count}")
+
     series: dict[str, pd.Series] = {}
     rows: list[dict[str, object]] = []
     for position, pick in enumerate(picks, start=1):
@@ -198,8 +250,9 @@ def verify(
 
     table = pd.DataFrame(rows)
     if table.empty:
-        return VerificationResult(table, series, pd.DataFrame())
-    return VerificationResult(table, series, _verdict_table(table, series, trials))
+        return VerificationResult(table, series, pd.DataFrame(), trial_count, added)
+    verdicts = _verdict_table(table, series, trial_count)
+    return VerificationResult(table, series, verdicts, trial_count, added)
 
 
 def _verdict_table(
@@ -245,6 +298,10 @@ def print_verification(result: VerificationResult, top: int = 20) -> None:
     if result.picks.empty:
         print("\n收益层验证：没有可跑的候选。")
         return
+    print(
+        f"\n试验次数 N={result.trials}（账本累计；只数本批候选会低估门槛）"
+        f" | 本次新增 {result.ledger_added} 条"
+    )
     ordered = cast(pd.DataFrame, result.picks).sort_values(
         "gross_per_period", ascending=False
     )
