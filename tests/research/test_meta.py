@@ -174,3 +174,16 @@ def test_filter_summary_pairs_probability_with_the_same_row() -> None:
     )
     assert table.loc[1, "bets"] > 0
     assert float(table.loc[1, "hit_rate"]) > float(table.loc[0, "hit_rate"]) + 0.05
+
+
+def test_rf_param_space_covers_the_pipeline_defaults() -> None:
+    """默认配置必须与流水线默认值一致、且落在搜索空间内。
+
+    否则「调参 vs 默认」比的不是同一件事：默认臂会落在空间之外，成为候选里根本没有的
+    配置，Ch 9 的结论就变成「拿一个从没被搜索过的配置当基线」。
+    """
+    options = meta.MetaLabelOptions()
+    assert set(meta.RF_DEFAULT_PARAMS) == set(meta.RF_PARAM_SPACE)
+    for key, value in meta.RF_DEFAULT_PARAMS.items():
+        assert getattr(options, key) == value
+        assert value in meta.RF_PARAM_SPACE[key]

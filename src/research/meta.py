@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any, Final
 
 import numpy as np
 import pandas as pd
@@ -116,6 +117,22 @@ def build_classifier(options: MetaLabelOptions) -> RandomForestClassifier:
         random_state=options.seed,
         n_jobs=-1,
     )
+
+
+RF_PARAM_SPACE: Final[dict[str, list[Any]]] = {
+    "n_estimators": [50, 200],
+    "max_depth": [4, 6, 8, 12],
+    "min_samples_leaf": [10, 50, 200],
+}
+"""调参的搜索空间（键必须是 `build_classifier` 能透给 `replace` 的字段）。"""
+
+RF_DEFAULT_PARAMS: Final[dict[str, Any]] = {
+    "n_estimators": 200,
+    "max_depth": 6,
+    "min_samples_leaf": 50,
+}
+"""默认配置，即流水线实际上线用的那一套（与 `MetaLabelOptions` 的默认值一致，
+由用例钉住）。它必须在 `RF_PARAM_SPACE` 里——否则「调参 vs 默认」比的不是同一件事。"""
 
 
 def fit_classifier(

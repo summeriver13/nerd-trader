@@ -13,16 +13,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import cast
 
 import numpy as np
 import pandas as pd
 
 from src.research import labels, overlap
-from src.research.factors.panel import Panel
+from src.research.factors.library import FACTOR_LIBRARY
+from src.research.factors.panel import Panel, listing_age_days, tradable_mask
 
 BARRIER_FIELDS = ("label", "t1", "ret")
 MIN_BARS_PER_VERTICAL = 4
+AGE_COLUMN = "age_days"
+TRADABLE_COLUMN = "tradable"
+BARRIER_LABEL_COLUMN = "barrier_label"
+"""三重障碍标签的列名（`symbol_observations` 由 `BARRIER_FIELDS` 拼出）。"""
 
 
 def bar_uniqueness(touch: np.ndarray, bars: int) -> np.ndarray:
@@ -85,3 +91,45 @@ def build_observations(
         for symbol in panel.close.columns
     ]
     return pd.concat([row for row in rows if not row.empty], ignore_index=True)
+
+
+def to_long(frame: pd.DataFrame, name: str) -> pd.DataFrame:
+    """宽表转长表（date, symbol, name）——面板与特征统一到这一个形态才能 join。
+
+    `future_stack=True` 是新实现：旧实现 `dropna=False` 已弃用，而两者在当前 pandas 上
+    逐值等价（暖机期的 NaN 都要留着，绝不能用会丢行的旧默认值）。
+    """
+    stacked = frame.stack(future_stack=True)
+    stacked.index = stacked.index.set_names(["date", "symbol"])
+    return pd.DataFrame({name: stacked}).reset_index()
+
+
+def build_meta_frame(
+    panel: Panel,
+    *,
+    primary_key: str,
+    feature_keys: Sequence[str],
+    vertical: int,
+) -> pd.DataFrame:
+    """把面板拼成元标签研究用的长表：方向、标签、权重、特征一次到位。
+
+    与 `build_observations` 的分工：那里只出标签与权重，这里再加上主模型方向、因子特征、
+    上市天数（`age_days`——上市时长本身就是市场状态）与可交易掩码，并滤掉三类无意义行：
+    不可交易、`side` 为 0（主模型没观点）、以及三个必需列有缺失。
+
+    两条口径与 `build_observations` 一致：特征按 `(date, symbol)` **内连接**（缺一天就
+    整行不要，不做填充），方向为 0 的行直接丢（元标签只回答「这一注要不要下」）。
+    """
+    side_frame = FACTOR_LIBRARY[primary_key].values(panel)
+    table = build_observations(panel, side_frame, vertical)
+    pieces = [to_long(FACTOR_LIBRARY[key].values(panel), key) for key in feature_keys]
+    pieces.append(to_long(listing_age_days(panel), AGE_COLUMN))
+    features = pieces[0]
+    for piece in pieces[1:]:
+        features = features.merge(piece, on=["date", "symbol"], how="inner")
+    tradable = to_long(tradable_mask(panel), TRADABLE_COLUMN)
+    frame = table.merge(features, on=["date", "symbol"], how="inner")
+    frame = frame.merge(tradable, on=["date", "symbol"], how="inner")
+    frame = frame.loc[frame[TRADABLE_COLUMN].fillna(False)]
+    frame = frame.dropna(subset=["side", "forward", BARRIER_LABEL_COLUMN])
+    return frame.loc[frame["side"] != 0].reset_index(drop=True)

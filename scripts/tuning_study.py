@@ -31,31 +31,15 @@ from scipy import stats
 
 from src.config.paths import RESULTS_ROOT
 from src.research import meta, observations, tuning
-from src.research.factors.library import FACTOR_LIBRARY
-from src.research.factors.panel import (
-    Panel,
-    listing_age_days,
-    load_panel,
-    tradable_mask,
-)
+from src.research.factors.panel import Panel, load_panel
 from src.research.trials import Trial, TrialLedger
 
 PRIMARY_KEY: Final[str] = "rev_3"
 FEATURE_KEYS: Final[tuple[str, ...]] = ("mom_7", "mom_30", "vol_30", "liq_30", "dth_60")
 AGE_KEY: Final[str] = "age_days"
-LABEL_SOURCE: Final[str] = "barrier_label"
+LABEL_SOURCE: Final[str] = observations.BARRIER_LABEL_COLUMN
 WEIGHT_COLUMN: Final[str] = "weight_unique"
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "breaks"
-DEFAULT_SPACE: Final[dict[str, list[Any]]] = {
-    "n_estimators": [50, 200],
-    "max_depth": [4, 6, 8, 12],
-    "min_samples_leaf": [10, 50, 200],
-}
-DEFAULT_PARAMS: Final[dict[str, Any]] = {
-    "n_estimators": 200,
-    "max_depth": 6,
-    "min_samples_leaf": 50,
-}
 
 
 def parse_args() -> argparse.Namespace:
@@ -76,34 +60,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _stack(frame: pd.DataFrame, name: str) -> pd.DataFrame:
-    """宽表转长表（date, symbol, name）。"""
-    stacked = frame.stack(dropna=False)
-    stacked.index = stacked.index.set_names(["date", "symbol"])
-    return pd.DataFrame({name: stacked}).reset_index()
-
-
 def prepare(args: argparse.Namespace) -> tuple[pd.DataFrame, Panel]:
     """搭元标签数据集：与 `meta_label_study.py` 同口径，只少一个 `sadf`。
 
     少它是因为那份缓存的路径按市场写死；调参研究要的是**折结构**，不是复刻特征集。
     """
     panel = load_panel(args.timeframe, market=args.market)
-    mask = tradable_mask(panel)
-    side_frame = FACTOR_LIBRARY[PRIMARY_KEY].values(panel)
-    table = observations.build_observations(panel, side_frame, args.vertical)
-    pieces = [_stack(FACTOR_LIBRARY[key].values(panel), key) for key in FEATURE_KEYS]
-    pieces.append(_stack(listing_age_days(panel), AGE_KEY))
-    features = pieces[0]
-    for piece in pieces[1:]:
-        features = features.merge(piece, on=["date", "symbol"], how="inner")
-    tradable = pd.DataFrame({"tradable": mask.stack(dropna=False)}).reset_index()
-    tradable.columns = pd.Index(["date", "symbol", "tradable"])
-    frame = table.merge(features, on=["date", "symbol"], how="inner")
-    frame = frame.merge(tradable, on=["date", "symbol"], how="inner")
-    frame = frame.loc[frame["tradable"].fillna(False)]
-    frame = frame.dropna(subset=["side", "forward", LABEL_SOURCE])
-    frame = frame.loc[frame["side"] != 0].reset_index(drop=True)
+    frame = observations.build_meta_frame(
+        panel,
+        primary_key=PRIMARY_KEY,
+        feature_keys=FEATURE_KEYS,
+        vertical=args.vertical,
+    )
     print(
         f"{args.market} {args.timeframe}：{panel.close.shape[1]} 只 × "
         f"{panel.close.shape[0]} 天｜可交易观测 {len(frame)}，"
@@ -165,19 +133,21 @@ def evaluate_fold(
         ),
     )
     result = tuning.search_hyperparameters(
-        problem, DEFAULT_SPACE, n_iter=args.n_iter, seed=args.seed
+        problem, meta.RF_PARAM_SPACE, n_iter=args.n_iter, seed=args.seed
     )
     scores = result.fold_scores
     candidates = [
-        {key: scores[key][index] for key in DEFAULT_PARAMS}
+        {key: scores[key][index] for key in meta.RF_DEFAULT_PARAMS}
         for index in range(len(scores))
     ]
     out_of_sample = [
         _f1_on(_fit(train, features, params, base), test, features)
         for params in candidates
     ]
-    default_cv, _ = tuning.fold_scores(problem, DEFAULT_PARAMS)
-    default_oos = _f1_on(_fit(train, features, DEFAULT_PARAMS, base), test, features)
+    default_cv, _ = tuning.fold_scores(problem, meta.RF_DEFAULT_PARAMS)
+    default_oos = _f1_on(
+        _fit(train, features, meta.RF_DEFAULT_PARAMS, base), test, features
+    )
     correlation = float(
         pd.Series(scores["score"].to_numpy(dtype=float)).corr(
             pd.Series(np.asarray(out_of_sample)), method="kendall"

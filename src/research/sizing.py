@@ -171,8 +171,8 @@ class SchemeOptions:
         return PositionOptions(self.horizon, self.cost_one_way, self.periods_per_year)
 
 
-def _size_columns(probability: pd.DataFrame, side: pd.DataFrame) -> pd.DataFrame:
-    """逐列把概率变成带符号的下注规模。
+def size_columns(probability: pd.DataFrame, side: pd.DataFrame) -> pd.DataFrame:
+    """逐列把概率变成带符号的下注规模（下注方案的落地口径）。
 
     `sized_bet` 的正则在 Series 上，逐列调用比 stack/unstack 少一层索引陷坑；
     列数是百量级，代价可以忽略。
@@ -207,7 +207,7 @@ def compare_schemes(
     而且各方案抬得不一样（踩过：试跑时用 h 日前向收益，`全下` 的毛收益报到 927bp/期）。
     """
     positions = options.positions()
-    sized = _size_columns(probability, side)
+    sized = size_columns(probability, side)
     schemes: list[tuple[str, pd.DataFrame]] = [("全下（等权）", side)]
     schemes += [
         (

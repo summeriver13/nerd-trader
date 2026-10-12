@@ -58,7 +58,7 @@ THRESHOLDS = (0.0, 0.5, 0.55, 0.6, 0.7)
 
 def _stack(frame: pd.DataFrame, name: str) -> pd.DataFrame:
     """宽表转长表（date, symbol, name）。"""
-    stacked = frame.stack(dropna=False)
+    stacked = frame.stack(future_stack=True)
     stacked.index = stacked.index.set_names(["date", "symbol"])
     return pd.DataFrame({name: stacked}).reset_index()
 
@@ -85,7 +85,7 @@ def prepare(args: argparse.Namespace) -> tuple[pd.DataFrame, Panel]:
 
     side_frame = FACTOR_LIBRARY[PRIMARY_KEY].values(panel)
     table = observations.build_observations(panel, side_frame, args.vertical)
-    tradable = pd.DataFrame({"tradable": mask.stack(dropna=False)}).reset_index()
+    tradable = pd.DataFrame({"tradable": mask.stack(future_stack=True)}).reset_index()
     tradable.columns = pd.Index(["date", "symbol", "tradable"])
 
     frame = table.merge(_feature_frame(panel), on=["date", "symbol"], how="inner")
