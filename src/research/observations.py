@@ -22,6 +22,7 @@ import pandas as pd
 from src.research import labels, overlap
 from src.research.factors.library import FACTOR_LIBRARY
 from src.research.factors.panel import Panel, listing_age_days, tradable_mask
+from src.research.factors.portfolio import PortfolioOptions, portfolio_stats
 
 BARRIER_FIELDS = ("label", "t1", "ret")
 MIN_BARS_PER_VERTICAL = 4
@@ -133,3 +134,27 @@ def build_meta_frame(
     frame = frame.loc[frame[TRADABLE_COLUMN].fillna(False)]
     frame = frame.dropna(subset=["side", "forward", BARRIER_LABEL_COLUMN])
     return frame.loc[frame["side"] != 0].reset_index(drop=True)
+
+
+def strategy_spreads(
+    keys: Sequence[str],
+    panel: Panel,
+    mask: pd.DataFrame,
+    *,
+    horizon: int,
+    min_series: int,
+) -> pd.DataFrame:
+    """逐策略跑分位组合，取逐期价差序列拼成宽表（列名 = 因子键）。
+
+    `min_series` 以下的策略直接丢掉——拼宽表时它只会把公共区间截短。HRP 与 CPCV 两个
+    研究脚本共用这一步，权重估计与切分口径由各自接。
+    """
+    series: dict[str, pd.Series] = {}
+    for key in keys:
+        stats = portfolio_stats(
+            FACTOR_LIBRARY[key], panel, mask, PortfolioOptions(horizon=horizon)
+        )
+        spread = stats.spread_returns.dropna()
+        if spread.size >= min_series:
+            series[key] = spread
+    return pd.DataFrame(series)

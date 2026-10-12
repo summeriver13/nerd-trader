@@ -32,9 +32,8 @@ import pandas as pd
 
 from src.config.paths import RESULTS_ROOT
 from src.research.allocation import hrp_weights, inverse_variance_weights
-from src.research.factors.library import FACTOR_LIBRARY
-from src.research.factors.panel import Panel, UniverseRule, load_panel, tradable_mask
-from src.research.factors.portfolio import PortfolioOptions, portfolio_stats
+from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
+from src.research.observations import strategy_spreads
 from src.research.track_record import TrackRecord, track_record
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "breaks"
@@ -73,21 +72,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--strategies", default=None, help="逗号分隔的因子键")
     parser.add_argument("--no-save", action="store_true", help="不落盘，只打印")
     return parser.parse_args()
-
-
-def build_spreads(
-    keys: tuple[str, ...], panel: Panel, mask: pd.DataFrame, horizon: int
-) -> pd.DataFrame:
-    """逐策略跑分位组合，取逐期价差序列，拼成一张宽表。"""
-    series: dict[str, pd.Series] = {}
-    for key in keys:
-        stats = portfolio_stats(
-            FACTOR_LIBRARY[key], panel, mask, PortfolioOptions(horizon=horizon)
-        )
-        spread = stats.spread_returns.dropna()
-        if spread.size >= MIN_SERIES:
-            series[key] = spread
-    return pd.DataFrame(series)
 
 
 def evaluate(
@@ -158,7 +142,9 @@ def main() -> int:
     rule = UniverseRule()
     panel = load_panel(args.timeframe, rule, market=args.market)
     mask = tradable_mask(panel, rule)
-    frame = build_spreads(keys, panel, mask, args.horizon).dropna()
+    frame = strategy_spreads(
+        keys, panel, mask, horizon=args.horizon, min_series=MIN_SERIES
+    ).dropna()
     split = int(frame.shape[0] * args.split)
     train, test = frame.iloc[:split], frame.iloc[split:]
     print(
