@@ -228,3 +228,21 @@ def test_sweep_finds_planted_platform() -> None:
     assert float(result.verdicts["longest"].iloc[0]) >= 3
     # 负号 = 过去涨得多的接下来跌，即反转
     assert float(result.verdicts["mean_ic"].iloc[0]) < 0.0
+
+
+def test_every_family_scans_a_consecutive_window_axis() -> None:
+    """平台判据只连接窗口号相邻的段：步长≠1 的轴永远只出尖峰（FFD 接进来时踩过）。"""
+    for name, family in SWEEP_FAMILIES.items():
+        windows = family.windows
+        assert windows == tuple(range(windows[0], windows[-1] + 1)), name
+
+
+def test_ffd_family_warmup_is_the_real_nan_run() -> None:
+    """FFD 族的预热随阶数变，必须等于真实 NaN 段长度，否则 IC 会把暖机值当信号。"""
+    panel = _mean_reverting_panel()
+    family = SWEEP_FAMILIES["ffd"]
+    for window in (20, 40):
+        values = family.compute(panel, window)
+        present = values.notna().to_numpy().any(axis=1)
+        first_valid = int(np.flatnonzero(present)[0])
+        assert first_valid == family.warmup_of(window) > 0

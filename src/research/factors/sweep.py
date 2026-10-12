@@ -26,6 +26,7 @@ from typing import Final, cast
 import numpy as np
 import pandas as pd
 
+from src.research import ffd
 from src.research.factors.evaluation import (
     forward_returns,
     non_overlapping_t,
@@ -33,8 +34,10 @@ from src.research.factors.evaluation import (
 )
 from src.research.factors.library import (
     DIRECTION_LONG,
+    FFD_THRESHOLD,
     FactorSpec,
     distance_to_high,
+    fractional_difference,
     log_notional,
     momentum,
     volatility,
@@ -50,6 +53,9 @@ from src.research.factors.plateau import (
 # 动量族从 1 根起（含 1 根反转）；其余族要满窗口才有值
 MOMENTUM_WINDOWS: Final[tuple[int, ...]] = tuple(range(1, 121))
 LONG_WINDOWS: Final[tuple[int, ...]] = tuple(range(5, 121))
+# 分数阶差分族的窗口位是阶数×100（20 即 d=0.20），阈值固定在 FFD_THRESHOLD
+# 必须是连续整数：平台判据只连接「窗口号连续」的段（步长≠1 的轴永远只出尖峰）
+FFD_WINDOWS: Final[tuple[int, ...]] = tuple(range(10, 91))
 DEFAULT_HORIZONS: Final[tuple[int, ...]] = (1, 2, 3, 5, 7, 15, 30)
 DEFAULT_ALPHA: Final[float] = 0.05
 
@@ -87,6 +93,13 @@ SWEEP_FAMILIES: dict[str, SweepFamily] = {
             "liq", "中位名义额（对数）", LONG_WINDOWS, lambda w: w - 1, log_notional
         ),
         SweepFamily("dth", "距最高点", LONG_WINDOWS, lambda w: w - 1, distance_to_high),
+        SweepFamily(
+            "ffd",
+            "分数阶差分（窗口位 = 阶数×100，20 即 d=0.20；已去水平泄漏）",
+            FFD_WINDOWS,
+            lambda w: ffd.window_width(w / 100.0, FFD_THRESHOLD),
+            lambda panel, w: fractional_difference(panel, w / 100.0),
+        ),
     )
 }
 
