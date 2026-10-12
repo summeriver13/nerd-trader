@@ -39,11 +39,11 @@ from typing import cast
 
 import numpy as np
 import pandas as pd
-from scipy.cluster.hierarchy import fcluster, linkage
-from scipy.spatial.distance import squareform
+from scipy.cluster.hierarchy import fcluster
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import log_loss
 
+from src.research.allocation import single_linkage
 from src.research.meta import (
     LABEL_COLUMN,
     WEIGHT_COLUMN,
@@ -75,9 +75,8 @@ def feature_clusters(
         np.corrcoef(values, rowvar=False), nan=0.0, posinf=0.0, neginf=0.0
     )
     np.fill_diagonal(corr, 1.0)
-    distance = np.sqrt(np.clip((1.0 - corr) / 2.0, 0.0, 1.0))
-    np.fill_diagonal(distance, 0.0)
-    tree = linkage(squareform(distance, checks=False), method="single")
+    # 距离与聚类口径与 HRP（第 16 章）共用一份实现，详见 allocation.py 的模块文档
+    tree = single_linkage(corr)
     labels = fcluster(tree, t=threshold, criterion="distance")
     grouped: dict[str, list[str]] = {}
     for name, label in zip(columns, labels, strict=True):
