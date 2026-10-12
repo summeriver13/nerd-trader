@@ -19,11 +19,18 @@ scripts/factor_verify.py
 PBO 的可行性边界：分块数受「每块最少 60 根」限制，期限 ≥15 日时非重叠期数不够
 分出 4 块，会报「不可算」。这不是缺陷——用日线做 30 日重叠检验本来就没有足够
 的独立样本。
+
+另外打印一组**记录体检**（de Prado 第 14/15 章）：PSR（夏普高于 0 的概率）、
+MinTRL（达到 95% 置信所需的最小观测数，与期数同单位、可直接比大小）、回撤、
+逐期价差的集中度，以及策略失败概率。DSR/PBO 问「试这么多次还算不算技能」，
+这组数问「这条记录本身厚不厚」——实测两个市场里没有一个截面组合的记录长到
+MinTRL，而市场等权买入持有的 PSR 反而更高。
 """
 
 from __future__ import annotations
 
 import argparse
+import math
 import time
 import warnings
 from pathlib import Path
@@ -40,6 +47,8 @@ from src.research.factors.verification import (
     print_verification,
     verify,
 )
+from src.research.strategy_risk import strategy_failure_probability
+from src.research.track_record import MIN_TRACK_OBSERVATIONS, track_record
 from src.research.trials import ResearchScope
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "factors"
@@ -47,6 +56,10 @@ POOL_PLATEAU: Final[str] = "plateau"
 POOL_ALL: Final[str] = "all"
 # 逐候选跑分位组合，是分钟级的活，进度按这个间隔报一次
 PROGRESS_STEP: Final[int] = 40
+# 记录体检表列几个候选；失败概率用这个年化目标夏普（低于它就当策略没意义）
+TRACK_RECORD_TOP: Final[int] = 10
+TARGET_ANNUAL_SHARPE: Final[float] = 1.0
+BARS_PER_YEAR: Final[float] = 365.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -83,6 +96,50 @@ def load_inputs(market: str, timeframe: str) -> tuple[pd.DataFrame, pd.DataFrame
 def report_progress(position: int, total: int, label: str) -> None:
     if position % PROGRESS_STEP == 1 or position == total:
         print(f"  [{position}/{total}] {label}", flush=True)
+
+
+def print_track_records(result: VerificationResult) -> None:
+    """第 14/15 章体检：记录够不够长、收益集中不集中、策略失败概率。"""
+    if result.picks.empty:
+        return
+    ordered = result.picks.sort_values("gross_per_period", ascending=False)
+    print(f"\n=== 记录体检（第 14/15 章，按每期价差取前 {TRACK_RECORD_TOP}）===")
+    print(
+        f"{'候选':>20}{'期数':>7}{'夏普':>8}{'PSR':>7}{'MinTRL':>8}{'够长':>6}"
+        f"{'最大回撤':>9}{'正/负集中度':>14}{'失败概率':>9}"
+    )
+    shown = 0
+    for row in ordered.head(TRACK_RECORD_TOP).to_dict(orient="records"):
+        series = result.series.get(str(row["key"]))
+        if series is None or series.dropna().size < MIN_TRACK_OBSERVATIONS:
+            continue
+        record = track_record(str(row["key"]), series)
+        track = (
+            "inf"
+            if math.isinf(record.min_track_record)
+            else f"{record.min_track_record:.0f}"
+        )
+        enough = (
+            "—"
+            if math.isinf(record.min_track_record)
+            else ("是" if record.observations >= record.min_track_record else "否")
+        )
+        bets_per_year = BARS_PER_YEAR / max(int(row["horizon"]), 1)
+        risk = strategy_failure_probability(series, bets_per_year, TARGET_ANNUAL_SHARPE)
+        print(
+            f"{row['key']:>20}{record.observations:>7}{record.sharpe:>+8.3f}"
+            f"{record.psr:>7.3f}{track:>8}{enough:>6}"
+            f"{record.max_drawdown:>9.1f}"
+            f"{record.positive_concentration:>7.3f}/{record.negative_concentration:<6.3f}"
+            f"{risk:>9.4f}"
+        )
+        shown += 1
+    if shown:
+        print(
+            "PSR 是「夏普>0」的概率；MinTRL 是达到 95% 置信所需的最小观测数（与期数同单位）；"
+            "集中度接近 1 = 全部盈亏挤压在极少数期次上；失败概率按目标年化夏普 "
+            f"{TARGET_ANNUAL_SHARPE:.1f} 算。"
+        )
 
 
 def save_outputs(result: VerificationResult, tag: str) -> list[Path]:
@@ -132,6 +189,7 @@ def main() -> int:
         picks, panel, mask, trials=args.trials, progress=report_progress, scope=scope
     )
     print_verification(result)
+    print_track_records(result)
     print(f"\n耗时 {time.time() - started:.0f} 秒")
 
     if not args.no_save:

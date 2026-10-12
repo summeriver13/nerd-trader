@@ -20,6 +20,7 @@ import pandas as pd
 
 from src.analytics.metrics import sharpe_ratio
 from src.research.overlap import embargo_from_ratio, purge_mask
+from src.research.track_record import sharpe_z_score
 
 EULER_MASCHERONI = 0.5772156649015329
 DSR_THRESHOLD = 0.95  # 去膨胀夏普门槛：低于它无法与「试 N 次碰运气」区分
@@ -117,12 +118,11 @@ def deflated_sharpe(label: str, returns: pd.Series, expected_max: float) -> Shar
         return SharpeTest(label, sr, expected_max, float("nan"), arr.size)
 
     series = pd.Series(arr)
-    skew = float(series.skew())
-    kurtosis = float(series.kurt()) + 3.0  # 转成非超额峰度
-    denominator = 1 - skew * sr + (kurtosis - 1) / 4 * sr**2
-    if denominator <= 0:
+    z_score = sharpe_z_score(
+        sr, arr.size, float(series.skew()), float(series.kurt()) + 3.0, expected_max
+    )
+    if z_score is None:
         return SharpeTest(label, sr, expected_max, 0.0, arr.size)
-    z_score = (sr - expected_max) * math.sqrt(arr.size - 1) / math.sqrt(denominator)
     return SharpeTest(label, sr, expected_max, float(_NORMAL.cdf(z_score)), arr.size)
 
 
