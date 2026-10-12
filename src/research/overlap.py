@@ -43,11 +43,41 @@ def average_uniqueness(size: int, starts: np.ndarray, horizon: int) -> np.ndarra
     if starts.size == 0:
         return np.zeros(0, dtype=float)
     ends = np.minimum(starts + horizon, size)
-    alive = np.maximum(concurrency(size, starts, horizon), 1.0)
+    return uniqueness_from_ends(size, starts, ends)
+
+
+def concurrency_from_ends(
+    size: int, starts: np.ndarray, ends: np.ndarray
+) -> np.ndarray:
+    """逐根并发标签数，标签长度**可变**（三重障碍）。区间按 `[start, end)` 半开。
+
+    与 `concurrency` 的差别只在终止位置逐个不同——后者假定长度恒为 `horizon`，
+    这正是它在固定期限标签下退化成常数的原因。
+    """
+    clipped = np.clip(ends, 0, size)
+    delta = np.zeros(size + 1, dtype=float)
+    np.add.at(delta, starts, 1.0)
+    np.add.at(delta, clipped, -1.0)
+    return np.cumsum(delta[:-1])
+
+
+def uniqueness_from_ends(size: int, starts: np.ndarray, ends: np.ndarray) -> np.ndarray:
+    """可变长度标签的平均唯一性 = 标签存活期内 `1/并发标签数` 的均值。
+
+    这是 Ch 4 真正有内容的版本：三重障碍的标签在各自的触及时刻结束，重仓的
+    路径短、震荡的路径长，唯一性因此逐观测不同，可以用作样本权重。
+
+    传 `ends = min(starts + horizon, size)` 时与 `average_uniqueness` 逐位相等
+    （有测试钉住）——固定期限下两者都退化成 `1/h`，所以那时不该单独接 Ch 4。
+    """
+    if starts.size == 0:
+        return np.zeros(0, dtype=float)
+    clipped = np.clip(ends, 0, size)
+    alive = np.maximum(concurrency_from_ends(size, starts, ends), 1.0)
     inverse = 1.0 / alive
     cumulative = np.concatenate([[0.0], np.cumsum(inverse)])
-    totals = cumulative[ends] - cumulative[starts]
-    lengths = np.maximum(ends - starts, 1)
+    totals = cumulative[clipped] - cumulative[starts]
+    lengths = np.maximum(clipped - starts, 1)
     return totals / lengths
 
 

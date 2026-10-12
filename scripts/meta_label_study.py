@@ -1,0 +1,223 @@
+"""
+三重障碍 + 唯一性权重 + 元标签：能不能胜过固定期限标签？
+
+用三条对照把变量隔开（前两条是 de Prado Ch 3，第三条是 Ch 4）：
+
+| 变体 | 训练标签 | 样本权重 | 隔离出的变量 |
+| --- | --- | --- | --- |
+| A | 固定期限（h 天收益符号） | 等权 | 基线，也是仓库现状 |
+| B | 三重障碍 | 等权 | 只换标签 |
+| C | 三重障碍 | 唯一性 | 只换权重 |
+
+主模型是既有因子（只定方向），元模型回答「这一注要不要下」。
+**评估用同一把尺**：三个变体都用固定 h 日前向收益衡量每注盈亏——
+换标签只该改变分类器学到什么，不该顺带换掉打分标准。
+三重障碍自己的实际退出收益另列一张表。
+
+口径：
+
+- 主模型用 rev_3（仓库 IC 最强的因子），side = sign(因子值)。
+- 元标签 = 主模型那一注赚没赚钱。
+- 特征 = 其余五个因子 + 上市天数 + SADF（不含 rev_3——它是主模型）。
+- 滚动训练，按日期切分，训练与测试之间留 embargo（见 src/research/meta.py）。
+- **唯一性权重在标的内部算**：t1 是标的内的根序号，长表行号是另一套坐标，
+  混用会静默错位（踩过）。
+
+用法：
+    uv run python scripts/meta_label_study.py [--market swap] [--vertical 3] [--no-save]
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+from typing import cast
+
+import numpy as np
+import pandas as pd
+
+from src.research import labels, meta, overlap
+from src.research.factors.library import FACTOR_LIBRARY
+from src.research.factors.panel import (
+    Panel,
+    listing_age_days,
+    load_panel,
+    tradable_mask,
+)
+
+PRIMARY_KEY = "rev_3"
+FEATURE_KEYS = ("mom_7", "mom_30", "vol_30", "liq_30", "dth_60")
+AGE_KEY = "age_days"
+SADF_KEY = "sadf"
+SADF_CACHE = Path("data/results/breaks/sadf_swap_1d.parquet")
+OUTPUT_DIR = Path("data/results/breaks")
+THRESHOLDS = (0.0, 0.5, 0.55, 0.6, 0.7)
+
+
+def _stack(frame: pd.DataFrame, name: str) -> pd.DataFrame:
+    """宽表转长表（date, symbol, name）。"""
+    stacked = frame.stack(dropna=False)
+    stacked.index = stacked.index.set_names(["date", "symbol"])
+    return pd.DataFrame({name: stacked}).reset_index()
+
+
+def _feature_frame(panel: Panel) -> pd.DataFrame:
+    """元模型的特征：长表（date, symbol, 各特征）。"""
+    pieces = [_stack(FACTOR_LIBRARY[key].values(panel), key) for key in FEATURE_KEYS]
+    pieces.append(_stack(listing_age_days(panel), AGE_KEY))
+    cached = pd.read_parquet(SADF_CACHE)
+    sadf = cached.reindex(index=panel.index, columns=panel.close.columns)
+    pieces.append(_stack(sadf, SADF_KEY))
+    merged = pieces[0]
+    for piece in pieces[1:]:
+        merged = merged.merge(piece, on=["date", "symbol"], how="inner")
+    return merged
+
+
+def _bar_uniqueness(touch: np.ndarray, bars: int) -> np.ndarray:
+    """标的内的唯一性权重。touch 是该标的的根序号坐标，轴长就是 bars。"""
+    weight = np.ones(touch.size, dtype=float)
+    usable = np.isfinite(touch)
+    if not usable.any():
+        return weight
+    starts = np.flatnonzero(usable)
+    ends = np.minimum(touch[usable], bars).astype("int64")
+    weight[starts] = overlap.uniqueness_from_ends(bars, starts, ends)
+    return weight
+
+
+def _symbol_observations(
+    panel: Panel, side_frame: pd.DataFrame, symbol: str, horizon: int
+) -> pd.DataFrame:
+    """单只标的：方向、前向收益、两套标签与唯一性权重。"""
+    close = cast(pd.Series, panel.close[symbol]).dropna()
+    options = labels.TripleBarrierOptions(vertical=horizon)
+    if close.size < 4 * options.vertical:
+        return pd.DataFrame()
+    side = np.sign(side_frame[symbol].reindex(close.index).to_numpy(dtype=float))
+    # 障碍方向依赖 side，两侧各算一遍再按观测挑
+    bars = {
+        s: labels.triple_barrier(close, options, side=s).reindex(close.index)
+        for s in (1, -1)
+    }
+    is_long = side > 0
+    columns: dict[str, object] = {}
+    for column in ("label", "t1", "ret"):
+        columns[f"barrier_{column}"] = np.where(
+            is_long, bars[1][column].to_numpy(), bars[-1][column].to_numpy()
+        )
+    touch = np.asarray(columns["barrier_t1"], dtype=float)
+    forward = (close.shift(-horizon).div(close) - 1.0).to_numpy()
+    return pd.DataFrame(
+        {
+            "date": close.index,
+            "symbol": symbol,
+            "side": side,
+            "forward": forward,
+            "fixed_label": (side * forward > 0).astype(float),
+            "weight_uniform": 1.0,
+            "weight_unique": _bar_uniqueness(touch, close.size),
+            **columns,
+        }
+    )
+
+
+def build_observations(panel: Panel, horizon: int) -> pd.DataFrame:
+    side_frame = FACTOR_LIBRARY[PRIMARY_KEY].values(panel)
+    rows = [
+        _symbol_observations(panel, side_frame, symbol, horizon)
+        for symbol in panel.close.columns
+    ]
+    return pd.concat([r for r in rows if not r.empty], ignore_index=True)
+
+
+def prepare(args: argparse.Namespace) -> pd.DataFrame:
+    panel = load_panel(args.timeframe, market=args.market)
+    mask = tradable_mask(panel)
+    print(
+        f"{args.market} {args.timeframe}：{panel.close.shape[1]} 只 × {panel.close.shape[0]} 天"
+    )
+
+    observations = build_observations(panel, args.vertical)
+    tradable = pd.DataFrame({"tradable": mask.stack(dropna=False)}).reset_index()
+    tradable.columns = pd.Index(["date", "symbol", "tradable"])
+
+    frame = observations.merge(
+        _feature_frame(panel), on=["date", "symbol"], how="inner"
+    )
+    frame = frame.merge(tradable, on=["date", "symbol"], how="inner")
+    frame = frame.loc[frame["tradable"].fillna(False)]
+    frame = frame.dropna(subset=["side", "forward", "barrier_label"])
+    frame = frame.loc[frame["side"] != 0].reset_index(drop=True)
+    print(
+        f"可交易观测 {len(frame)}，{frame['symbol'].nunique()} 只标的，"
+        f"{frame['date'].nunique()} 天"
+    )
+    return frame
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="三重障碍 + 元标签研究")
+    parser.add_argument("--market", default="swap")
+    parser.add_argument("--timeframe", default="1d")
+    parser.add_argument("--vertical", type=int, default=3)
+    parser.add_argument("--min-train", type=int, default=20000)
+    parser.add_argument("--test-span", type=int, default=60)
+    parser.add_argument("--embargo", type=int, default=200)
+    parser.add_argument("--trees", type=int, default=200)
+    parser.add_argument("--no-save", action="store_true")
+    args = parser.parse_args()
+
+    frame = prepare(args)
+    unique = frame["weight_unique"].to_numpy(dtype=float)
+    print(f"唯一性权重：均值 {unique.mean():.4f}  标准差 {unique.std():.4f}", end="")
+    print("（固定期限标签下标准差恒为 0——那正是 Ch 4 之前接不动的原因）")
+
+    outcomes = frame["side"].to_numpy() * frame["forward"].to_numpy()
+    print(
+        f"\n主模型（{PRIMARY_KEY}）全量下注：每注 {outcomes.mean() * 1e4:+.2f}bp  "
+        f"命中率 {(outcomes > 0).mean():.1%}  共 {outcomes.size} 注"
+    )
+    exits = frame["barrier_ret"].to_numpy(dtype=float)
+    print(f"三重障碍实际退出：每注 {np.nanmean(exits) * 1e4:+.2f}bp")
+
+    variants = {
+        "A 固定期限/等权": ("fixed_label", "weight_uniform"),
+        "B 三重障碍/等权": ("barrier_label", "weight_uniform"),
+        "C 三重障碍/唯一性": ("barrier_label", "weight_unique"),
+    }
+    options = meta.MetaLabelOptions(
+        min_train=args.min_train,
+        test_span=args.test_span,
+        embargo=args.embargo,
+        n_estimators=args.trees,
+    )
+    features = [*FEATURE_KEYS, AGE_KEY, SADF_KEY]
+    results: dict[str, pd.DataFrame] = {}
+    for name, (label_column, weight_column) in variants.items():
+        # 元标签按定义是二元的：三重障碍的 label 是 {-1, 0, +1}，直接喂给分类器
+        # 会变成三分类，predict_proba[:, 1] 取到的是「恰为 0」那一类（踩过）。
+        binary = (frame[label_column] > 0).astype(int)
+        trained = frame.copy()
+        trained[meta.LABEL_COLUMN] = binary
+        trained[meta.WEIGHT_COLUMN] = frame[weight_column]
+        print(f"\n=== {name}：正类基准率 {binary.mean():.4f} ===")
+        prediction = meta.walk_forward_meta(trained, features, options)
+        print(f"  滚动 {prediction.folds} 折，样本外 {prediction.observations} 注")
+        table = meta.filter_summary(
+            frame["side"] * frame["forward"], prediction.probability, THRESHOLDS
+        )
+        print(table.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+        results[name] = table
+
+    if not args.no_save:
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        target = OUTPUT_DIR / f"meta_label_{args.market}_{args.timeframe}.parquet"
+        pd.concat(results, names=["variant"]).reset_index(level=0).to_parquet(target)
+        print(f"\n落盘：{target.resolve()}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

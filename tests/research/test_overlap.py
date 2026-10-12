@@ -108,3 +108,62 @@ def test_purge_never_keeps_a_test_row() -> None:
 def test_embargo_from_ratio_matches_authors_one_percent() -> None:
     assert overlap.embargo_from_ratio(1147) == 11
     assert overlap.embargo_from_ratio(76) == 0
+
+
+def test_uniqueness_from_ends_reduces_to_the_fixed_horizon_version() -> None:
+    """不变量：长度固定时两条路径必须逐位相等。
+
+    不相等就说明两处对区间的开闭约定不一致，Ch 4 的接线会静默错位。
+    """
+    starts = np.arange(0, 60, 3)
+    for horizon in (1, 3, 5, 30):
+        ends = np.minimum(starts + horizon, 60)
+        fixed = overlap.average_uniqueness(60, starts, horizon)
+        variable = overlap.uniqueness_from_ends(60, starts, ends)
+        np.testing.assert_allclose(fixed, variable)
+
+
+def test_variable_length_uniqueness_is_hand_computable() -> None:
+    """手算样本：10 根、3 条标签，starts=[0,0,5]、ends=[3,6,8]。
+
+    逐根并发数：bar 0/1/2 → 2，bar 3/4 → 1，bar 5 → 2，bar 6/7 → 1。
+    所以逐根 1/并发 = [.5,.5,.5, 1,1, .5, 1,1, 1,1]，前缀和
+    = [0,.5,1,1.5,2.5,3.5,4,5,6,7,8]。
+    三个观测分别是 0.5、4/6、2.5/3。
+    """
+    starts = np.array([0, 0, 5])
+    ends = np.array([3, 6, 8])
+    unique = overlap.uniqueness_from_ends(10, starts, ends)
+    np.testing.assert_allclose(unique, [0.5, 4.0 / 6.0, 2.5 / 3.0])
+
+
+def test_variable_length_labels_do_not_collapse_to_a_constant() -> None:
+    """Ch 4 的核心：长度可变时唯一性才有内容。
+
+    固定期限下唯一性恒为 1/h（与抽稀数学等价，见上一条不变量）；
+    三重障碍下短标签与长标签混在一起，唯一性必须真的散开。
+    注意长短与唯一性**不成单调关系**——长标签跳得更长，但覆盖的拥挤区也不同。
+    """
+    starts = np.arange(0, 50, 2)
+    ends = starts + np.tile([2, 9], 13)[: len(starts)]
+    unique = overlap.uniqueness_from_ends(120, starts, ends)
+    assert unique.std() > 0.0
+    assert unique.max() - unique.min() > 0.3
+
+
+def test_uniqueness_from_ends_of_nothing_is_empty() -> None:
+    assert (
+        overlap.uniqueness_from_ends(
+            10, np.zeros(0, dtype=int), np.zeros(0, dtype=int)
+        ).size
+        == 0
+    )
+
+
+def test_uniqueness_never_exceeds_one() -> None:
+    """并发标签数至少为 1（自己），所以唯一性不可能大于 1。"""
+    starts = np.array([0, 1, 2, 10])
+    ends = np.array([5, 6, 3, 12])
+    unique = overlap.uniqueness_from_ends(20, starts, ends)
+    assert (unique > 0).all()
+    assert (unique <= 1.0).all()
