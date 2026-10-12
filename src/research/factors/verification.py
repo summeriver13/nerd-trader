@@ -33,6 +33,7 @@ from src.research.factors.portfolio import (
 )
 from src.research.factors.sweep import SWEEP_FAMILIES
 from src.research.overfitting import build_overfitting_report
+from src.research.overlap import DEFAULT_EMBARGO_RATIO
 
 DEFAULT_QUANTILES: Final[int] = 5
 # 每个候选跑一遍分位组合，是分钟级的活，进度必须能看见
@@ -204,13 +205,19 @@ def verify(
 def _verdict_table(
     picks: pd.DataFrame, series: dict[str, pd.Series], trials: int | None
 ) -> pd.DataFrame:
-    """逐期限各跑一次 PBO 与 DSR。期限 ≥15 日时分不出 4 块，整行跳过。"""
+    """逐期限各跑一次 PBO 与 DSR。期限 ≥15 日时分不出 4 块，整行跳过。
+
+    purge=0：分位网格是 `index[start::horizon]`，观测非重叠、标签首尾相接，
+    没有标签跨进测试块。禁运仍然要加——序列相关与标签重叠是两件事。
+    """
     rows: list[dict[str, object]] = []
     for horizon, group in picks.groupby("horizon"):
         subset = {
             str(key): series[str(key)] for key in group["key"] if str(key) in series
         }
-        report = build_overfitting_report(subset, trials)
+        report = build_overfitting_report(
+            subset, trials, embargo=DEFAULT_EMBARGO_RATIO
+        )
         pbo = report.pbo
         if pbo is None:
             continue
@@ -222,6 +229,8 @@ def _verdict_table(
                 "observations": report.observations,
                 "blocks": pbo.blocks,
                 "splits": pbo.splits,
+                "purge": pbo.purge,
+                "embargo": pbo.embargo,
                 "pbo": pbo.pbo,
                 "logit_median": pbo.logit_median,
                 "winner_oos_median": pbo.winner_oos_sharpe_median,

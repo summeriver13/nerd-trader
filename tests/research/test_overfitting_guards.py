@@ -4,6 +4,8 @@
 平局秩把冠军判成第一名），而 3 个观测的序列把 nan 打印成「未通过」。
 """
 
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -13,6 +15,7 @@ from src.research.overfitting import (
     MIN_DSR_OBSERVATIONS,
     build_overfitting_report,
     expected_max_sharpe,
+    probability_of_backtest_overfitting,
     sharpe_estimator_variance,
 )
 
@@ -64,3 +67,50 @@ def test_bars_per_year_uses_seconds_not_truncated_days() -> None:
     assert truncated_days < true_span_days
     assert bars_per_year(index) == pytest.approx(len(index) / (true_span_days / 365))
     assert bars_per_year(index) < len(index) / (truncated_days / 365)
+
+
+def _panel(periods: int = 600, candidates: int = 4) -> dict[str, pd.Series]:
+    """确定性的合成候选面板：各候选同分布、互不相关。"""
+    index = pd.date_range("2020-01-01", periods=periods, freq="1D", tz="UTC")
+    return {
+        f"候选{i}": pd.Series(
+            np.random.default_rng(100 + i).normal(0.0004, 0.01, periods), index=index
+        )
+        for i in range(candidates)
+    }
+
+
+def test_purge_is_recorded_and_shrinks_the_training_set() -> None:
+    """purge 必须真的作用在训练集上，而不只是签名里的一个参数。
+
+    单位是观测：值大到把相邻训练块剔穿后，能算的切分会变少。
+    """
+    base = probability_of_backtest_overfitting(_panel(), blocks=10)
+    purged = probability_of_backtest_overfitting(_panel(), blocks=10, purge=60)
+
+    assert base is not None and purged is not None
+    assert base.purge == 0 and base.embargo == 0
+    assert purged.purge == 60
+    assert purged.splits < base.splits
+
+
+def test_extreme_purge_skips_splits_instead_of_scoring_an_empty_set() -> None:
+    """剔到训练集不足下限时该切分直接跳过。
+
+    最后一个测试块之后的训练行永远不被剔（它们后面没有测试行），所以极端 purge
+    只会减少切分，不会崩、也不会拿空集的夏普充数。
+    """
+    extreme = probability_of_backtest_overfitting(_panel(), blocks=10, purge=600)
+
+    assert extreme is not None
+    assert extreme.purge == 600
+    assert extreme.splits < math.comb(10, 5)
+
+
+def test_embargo_is_a_ratio_not_a_bar_count() -> None:
+    """embargo 按观测数比例折算：0.01 × 600 观测 = 6 个观测，必须落进结果。"""
+    result = probability_of_backtest_overfitting(_panel(), blocks=10, embargo=0.01)
+
+    assert result is not None
+    assert result.embargo == 6
+    assert result.purge == 0

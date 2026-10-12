@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from src.analytics.metrics import sharpe_ratio
+from src.research.overlap import embargo_from_ratio, purge_mask
 
 EULER_MASCHERONI = 0.5772156649015329
 DSR_THRESHOLD = 0.95  # 去膨胀夏普门槛：低于它无法与「试 N 次碰运气」区分
@@ -74,6 +75,8 @@ class PboResult:
     pbo: float
     logit_median: float
     winner_oos_sharpe_median: float
+    purge: int = 0
+    embargo: int = 0  # 已折算成观测数
 
     @property
     def passed(self) -> bool:
@@ -143,9 +146,19 @@ def _is_degenerate(frame: pd.DataFrame) -> bool:
 
 
 def probability_of_backtest_overfitting(
-    series_map: dict[str, pd.Series], blocks: int = DEFAULT_BLOCKS
+    series_map: dict[str, pd.Series],
+    blocks: int = DEFAULT_BLOCKS,
+    purge: int = 0,
+    embargo: float = 0.0,
 ) -> PboResult | None:
-    """CSCV：把时间轴等分 S 块，枚举全部「一半样本内 / 一半样本外」切分。"""
+    """CSCV：把时间轴等分 S 块，枚举全部「一半样本内 / 一半样本外」切分。
+
+    `purge` 与 `embargo` 都用来堵住测试期信息漏进训练集，但口径不同（见
+    `src/research/overlap.py`）：purge 是**标签跨几个观测**——逐根采样 + h 根标签
+    时 purge=h，非重叠采样（每 h 根取一个观测）时标签首尾相接、purge=0；
+    embargo 是**占观测数的比例**，防的是序列相关而非标签重叠，作者取 0.01。
+    不剔除会让 PBO 偏乐观。
+    """
     frame = pd.DataFrame(series_map).dropna(how="any")
     if frame.shape[1] < MIN_CANDIDATES or frame.empty:
         return None
@@ -156,6 +169,7 @@ def probability_of_backtest_overfitting(
         return None
 
     values = frame.to_numpy(dtype=float)
+    embargo_bars = embargo_from_ratio(values.shape[0], embargo)
     bounds = np.linspace(0, values.shape[0], effective + 1).astype(int)
     rows = [np.arange(bounds[i], bounds[i + 1]) for i in range(effective)]
     half = effective // 2
@@ -164,10 +178,17 @@ def probability_of_backtest_overfitting(
 
     for combo in combinations(range(effective), half):
         chosen = set(combo)
-        in_sample = np.concatenate([rows[i] for i in range(effective) if i in chosen])
-        out_sample = np.concatenate(
-            [rows[i] for i in range(effective) if i not in chosen]
+        is_test = np.zeros(values.shape[0], dtype=bool)
+        for i in range(effective):
+            if i not in chosen:
+                is_test[rows[i]] = True
+        keep = purge_mask(is_test, purge, embargo_bars)
+        in_sample = np.concatenate(
+            [rows[i][keep[rows[i]]] for i in range(effective) if i in chosen]
         )
+        out_sample = np.flatnonzero(is_test)
+        if in_sample.size < MIN_DSR_OBSERVATIONS:
+            continue
         is_sharpe = np.array(
             [sharpe_ratio(values[in_sample, j]) for j in range(frame.shape[1])]
         )
@@ -184,12 +205,16 @@ def probability_of_backtest_overfitting(
         winner_oos.append(float(oos_sharpe[winner]))
 
     logit_arr = np.asarray(logits)
+    if logit_arr.size == 0:
+        return None
     return PboResult(
         blocks=effective,
         splits=int(logit_arr.size),
         pbo=float((logit_arr < 0).mean()),
         logit_median=float(np.median(logit_arr)),
         winner_oos_sharpe_median=float(np.median(winner_oos)),
+        purge=purge,
+        embargo=embargo_bars,
     )
 
 
@@ -197,6 +222,8 @@ def build_overfitting_report(
     series_map: dict[str, pd.Series],
     trials: int | None = None,
     blocks: int = DEFAULT_BLOCKS,
+    purge: int = 0,
+    embargo: float = 0.0,
 ) -> OverfittingReport:
     """对一组候选（同一份数据上的全部试验）做 DSR 与 PBO。"""
     frame = pd.DataFrame(series_map).dropna(how="any")
@@ -212,7 +239,7 @@ def build_overfitting_report(
         trials=trial_count,
         observations=len(frame),
         sharpe_tests=tests,
-        pbo=probability_of_backtest_overfitting(series_map, blocks),
+        pbo=probability_of_backtest_overfitting(series_map, blocks, purge, embargo),
     )
 
 
