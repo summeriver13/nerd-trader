@@ -210,7 +210,11 @@ def main() -> int:
     parser.add_argument("--test-span", type=int, default=60)
     parser.add_argument("--embargo", type=int, default=200)
     parser.add_argument("--trees", type=int, default=200)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-save", action="store_true")
+    # 特征重要性要额外重训 7 倍（SFI 逐特征、MDA 逐簇），占九成耗时；
+    # 只关心下注方案（比如扫折数/树数的预算敏感性）时关掉它。
+    parser.add_argument("--no-importance", action="store_true")
     args = parser.parse_args()
 
     frame, panel = prepare(args)
@@ -236,6 +240,7 @@ def main() -> int:
         test_span=args.test_span,
         embargo=args.embargo,
         n_estimators=args.trees,
+        seed=args.seed,
         collect_fits=True,
     )
     features = [*FEATURE_KEYS, AGE_KEY, SADF_KEY]
@@ -262,9 +267,10 @@ def main() -> int:
         sizing_results[name] = sizing_table(
             frame, prediction.probability, args.vertical, panel=panel
         )
-        importance_results[name] = _print_importance(
-            prediction, trained, features, options
-        )
+        if not args.no_importance:
+            importance_results[name] = _print_importance(
+                prediction, trained, features, options
+            )
 
     if not args.no_save:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -278,13 +284,15 @@ def main() -> int:
             sizing_target
         )
         print(f"落盘：{sizing_target.resolve()}")
-        importance_target = (
-            OUTPUT_DIR / f"feature_importance_{args.market}_{args.timeframe}.parquet"
-        )
-        pd.concat(importance_results, names=["variant"]).reset_index(
-            level=0
-        ).to_parquet(importance_target)
-        print(f"落盘：{importance_target.resolve()}")
+        if importance_results:
+            importance_target = (
+                OUTPUT_DIR
+                / f"feature_importance_{args.market}_{args.timeframe}.parquet"
+            )
+            pd.concat(importance_results, names=["variant"]).reset_index(
+                level=0
+            ).to_parquet(importance_target)
+            print(f"落盘：{importance_target.resolve()}")
     return 0
 
 
