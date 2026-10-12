@@ -175,11 +175,12 @@ def _print_importance(
     features: list[str],
     options: meta.MetaLabelOptions,
 ) -> pd.DataFrame:
-    """Ch 8：在**同一批折、同一批模型**上算 MDA / 聚类 MDA / MDI / SFI。
+    """Ch 8：同一批折、同一批模型上算 MDA / 聚类 MDA / MDI / SFI，并做 PCA 正交对比。
 
     四者的分歧才是信息——MDI 是样本内的、会给噪声特征分重要性；逐特征 MDA 会被
     替代效应稀释；簇的联合 MDA 是「这一块信息值多少」；SFI 把每个特征单独喂一个
-    模型，免疫替代效应但看不到联合效应。
+    模型，免疫替代效应但看不到联合效应。`pca_rank` 是**无监督**的（只看方差结构），
+    它与 MDA 排序的 τ 回答的是「模型追的是不是数据的主结构」。
     """
     table = importance.importance_table(
         prediction.fits, trained, features, options=options
@@ -190,7 +191,13 @@ def _print_importance(
     print(
         "sfi_skill   = 只用这一列时相对常数预测器的改进（越大越好，但看不到联合效应）"
     )
+    print("pca_rank    = 无监督方差排名（1 = 主导），只看共变结构、不看标签")
     print(table.to_string(index=False, float_format=lambda value: f"{value:.5f}"))
+    agreement = importance.rank_agreement(
+        pd.Series(table["mda_logloss"].to_numpy(dtype=float)),
+        pd.Series(table["pca_rank"].to_numpy(dtype=float)),
+    )
+    print(f"τ（MDA 排序 vs 逆 PCA 排名，原文 Snippet 8.6）= {agreement:+.4f}")
     return table
 
 

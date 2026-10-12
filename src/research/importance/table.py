@@ -7,6 +7,10 @@
 - 一个特征 MDA 高、SFI 也高 → 它自己就带信息；
 - MDA 低但 SFI 高 → 它在 MDA 里被替身顶掉了（簇的联合 MDA 会把它救回来）；
 - MDI 高但 MDA 低 → 模型用了它，但它没带来泛化能力（MDI 是样本内的）。
+
+表里还有两列**无监督**读数（`pca_importance` / `pca_rank`，Ch 8 的 PCA 正交）：它们只看
+特征之间的方差结构、完全不看标签，所以拿它们与有监督的列对比，回答的是「模型追的是不是
+数据的主结构」（一致性用 `pca.rank_agreement` 量化）。
 """
 
 from __future__ import annotations
@@ -15,6 +19,11 @@ from collections.abc import Sequence
 
 import pandas as pd
 
+from src.research.importance.pca import (
+    orthogonal_features,
+    pca_importance,
+    unsupervised_rank,
+)
 from src.research.importance.tools import (
     DEFAULT_CLUSTER_DISTANCE,
     feature_clusters,
@@ -45,6 +54,9 @@ def importance_table(
     grouped = mean_decrease_accuracy(fits, frame, features, groups=clusters)
     mdi = impurity_importance(fits, features)
     single = single_feature_importance(fits, frame, features, options=options)
+    ortho = orthogonal_features(frame, features)
+    pca_score = pca_importance(ortho)
+    pca_rank = unsupervised_rank(ortho)
     cluster_of = {
         member: name for name, members in clusters.items() for member in members
     }
@@ -64,5 +76,7 @@ def importance_table(
             "sfi_skill": [float(single.loc[name, "skill"]) for name in names],
             "sfi_t": [float(single.loc[name, "skill_t"]) for name in names],
             "sfi_logloss": [float(single.loc[name, "logloss"]) for name in names],
+            "pca_importance": [float(pca_score[str(name)]) for name in names],
+            "pca_rank": [int(pca_rank[str(name)]) for name in names],
         }
     )
