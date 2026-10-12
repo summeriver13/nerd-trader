@@ -1,8 +1,7 @@
-"""
-特征重要性（de Prado Ch 8）：MDI 有偏、MDA 会被替代效应骗、聚类后的 MDA 才稳。
+"""Ch 8 的四种特征重要性工具，以及它们共用的「折上评估」。
 
 作者在 Ch 8 开门见山的一句话是「回测不是研究工具，特征重要性才是」——他反对用
-回测挑特征（那是过拟合的温床），主张先问「模型到底在用什么信息」。本章的三个工具在
+回测挑特征（那是过拟合的温床），主张先问「模型到底在用什么信息」。本章的几个工具在
 本仓库已有的元标签模型上都能直接跑，而且它们的**分歧本身**就是信息：
 
 1. **MDI**（`impurity_importance`）：森林自己的 `feature_importances_`，各折平均。
@@ -14,6 +13,9 @@
    时另一个还在，损失几乎不变，于是**两个都被报成不重要**。修法是把它们当成**一个簇**
    一起打乱（作者在《Machine Learning for Asset Managers》里叫 Clustered MDA），
    读到的就是整块信息的**联合**重要性。
+4. **SFI**（`single_feature_importance`）：**每个特征单独建一个模型**，看它自己的样本外
+   表现。按定义**没有替代效应**（每个特征都有自己的模型，不存在被替身顶掉），代价是
+   **看不到联合效应**——只在组合里才有预测力的特征（如异或）在这里读数是 0。
 
 三条口径（改代码前先读）：
 
@@ -25,14 +27,15 @@
 3. **簇的划分来自特征相关性**，与标签无关（无监督），所以聚类本身不会带来前视。
    距离用作者的相关性距离 `sqrt((1 - corr) / 2)`，阈值 0.5 对应两两相关约 0.5。
 
-参考：López de Prado (2018) AFML Ch 8；Clustered Feature Importance。被有意跳过的两个
-工具：SFI（每个特征单独建模型，无替代效应但看不到联合效应）与 PCA 秩相关（需要我先
-确认原文口径，不猜）。
+参考：López de Prado (2018) AFML Ch 8；Clustered Feature Importance。被有意跳过的
+工具：PCA 正交（无监督 PCA 排序与有监督 MDI 排序的 Weighted Kendall's Tau，是
+确认性程序而非独立方法），原文口径已核到，排在 SFI 之后做。
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -41,7 +44,13 @@ from scipy.spatial.distance import squareform
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import log_loss
 
-from src.research.meta import LABEL_COLUMN, WEIGHT_COLUMN, FoldFit
+from src.research.meta import (
+    LABEL_COLUMN,
+    WEIGHT_COLUMN,
+    FoldFit,
+    MetaLabelOptions,
+    fit_classifier,
+)
 
 DEFAULT_CLUSTER_DISTANCE = 0.5
 IMPORTANCE_COLUMNS = ("mean", "std", "t", "folds", "members")
@@ -76,7 +85,7 @@ def feature_clusters(
     return {key: tuple(value) for key, value in grouped.items()}
 
 
-def _block_log_loss(
+def block_log_loss(
     model: RandomForestClassifier,
     values: np.ndarray,
     target: np.ndarray,
@@ -97,6 +106,41 @@ def _shuffle_block(
     for position in positions:
         shuffled[:, position] = rng.permutation(shuffled[:, position])
     return shuffled
+
+
+def summarise_folds(
+    importances: Mapping[str, list[float]],
+    members: Mapping[str, tuple[str, ...]],
+) -> pd.DataFrame:
+    """把逐折读数汇总成 mean / std / t / folds，按平均值降序。
+
+    `members` 是每个名字包含哪些特征（逐特征时就是它自己，逐簇时是一整簇）。
+    """
+    names = list(importances)
+    means = np.zeros(len(names))
+    stds = np.zeros(len(names))
+    ts = np.zeros(len(names))
+    counts = np.zeros(len(names), dtype=int)
+    for index, name in enumerate(names):
+        array = np.asarray(importances[name], dtype=float)
+        mean = float(array.mean()) if array.size else 0.0
+        std = float(array.std(ddof=1)) if array.size > 1 else 0.0
+        stderr = std / np.sqrt(array.size) if array.size else 0.0
+        means[index] = mean
+        stds[index] = std
+        ts[index] = mean / stderr if stderr > 0 else 0.0
+        counts[index] = int(array.size)
+    order = [int(index) for index in np.argsort(-means, kind="stable")]
+    return pd.DataFrame(
+        {
+            "mean": means[order],
+            "std": stds[order],
+            "t": ts[order],
+            "folds": counts[order],
+            "members": [",".join(members[names[index]]) for index in order],
+        },
+        index=pd.Index([names[index] for index in order], name="name"),
+    )
 
 
 def mean_decrease_accuracy(
@@ -138,47 +182,75 @@ def mean_decrease_accuracy(
         values = test[list(columns)].to_numpy(dtype=float)
         target = test[LABEL_COLUMN].to_numpy()
         weight = test[WEIGHT_COLUMN].to_numpy(dtype=float)
-        baseline = _block_log_loss(fit.model, values, target, weight)
+        baseline = block_log_loss(fit.model, values, target, weight)
         for name, members in use_groups.items():
             shuffled = _shuffle_block(
                 values, [positions[member] for member in members], rng
             )
             importances[name].append(
-                _block_log_loss(fit.model, shuffled, target, weight) - baseline
+                block_log_loss(fit.model, shuffled, target, weight) - baseline
             )
-    return _summarise(importances, use_groups)
+    return summarise_folds(importances, use_groups)
 
 
-def _summarise(
-    importances: Mapping[str, list[float]],
-    members: Mapping[str, tuple[str, ...]],
-) -> pd.DataFrame:
-    """把逐折重要性汇总成 mean / std / t / folds，按平均重要性降序。"""
-    names = list(importances)
-    means = np.zeros(len(names))
-    stds = np.zeros(len(names))
-    ts = np.zeros(len(names))
-    counts = np.zeros(len(names), dtype=int)
-    for index, name in enumerate(names):
-        array = np.asarray(importances[name], dtype=float)
-        mean = float(array.mean()) if array.size else 0.0
-        std = float(array.std(ddof=1)) if array.size > 1 else 0.0
-        stderr = std / np.sqrt(array.size) if array.size else 0.0
-        means[index] = mean
-        stds[index] = std
-        ts[index] = mean / stderr if stderr > 0 else 0.0
-        counts[index] = int(array.size)
-    order = [int(index) for index in np.argsort(-means, kind="stable")]
-    return pd.DataFrame(
-        {
-            "mean": means[order],
-            "std": stds[order],
-            "t": ts[order],
-            "folds": counts[order],
-            "members": [",".join(members[names[index]]) for index in order],
-        },
-        index=pd.Index([names[index] for index in order], name="name"),
+def _constant_log_loss(
+    train: pd.DataFrame, target: np.ndarray, weight: np.ndarray
+) -> float:
+    """只报基准率的常数预测器在测试折上的 log loss（SFI 的参照线）。
+
+    基准率取自**训练折**——常数预测器也是模型，它的参数同样只能看训练数据。
+    """
+    rate = float(
+        np.average(
+            train[LABEL_COLUMN].to_numpy(),
+            weights=train[WEIGHT_COLUMN].to_numpy(dtype=float),
+        )
     )
+    probability = np.column_stack(
+        [np.full(target.size, 1.0 - rate), np.full(target.size, rate)]
+    )
+    return float(log_loss(target, probability, sample_weight=weight, labels=[0, 1]))
+
+
+def single_feature_importance(
+    fits: Sequence[FoldFit],
+    frame: pd.DataFrame,
+    features: Sequence[str],
+    *,
+    options: MetaLabelOptions,
+) -> pd.DataFrame:
+    """SFI：每个特征**单独**建一个模型，测它的样本外表现。
+
+    用元模型**同一个分类器、同一批折**（`meta.fit_classifier`），只把特征集换成单个
+    特征，所以它与 MDA / MDI 的分歧可以归因到特征，而不是模型。
+
+    - **优点：按定义没有替代效应。** 每个特征都有自己的模型，不存在「被替身顶掉」，
+      一个特征再冗余也不会牵连另一个的读数。这是它比逐特征 MDA 强的地方。
+    - **缺点：看不到联合效应。** 只在组合里才有预测力的特征（如异或）在这里是 0。
+
+    `skill` 是相对「只报训练折基准率的常数预测器」的改进（正数 = 比什么都不看更好），
+    `skill_t` 是逐折 skill 的均值除以标准误。按 skill 降序。
+    """
+    columns = list(features)
+    losses: dict[str, list[float]] = {name: [] for name in columns}
+    skills: dict[str, list[float]] = {name: [] for name in columns}
+    for fit in fits:
+        train = frame.loc[fit.train_rows]
+        test = frame.loc[fit.rows]
+        target = test[LABEL_COLUMN].to_numpy()
+        weight = test[WEIGHT_COLUMN].to_numpy(dtype=float)
+        baseline = _constant_log_loss(train, target, weight)
+        for name in columns:
+            model = fit_classifier(train, [name], options)
+            logloss = block_log_loss(
+                model, test[[name]].to_numpy(dtype=float), target, weight
+            )
+            losses[name].append(logloss)
+            skills[name].append(baseline - logloss)
+    summary = summarise_folds(skills, {name: (name,) for name in columns})
+    table = summary.rename(columns={"mean": "skill", "t": "skill_t"})
+    table["logloss"] = [float(np.mean(losses[str(name)])) for name in table.index]
+    return cast(pd.DataFrame, table[["skill", "skill_t", "logloss", "std", "folds"]])
 
 
 def impurity_importance(
@@ -194,40 +266,3 @@ def impurity_importance(
         return pd.Series(np.zeros(len(columns)), index=columns, name="mdi")
     values = np.asarray([fit.model.feature_importances_ for fit in fits], dtype=float)
     return pd.Series(values.mean(axis=0), index=columns, name="mdi")
-
-
-def importance_table(
-    fits: Sequence[FoldFit],
-    frame: pd.DataFrame,
-    features: Sequence[str],
-    *,
-    threshold: float = DEFAULT_CLUSTER_DISTANCE,
-) -> pd.DataFrame:
-    """一张表读完：逐特征 MDA、它所在的簇、簇的联合 MDA、以及 MDI。
-
-    三种工具放在一起，是因为**它们的分歧才是信息**：MDI 是样本内的，连噪声特征都
-    会分到重要性；逐特征 MDA 会被替代效应稀释（有无替身差别可能上倍）；簇的联合 MDA
-    才是「这一块信息到底值多少」。表按逐特征 MDA 降序。
-    """
-    clusters = feature_clusters(frame, features, threshold=threshold)
-    per_feature = mean_decrease_accuracy(fits, frame, features)
-    grouped = mean_decrease_accuracy(fits, frame, features, groups=clusters)
-    mdi = impurity_importance(fits, features)
-    cluster_of = {
-        member: name for name, members in clusters.items() for member in members
-    }
-    names = [str(name) for name in per_feature.index]
-    return pd.DataFrame(
-        {
-            "feature": names,
-            "mda_logloss": [float(per_feature.loc[name, "mean"]) for name in names],
-            "mda_t": [float(per_feature.loc[name, "t"]) for name in names],
-            "cluster": [cluster_of[name] for name in names],
-            "cluster_members": [",".join(clusters[cluster_of[name]]) for name in names],
-            "cluster_logloss": [
-                float(grouped.loc[cluster_of[name], "mean"]) for name in names
-            ],
-            "cluster_t": [float(grouped.loc[cluster_of[name], "t"]) for name in names],
-            "mdi_gini": [float(mdi[name]) for name in names],
-        }
-    )

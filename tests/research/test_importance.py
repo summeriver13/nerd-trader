@@ -18,8 +18,9 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import log_loss
 
-from src.research import importance
+from src.research import importance, meta
 
 FEATURES = ("informative", "redundant", "noise")
 LABEL = "label"
@@ -50,6 +51,37 @@ def _synthetic() -> pd.DataFrame:
     return frame
 
 
+TREES = 80
+DEPTH = 6
+LEAF = 20
+# SFI 要在**同一批折、同一组超参**上重训（只换特征集），所以超参只在这里定义一次：
+# `_forest()` 给 MDA 用，`OPTIONS` 交给 SFI 内部的 `meta.fit_classifier`。
+OPTIONS = meta.MetaLabelOptions(
+    n_estimators=TREES, max_depth=DEPTH, min_samples_leaf=LEAF, seed=0
+)
+
+
+def _forest() -> RandomForestClassifier:
+    return RandomForestClassifier(
+        n_estimators=TREES,
+        max_depth=DEPTH,
+        min_samples_leaf=LEAF,
+        random_state=0,
+        n_jobs=TREE_JOBS,
+    )
+
+
+def _xor_frame() -> pd.DataFrame:
+    """异或：两个特征各自都没有信息，只有**一起看**才有（联合效应的纯粹形态）。"""
+    rng = np.random.default_rng(1)
+    left = rng.integers(0, 2, size=N_ROWS)
+    right = rng.integers(0, 2, size=N_ROWS)
+    frame = pd.DataFrame({"left": left.astype(float), "right": right.astype(float)})
+    frame[LABEL] = (left != right).astype(int)
+    frame[WEIGHT] = 1.0
+    return frame
+
+
 def _fit_folds(
     frame: pd.DataFrame, features: tuple[str, ...] = FEATURES
 ) -> list[importance.FoldFit]:
@@ -59,19 +91,13 @@ def _fit_folds(
     for index in range(1, FOLDS):
         train = frame.iloc[: index * block]
         rows = frame.index[index * block : (index + 1) * block]
-        model = RandomForestClassifier(
-            n_estimators=80,
-            max_depth=6,
-            min_samples_leaf=20,
-            random_state=0,
-            n_jobs=TREE_JOBS,
-        )
+        model = _forest()
         model.fit(
             train[list(features)].to_numpy(),
             train[LABEL].to_numpy(),
             sample_weight=train[WEIGHT].to_numpy(),
         )
-        fits.append(importance.FoldFit(model=model, rows=rows))
+        fits.append(importance.FoldFit(model=model, rows=rows, train_rows=train.index))
     return fits
 
 
@@ -212,3 +238,73 @@ class TestImpurityImportance:
 
     def test_no_fits_gives_zeros(self) -> None:
         assert float(importance.impurity_importance([], FEATURES).sum()) == 0.0
+
+
+class TestImportanceTable:
+    def test_one_row_per_feature_with_all_four_tools(self) -> None:
+        """合并表：一行一个特征，四种工具的读数并排（分歧才是要看的东西）。"""
+        frame = _synthetic()
+        table = importance.importance_table(
+            _fit_folds(frame), frame, FEATURES, options=OPTIONS
+        )
+        assert set(table["feature"]) == set(FEATURES)
+        assert {"mda_logloss", "cluster_t", "mdi_gini", "sfi_skill"} <= set(
+            table.columns
+        )
+        assert float(table["mdi_gini"].sum()) == pytest.approx(1.0, abs=1e-6)
+
+
+class TestSingleFeatureImportance:
+    """SFI 的两个**定义性**性质：没有替代效应、看不到联合效应。"""
+
+    def test_a_copy_is_not_diluted_but_noise_scores_zero(self) -> None:
+        """替身（副本）拿到与原件同等的读数——这正是逐特征 MDA 做不到的。
+
+        对照 `TestMeanDecreaseAccuracy` 那条稀释用例：同一份数据，MDA 让
+        `informative` 从 0.539 缩到 0.099；SFI 这里副本与原件基本持平。
+        """
+        frame = _synthetic()
+        table = importance.single_feature_importance(
+            _fit_folds(frame), frame, FEATURES, options=OPTIONS
+        )
+        skill = {str(name): float(row) for name, row in table["skill"].items()}
+        assert skill["informative"] > 0.15
+        assert skill["redundant"] >= 0.8 * skill["informative"]
+        assert abs(skill["noise"]) < 0.02
+
+    def test_misses_a_pure_joint_effect(self) -> None:
+        """异或：两个特征单独都无用，SFI 读数都是 0。单纯看这个会误判这两个特征没用。"""
+        frame = _xor_frame()
+        table = importance.single_feature_importance(
+            _fit_folds(frame, ("left", "right")),
+            frame,
+            ("left", "right"),
+            options=OPTIONS,
+        )
+        assert (table["skill"].abs() < 0.01).all()
+        assert (table["logloss"] > 0.68).all()
+
+    def test_joint_effect_is_reachable_in_the_same_frame(self) -> None:
+        """上一条的对照面：同一份异或数据，两个特征一起看就没有问题。
+
+        没有这条用例，「SFI 读数为 0」既可能是它真没用，也可能是数据本来就没信息。
+        """
+        frame = _xor_frame()
+        cut = N_ROWS * (FOLDS - 1) // FOLDS
+        train, test = frame.iloc[:cut], frame.iloc[cut:]
+        model = _forest()
+        model.fit(train[["left", "right"]].to_numpy(), train[LABEL].to_numpy())
+        probability = np.asarray(
+            model.predict_proba(test[["left", "right"]].to_numpy())
+        )
+        assert float(log_loss(test[LABEL], probability, labels=[0, 1])) < 0.05
+
+    def test_folds_line_up_with_the_meta_folds(self) -> None:
+        """SFI 用的是同一批折——否则「哪些特征有用」和元标签不是同一个实验。"""
+        frame = _synthetic()
+        fits = _fit_folds(frame)
+        table = importance.single_feature_importance(
+            fits, frame, FEATURES, options=OPTIONS
+        )
+        assert (table["folds"] == len(fits)).all()
+        assert float(table["skill"].iloc[0]) >= float(table["skill"].iloc[-1])

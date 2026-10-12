@@ -61,14 +61,18 @@ class MetaLabelOptions:
 
 @dataclass(frozen=True)
 class FoldFit:
-    """一折的拟合结果：模型 + 它做**样本外**预测的那些行标签。
+    """一折的拟合结果：模型 + 它在**测试折**上的行标签 + 它用过的**训练行**。
 
     特征重要性（`src/research/importance.py`）要用同一批折、同一批模型，
     否则「哪些特征有用」和「元标签有没有效」讲的是两个模型。
+
+    `train_rows` 是给 SFI 用的：它必须在**同一批折**上重训（每折只用一个特征），
+    没有训练行就没法重训。
     """
 
     model: RandomForestClassifier
     rows: pd.Index
+    train_rows: pd.Index
 
 
 @dataclass(frozen=True)
@@ -98,11 +102,17 @@ def meta_label(returns: pd.Series, side: pd.Series) -> pd.Series:
     return pd.Series((signs > 0).astype(int), index=side.index)
 
 
-def _fit_fold(
+def fit_classifier(
     train: pd.DataFrame,
     features: list[str],
     options: MetaLabelOptions,
 ) -> RandomForestClassifier:
+    """按 `options` 训一个分类器。
+
+    公开是因为 SFI（`importance.single_feature_importance`）要在**同一批折、同一组
+    超参**上把特征集换成单个特征重训——超参只应有一处定义，否则「特征差异」会与
+    「模型差异」混在一起。
+    """
     model = RandomForestClassifier(
         n_estimators=options.n_estimators,
         max_depth=options.max_depth,
@@ -168,7 +178,7 @@ def walk_forward_meta(
         # 同一日期的标的整批落在同一个窗里，所以这里按行切不会泄漏。
         train_stop = test_start - options.embargo
         if train_stop >= options.min_train:
-            model = _fit_fold(ordered.iloc[:train_stop], features, options)
+            model = fit_classifier(ordered.iloc[:train_stop], features, options)
             fitted = _positive_probability(
                 model, ordered.iloc[test_start:test_stop], features
             )
@@ -176,7 +186,13 @@ def walk_forward_meta(
             probability.loc[rows] = fitted
             train_sizes.append(train_stop)
             if options.collect_fits:
-                fits.append(FoldFit(model=model, rows=rows))
+                fits.append(
+                    FoldFit(
+                        model=model,
+                        rows=rows,
+                        train_rows=labels[:train_stop],
+                    )
+                )
             folds += 1
         cursor = stop
     return MetaPrediction(

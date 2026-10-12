@@ -170,17 +170,26 @@ def _record_trials(
 
 
 def _print_importance(
-    prediction: meta.MetaPrediction, trained: pd.DataFrame, features: list[str]
+    prediction: meta.MetaPrediction,
+    trained: pd.DataFrame,
+    features: list[str],
+    options: meta.MetaLabelOptions,
 ) -> pd.DataFrame:
-    """Ch 8：在**同一批折、同一批模型**上算 MDA / 聚类 MDA / MDI。
+    """Ch 8：在**同一批折、同一批模型**上算 MDA / 聚类 MDA / MDI / SFI。
 
-    三者的分歧才是信息——MDI 是样本内的、会给噪声特征分重要性；逐特征 MDA 会被
-    替代效应稀释；簇的联合 MDA 才是「这一块信息值多少」。
+    四者的分歧才是信息——MDI 是样本内的、会给噪声特征分重要性；逐特征 MDA 会被
+    替代效应稀释；簇的联合 MDA 是「这一块信息值多少」；SFI 把每个特征单独喂一个
+    模型，免疫替代效应但看不到联合效应。
     """
-    table = importance.importance_table(prediction.fits, trained, features)
+    table = importance.importance_table(
+        prediction.fits, trained, features, options=options
+    )
     print()
     print(f"--- 特征重要性（Ch 8，{len(prediction.fits)} 折）---")
-    print("mda_logloss = 打乱该列后样本外 log loss 的增加，越大越重要")
+    print("mda_logloss = 打乱该列后样本外 log loss 的增加（越大越重要）")
+    print(
+        "sfi_skill   = 只用这一列时相对常数预测器的改进（越大越好，但看不到联合效应）"
+    )
     print(table.to_string(index=False, float_format=lambda value: f"{value:.5f}"))
     return table
 
@@ -246,7 +255,9 @@ def main() -> int:
         sizing_results[name] = sizing_table(
             frame, prediction.probability, args.vertical, panel=panel
         )
-        importance_results[name] = _print_importance(prediction, trained, features)
+        importance_results[name] = _print_importance(
+            prediction, trained, features, options
+        )
 
     if not args.no_save:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
