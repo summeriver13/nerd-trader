@@ -113,23 +113,30 @@ def walk_forward_meta(
 ) -> MetaPrediction:
     """滚动训练 + 样本外预测。
 
-    `frame` 必须含 `date`、`label`（元标签）、`weight`（唯一性权重）与特征列，
-    按日期升序排列。每个测试窗用**它之前**的全部观测训练，中间隔 `embargo` 个观测。
+    `frame` 必须含 `date`、`label`（元标签）、`weight`（唯一性权重）与特征列。
+    每个测试窗用**它之前**的全部观测训练，中间隔 `embargo` 个观测。
 
     切分按日期：同一日期的所有标的必须落在同一个窗里。
+
+    返回的概率**按 `frame` 的行标签对齐**，不按位置——调用方很可能是按标的拼的
+    frame（本仓库的研究脚本就是），按位置对齐会静默把概率配到别的观测上。
     """
     options.validate()
     required = (DATE_COLUMN, LABEL_COLUMN, WEIGHT_COLUMN, *features)
     missing = [name for name in required if name not in frame.columns]
     if missing:
         raise ValueError(f"缺少列：{missing}")
+    if frame.index.has_duplicates:
+        raise ValueError("frame 的索引必须唯一：概率要按行标签回填")
 
-    ordered = frame.sort_values(DATE_COLUMN).reset_index(drop=True)
+    # kind="stable"：让输出与输入的行序无关（按日期排序时同一天的标的保持原次序）
+    ordered = frame.sort_values(DATE_COLUMN, kind="stable")
+    labels = ordered.index
     dates = ordered[DATE_COLUMN].to_numpy()
     unique_dates = np.unique(dates)
     # 每个唯一日期在 ordered 里的首行位置：按日期切分靠它，不靠 isin
     boundaries = np.searchsorted(dates, unique_dates, side="left")
-    probability = pd.Series(np.nan, index=ordered.index, dtype=float)
+    probability = pd.Series(np.nan, index=frame.index, dtype=float)
     train_sizes: list[int] = []
     folds = 0
     cursor = 0
@@ -147,7 +154,7 @@ def walk_forward_meta(
                 features,
                 options,
             )
-            probability.iloc[test_start:test_stop] = fitted
+            probability.loc[labels[test_start:test_stop]] = fitted
             train_sizes.append(train_stop)
             folds += 1
         cursor = stop

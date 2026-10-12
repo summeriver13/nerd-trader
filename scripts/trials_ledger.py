@@ -67,6 +67,11 @@ META_COMBOS: tuple[tuple[str, str], ...] = (
     ("barrier_label", "weight_unique"),
 )
 META_THRESHOLDS: tuple[float, ...] = (0.0, 0.5, 0.55, 0.6, 0.7)
+META_VERTICAL = 3
+"""元标签研究的垂直障碍天数。
+
+回填必须带上它，否则与脚本实时记录的身份不同、N 会重复计。
+"""
 
 
 def sadf_trials() -> list[Trial]:
@@ -101,7 +106,11 @@ def meta_trials() -> list[Trial]:
             market="swap",
             timeframe=TIMEFRAME,
             kind=variant,
-            params={"weight": weight, "threshold": threshold},
+            params={
+                "weight": weight,
+                "threshold": threshold,
+                "vertical": META_VERTICAL,
+            },
             origin=ORIGIN_BACKFILL,
             source="docs/factors/README.md 第十一节（三条对照表）",
         )

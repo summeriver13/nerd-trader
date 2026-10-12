@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -116,3 +118,59 @@ def test_filter_summary_ignores_unpredicted_rows() -> None:
     probability = pd.Series([0.3, np.nan, 0.9])
     table = meta.filter_summary(returns, probability, thresholds=(0.0,))
     assert table.loc[0, "bets"] == 2
+
+
+def _symbol_major_frame(
+    symbols: int = 5, periods: int = 60, seed: int = 0
+) -> pd.DataFrame:
+    """按**标的**拼成的长表（日期非单调）——研究脚本的真实形状。
+
+    `_frame()` 是日期序的，而按位置对齐的 bug 在日期序下看不出来，所以回归用例
+    必须用这个形状，并且保留非默认的乱序索引。
+    """
+    frame = _frame(periods=periods, symbols=symbols, seed=seed)
+    frame["symbol"] = np.tile([f"S{i}" for i in range(symbols)], periods)
+    return frame.sort_values("symbol", kind="stable")
+
+
+def test_probability_index_follows_the_input_row_order() -> None:
+    """概率必须与输入 frame 的索引逐行同序。
+
+    内部按日期排序后若把概率挂在**新** RangeIndex 上，两边就都是 0..N-1，调用方的
+    `reindex` 成了空操作，概率被静默配到别的观测上。
+    """
+    options = meta.MetaLabelOptions(
+        min_train=100, test_span=40, embargo=10, n_estimators=10
+    )
+    frame = _symbol_major_frame()
+    assert not bool(frame[meta.DATE_COLUMN].is_monotonic_increasing)
+    prediction = meta.walk_forward_meta(frame, ["signal", "noise"], options)
+    assert prediction.probability.index.equals(frame.index)
+
+
+def test_duplicate_index_is_rejected() -> None:
+    """索引不唯一时按标签回填会歧义，宁可报错也不能默默配错。"""
+    frame = _frame()
+    frame.index = pd.Index([0] * len(frame))
+    with pytest.raises(ValueError, match="索引必须唯一"):
+        _ = meta.walk_forward_meta(frame, ["signal", "noise"], meta.MetaLabelOptions())
+
+
+def test_filter_summary_pairs_probability_with_the_same_row() -> None:
+    """端到端：把收益设成元标签本身，则「高概率那批」的命中率必须真的更高。
+
+    配错行时概率来自别的观测，命中率不会随阈值上升。这个检验不依赖任何位置假设，
+    只看概率与收益是否落在同一行。
+    """
+    options = meta.MetaLabelOptions(
+        min_train=100, test_span=40, embargo=10, n_estimators=50
+    )
+    frame = _symbol_major_frame()
+    prediction = meta.walk_forward_meta(frame, ["signal", "noise"], options)
+    table = meta.filter_summary(
+        cast(pd.Series, frame[meta.LABEL_COLUMN].astype(float)),
+        prediction.probability,
+        (0.0, 0.7),
+    )
+    assert table.loc[1, "bets"] > 0
+    assert float(table.loc[1, "hit_rate"]) > float(table.loc[0, "hit_rate"]) + 0.05

@@ -37,7 +37,7 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-from src.research import labels, meta, overlap
+from src.research import labels, meta, overlap, sizing
 from src.research.factors.library import FACTOR_LIBRARY
 from src.research.factors.panel import (
     Panel,
@@ -45,6 +45,7 @@ from src.research.factors.panel import (
     load_panel,
     tradable_mask,
 )
+from src.research.trials import Trial, TrialLedger
 
 PRIMARY_KEY = "rev_3"
 FEATURE_KEYS = ("mom_7", "mom_30", "vol_30", "liq_30", "dth_60")
@@ -132,7 +133,7 @@ def build_observations(panel: Panel, horizon: int) -> pd.DataFrame:
     return pd.concat([r for r in rows if not r.empty], ignore_index=True)
 
 
-def prepare(args: argparse.Namespace) -> pd.DataFrame:
+def prepare(args: argparse.Namespace) -> tuple[pd.DataFrame, Panel]:
     panel = load_panel(args.timeframe, market=args.market)
     mask = tradable_mask(panel)
     print(
@@ -154,7 +155,76 @@ def prepare(args: argparse.Namespace) -> pd.DataFrame:
         f"可交易观测 {len(frame)}，{frame['symbol'].nunique()} 只标的，"
         f"{frame['date'].nunique()} 天"
     )
-    return frame
+    return frame, panel
+
+
+def _wide(frame: pd.DataFrame, column: str) -> pd.DataFrame:
+    """长表转宽表（index=date, columns=symbol）。"""
+    return frame.pivot(index="date", columns="symbol", values=column)
+
+
+def sizing_table(
+    frame: pd.DataFrame,
+    probability: pd.Series,
+    horizon: int,
+    *,
+    panel: Panel,
+) -> pd.DataFrame:
+    """在同一批观测上比较下注方案（de Prado 第 10 章）。
+
+    **P&L 用 1 日前向收益，不用 frame 里那列 h 日前向收益**：持有 h 天已经由持仓路径
+    表达（过去 h 天期望仓位的均值），每期只该赚当天那一段。拿 h 日收益当 1 日用会把
+    每期 P&L 放大 h 倍，并让相邻期共享 h-1 天内容——夏普被 √有效样本数 抬起来，
+    而且各方案抬得不一样。
+
+    只在**有样本外概率**的观测上比较：否则「全下」会连训练期一起下注，比较就偏了。
+    """
+    enriched = cast(pd.DataFrame, frame[["date", "symbol", "side"]].copy())
+    # 按索引对齐（walk_forward_meta 保证概率与本 frame 逐行同序）
+    observed = cast(pd.Series, probability.notna())
+    enriched["side"] = cast(pd.Series, enriched["side"]).where(observed, 0.0)
+    enriched["probability"] = probability
+    side = _wide(enriched, "side")
+    daily = cast(pd.DataFrame, panel.close.shift(-1).div(panel.close) - 1.0)
+    options = sizing.SchemeOptions(horizon=horizon)
+    table = sizing.compare_schemes(
+        side,
+        daily.reindex(index=side.index, columns=side.columns),
+        _wide(enriched, "probability"),
+        options=options,
+    )
+    print(
+        f"\n=== 下注方案对比（持有 {options.horizon} 天，单边成本 "
+        f"{options.cost_one_way * 1e4:.1f}bp）==="
+    )
+    print(table.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+    return table
+
+
+def _record_trials(
+    ledger: TrialLedger,
+    label_column: str,
+    weight_column: str,
+    args: argparse.Namespace,
+) -> None:
+    """把本次评估过的每个「（标签口径 × 权重口径 × 阈值）」记进账本。"""
+    added = ledger.record(
+        [
+            Trial(
+                study="meta_label",
+                market=args.market,
+                timeframe=args.timeframe,
+                kind=label_column,
+                params={
+                    "weight": weight_column,
+                    "threshold": float(threshold),
+                    "vertical": args.vertical,
+                },
+            )
+            for threshold in THRESHOLDS
+        ]
+    )
+    print(f"  试验账本：本次新增 {added} 条，累计 N={ledger.count()}")
 
 
 def main() -> int:
@@ -169,7 +239,7 @@ def main() -> int:
     parser.add_argument("--no-save", action="store_true")
     args = parser.parse_args()
 
-    frame = prepare(args)
+    frame, panel = prepare(args)
     unique = frame["weight_unique"].to_numpy(dtype=float)
     print(f"唯一性权重：均值 {unique.mean():.4f}  标准差 {unique.std():.4f}", end="")
     print("（固定期限标签下标准差恒为 0——那正是 Ch 4 之前接不动的原因）")
@@ -195,6 +265,8 @@ def main() -> int:
     )
     features = [*FEATURE_KEYS, AGE_KEY, SADF_KEY]
     results: dict[str, pd.DataFrame] = {}
+    sizing_results: dict[str, pd.DataFrame] = {}
+    ledger = TrialLedger()
     for name, (label_column, weight_column) in variants.items():
         # 元标签按定义是二元的：三重障碍的 label 是 {-1, 0, +1}，直接喂给分类器
         # 会变成三分类，predict_proba[:, 1] 取到的是「恰为 0」那一类（踩过）。
@@ -210,12 +282,23 @@ def main() -> int:
         )
         print(table.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
         results[name] = table
+        _record_trials(ledger, label_column, weight_column, args)
+        sizing_results[name] = sizing_table(
+            frame, prediction.probability, args.vertical, panel=panel
+        )
 
     if not args.no_save:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         target = OUTPUT_DIR / f"meta_label_{args.market}_{args.timeframe}.parquet"
         pd.concat(results, names=["variant"]).reset_index(level=0).to_parquet(target)
         print(f"\n落盘：{target.resolve()}")
+        sizing_target = (
+            OUTPUT_DIR / f"bet_sizing_{args.market}_{args.timeframe}.parquet"
+        )
+        pd.concat(sizing_results, names=["variant"]).reset_index(level=0).to_parquet(
+            sizing_target
+        )
+        print(f"落盘：{sizing_target.resolve()}")
     return 0
 
 
