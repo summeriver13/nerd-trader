@@ -37,7 +37,7 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-from src.research import labels, meta, overlap, sizing
+from src.research import importance, meta, observations, sizing
 from src.research.factors.library import FACTOR_LIBRARY
 from src.research.factors.panel import (
     Panel,
@@ -76,63 +76,6 @@ def _feature_frame(panel: Panel) -> pd.DataFrame:
     return merged
 
 
-def _bar_uniqueness(touch: np.ndarray, bars: int) -> np.ndarray:
-    """标的内的唯一性权重。touch 是该标的的根序号坐标，轴长就是 bars。"""
-    weight = np.ones(touch.size, dtype=float)
-    usable = np.isfinite(touch)
-    if not usable.any():
-        return weight
-    starts = np.flatnonzero(usable)
-    ends = np.minimum(touch[usable], bars).astype("int64")
-    weight[starts] = overlap.uniqueness_from_ends(bars, starts, ends)
-    return weight
-
-
-def _symbol_observations(
-    panel: Panel, side_frame: pd.DataFrame, symbol: str, horizon: int
-) -> pd.DataFrame:
-    """单只标的：方向、前向收益、两套标签与唯一性权重。"""
-    close = cast(pd.Series, panel.close[symbol]).dropna()
-    options = labels.TripleBarrierOptions(vertical=horizon)
-    if close.size < 4 * options.vertical:
-        return pd.DataFrame()
-    side = np.sign(side_frame[symbol].reindex(close.index).to_numpy(dtype=float))
-    # 障碍方向依赖 side，两侧各算一遍再按观测挑
-    bars = {
-        s: labels.triple_barrier(close, options, side=s).reindex(close.index)
-        for s in (1, -1)
-    }
-    is_long = side > 0
-    columns: dict[str, object] = {}
-    for column in ("label", "t1", "ret"):
-        columns[f"barrier_{column}"] = np.where(
-            is_long, bars[1][column].to_numpy(), bars[-1][column].to_numpy()
-        )
-    touch = np.asarray(columns["barrier_t1"], dtype=float)
-    forward = (close.shift(-horizon).div(close) - 1.0).to_numpy()
-    return pd.DataFrame(
-        {
-            "date": close.index,
-            "symbol": symbol,
-            "side": side,
-            "forward": forward,
-            "fixed_label": (side * forward > 0).astype(float),
-            "weight_uniform": 1.0,
-            "weight_unique": _bar_uniqueness(touch, close.size),
-            **columns,
-        }
-    )
-
-
-def build_observations(panel: Panel, horizon: int) -> pd.DataFrame:
-    side_frame = FACTOR_LIBRARY[PRIMARY_KEY].values(panel)
-    rows = [
-        _symbol_observations(panel, side_frame, symbol, horizon)
-        for symbol in panel.close.columns
-    ]
-    return pd.concat([r for r in rows if not r.empty], ignore_index=True)
-
-
 def prepare(args: argparse.Namespace) -> tuple[pd.DataFrame, Panel]:
     panel = load_panel(args.timeframe, market=args.market)
     mask = tradable_mask(panel)
@@ -140,13 +83,12 @@ def prepare(args: argparse.Namespace) -> tuple[pd.DataFrame, Panel]:
         f"{args.market} {args.timeframe}：{panel.close.shape[1]} 只 × {panel.close.shape[0]} 天"
     )
 
-    observations = build_observations(panel, args.vertical)
+    side_frame = FACTOR_LIBRARY[PRIMARY_KEY].values(panel)
+    table = observations.build_observations(panel, side_frame, args.vertical)
     tradable = pd.DataFrame({"tradable": mask.stack(dropna=False)}).reset_index()
     tradable.columns = pd.Index(["date", "symbol", "tradable"])
 
-    frame = observations.merge(
-        _feature_frame(panel), on=["date", "symbol"], how="inner"
-    )
+    frame = table.merge(_feature_frame(panel), on=["date", "symbol"], how="inner")
     frame = frame.merge(tradable, on=["date", "symbol"], how="inner")
     frame = frame.loc[frame["tradable"].fillna(False)]
     frame = frame.dropna(subset=["side", "forward", "barrier_label"])
@@ -227,6 +169,22 @@ def _record_trials(
     print(f"  试验账本：本次新增 {added} 条，累计 N={ledger.count()}")
 
 
+def _print_importance(
+    prediction: meta.MetaPrediction, trained: pd.DataFrame, features: list[str]
+) -> pd.DataFrame:
+    """Ch 8：在**同一批折、同一批模型**上算 MDA / 聚类 MDA / MDI。
+
+    三者的分歧才是信息——MDI 是样本内的、会给噪声特征分重要性；逐特征 MDA 会被
+    替代效应稀释；簇的联合 MDA 才是「这一块信息值多少」。
+    """
+    table = importance.importance_table(prediction.fits, trained, features)
+    print()
+    print(f"--- 特征重要性（Ch 8，{len(prediction.fits)} 折）---")
+    print("mda_logloss = 打乱该列后样本外 log loss 的增加，越大越重要")
+    print(table.to_string(index=False, float_format=lambda value: f"{value:.5f}"))
+    return table
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="三重障碍 + 元标签研究")
     parser.add_argument("--market", default="swap")
@@ -262,10 +220,12 @@ def main() -> int:
         test_span=args.test_span,
         embargo=args.embargo,
         n_estimators=args.trees,
+        collect_fits=True,
     )
     features = [*FEATURE_KEYS, AGE_KEY, SADF_KEY]
     results: dict[str, pd.DataFrame] = {}
     sizing_results: dict[str, pd.DataFrame] = {}
+    importance_results: dict[str, pd.DataFrame] = {}
     ledger = TrialLedger()
     for name, (label_column, weight_column) in variants.items():
         # 元标签按定义是二元的：三重障碍的 label 是 {-1, 0, +1}，直接喂给分类器
@@ -286,6 +246,7 @@ def main() -> int:
         sizing_results[name] = sizing_table(
             frame, prediction.probability, args.vertical, panel=panel
         )
+        importance_results[name] = _print_importance(prediction, trained, features)
 
     if not args.no_save:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -299,6 +260,13 @@ def main() -> int:
             sizing_target
         )
         print(f"落盘：{sizing_target.resolve()}")
+        importance_target = (
+            OUTPUT_DIR / f"feature_importance_{args.market}_{args.timeframe}.parquet"
+        )
+        pd.concat(importance_results, names=["variant"]).reset_index(
+            level=0
+        ).to_parquet(importance_target)
+        print(f"落盘：{importance_target.resolve()}")
     return 0
 
 

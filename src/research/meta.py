@@ -48,6 +48,7 @@ class MetaLabelOptions:
     max_depth: int = 6
     min_samples_leaf: int = 50
     seed: int = 0
+    collect_fits: bool = False  # 留下每折的模型，供特征重要性复用（免得重训一遍）
 
     def validate(self) -> None:
         if self.min_train < 50:
@@ -59,12 +60,25 @@ class MetaLabelOptions:
 
 
 @dataclass(frozen=True)
+class FoldFit:
+    """一折的拟合结果：模型 + 它做**样本外**预测的那些行标签。
+
+    特征重要性（`src/research/importance.py`）要用同一批折、同一批模型，
+    否则「哪些特征有用」和「元标签有没有效」讲的是两个模型。
+    """
+
+    model: RandomForestClassifier
+    rows: pd.Index
+
+
+@dataclass(frozen=True)
 class MetaPrediction:
     """滚动预测的样本外结果。"""
 
     probability: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     folds: int = 0
     train_sizes: tuple[int, ...] = ()
+    fits: tuple[FoldFit, ...] = ()
 
     @property
     def observations(self) -> int:
@@ -86,10 +100,9 @@ def meta_label(returns: pd.Series, side: pd.Series) -> pd.Series:
 
 def _fit_fold(
     train: pd.DataFrame,
-    test: pd.DataFrame,
     features: list[str],
     options: MetaLabelOptions,
-) -> np.ndarray:
+) -> RandomForestClassifier:
     model = RandomForestClassifier(
         n_estimators=options.n_estimators,
         max_depth=options.max_depth,
@@ -102,6 +115,12 @@ def _fit_fold(
         train[LABEL_COLUMN].to_numpy(),
         sample_weight=train[WEIGHT_COLUMN].to_numpy(),
     )
+    return model
+
+
+def _positive_probability(
+    model: RandomForestClassifier, test: pd.DataFrame, features: list[str]
+) -> np.ndarray:
     proba = np.asarray(model.predict_proba(test[features].to_numpy()))
     return np.asarray(proba[:, 1], dtype=float)
 
@@ -138,6 +157,7 @@ def walk_forward_meta(
     boundaries = np.searchsorted(dates, unique_dates, side="left")
     probability = pd.Series(np.nan, index=frame.index, dtype=float)
     train_sizes: list[int] = []
+    fits: list[FoldFit] = []
     folds = 0
     cursor = 0
     while cursor < unique_dates.size:
@@ -148,18 +168,22 @@ def walk_forward_meta(
         # 同一日期的标的整批落在同一个窗里，所以这里按行切不会泄漏。
         train_stop = test_start - options.embargo
         if train_stop >= options.min_train:
-            fitted = _fit_fold(
-                ordered.iloc[:train_stop],
-                ordered.iloc[test_start:test_stop],
-                features,
-                options,
+            model = _fit_fold(ordered.iloc[:train_stop], features, options)
+            fitted = _positive_probability(
+                model, ordered.iloc[test_start:test_stop], features
             )
-            probability.loc[labels[test_start:test_stop]] = fitted
+            rows = labels[test_start:test_stop]
+            probability.loc[rows] = fitted
             train_sizes.append(train_stop)
+            if options.collect_fits:
+                fits.append(FoldFit(model=model, rows=rows))
             folds += 1
         cursor = stop
     return MetaPrediction(
-        probability=probability, folds=folds, train_sizes=tuple(train_sizes)
+        probability=probability,
+        folds=folds,
+        train_sizes=tuple(train_sizes),
+        fits=tuple(fits),
     )
 
 
