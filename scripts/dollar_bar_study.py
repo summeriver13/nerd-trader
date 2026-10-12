@@ -136,8 +136,10 @@ def main() -> int:
 
     windows = [int(part) for part in args.windows.split(",") if part]
     horizons = [int(part) for part in args.horizons.split(",") if part]
-    rule = UniverseRule() if args.min_notional is None else UniverseRule(
-        min_notional_usd=args.min_notional
+    rule = (
+        UniverseRule()
+        if args.min_notional is None
+        else UniverseRule(min_notional_usd=args.min_notional)
     )
 
     panel = load_panel(args.timeframe, market=args.market)
@@ -175,7 +177,9 @@ def main() -> int:
                         _subset(mask, shared) if scale != SCALE_CALENDAR else mask,
                     )
                 )
-        print(f"  期限 {horizon:>3} 日完成（{time.time() - started:.0f} 秒）", flush=True)
+        print(
+            f"  期限 {horizon:>3} 日完成（{time.time() - started:.0f} 秒）", flush=True
+        )
 
     table = pd.DataFrame(rows)
     print(_report(table))

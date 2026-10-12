@@ -215,9 +215,7 @@ def _verdict_table(
         subset = {
             str(key): series[str(key)] for key in group["key"] if str(key) in series
         }
-        report = build_overfitting_report(
-            subset, trials, embargo=DEFAULT_EMBARGO_RATIO
-        )
+        report = build_overfitting_report(subset, trials, embargo=DEFAULT_EMBARGO_RATIO)
         pbo = report.pbo
         if pbo is None:
             continue

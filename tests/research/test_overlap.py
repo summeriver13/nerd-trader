@@ -49,7 +49,9 @@ def test_average_uniqueness_of_nothing_is_empty() -> None:
 
 
 def test_purge_mask_without_rules_only_drops_the_test_rows() -> None:
-    is_test = np.array([False, False, True, True, False, False, False, True, True, False])
+    is_test = np.array(
+        [False, False, True, True, False, False, False, True, True, False]
+    )
     assert overlap.purge_mask(is_test, purge=0, embargo=0).tolist() == (
         (~is_test).tolist()
     )
@@ -57,16 +59,42 @@ def test_purge_mask_without_rules_only_drops_the_test_rows() -> None:
 
 def test_purge_drops_training_rows_whose_label_reaches_the_test_block() -> None:
     """purge=1：位置 1 与 6 的标签跨进了测试块（2 与 7），必须剔除。"""
-    is_test = np.array([False, False, True, True, False, False, False, True, True, False])
+    is_test = np.array(
+        [False, False, True, True, False, False, False, True, True, False]
+    )
     result = overlap.purge_mask(is_test, purge=1, embargo=0)
-    assert result.tolist() == [True, False, False, False, True, True, False, False, False, True]
+    assert result.tolist() == [
+        True,
+        False,
+        False,
+        False,
+        True,
+        True,
+        False,
+        False,
+        False,
+        True,
+    ]
 
 
 def test_embargo_drops_training_rows_right_after_the_test_block() -> None:
     """embargo=1：位置 4 与 9 紧跟在测试块之后，序列相关会让它们泄漏。"""
-    is_test = np.array([False, False, True, True, False, False, False, True, True, False])
+    is_test = np.array(
+        [False, False, True, True, False, False, False, True, True, False]
+    )
     result = overlap.purge_mask(is_test, purge=0, embargo=1)
-    assert result.tolist() == [True, True, False, False, False, True, True, False, False, False]
+    assert result.tolist() == [
+        True,
+        True,
+        False,
+        False,
+        False,
+        True,
+        True,
+        False,
+        False,
+        False,
+    ]
 
 
 def test_purge_never_keeps_a_test_row() -> None:

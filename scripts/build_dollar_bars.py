@@ -86,7 +86,9 @@ def main() -> int:
         f"美元棒 | {args.exchange} · {args.market} | {len(symbols)} 只 | "
         f"源 {args.timeframe} → {SOURCE_TIMEFRAME}"
     )
-    print(f"{'标的':<{SYMBOL_WIDTH}}{'1m 根数':>12}{'美元棒':>10}{'压缩比':>9}{'门槛($)':>14}")
+    print(
+        f"{'标的':<{SYMBOL_WIDTH}}{'1m 根数':>12}{'美元棒':>10}{'压缩比':>9}{'门槛($)':>14}"
+    )
     started = time.time()
     total_minutes = total_bars = 0
     for stem in symbols:
