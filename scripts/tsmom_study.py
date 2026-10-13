@@ -49,6 +49,7 @@ from src.research.tsmom import (
     trailing_volatility,
     tsmom_signal,
 )
+from src.research.tsmom_audit import print_audit
 from src.research.tsmom_report import (
     ArmRow,
     ArmRun,
@@ -62,6 +63,8 @@ from src.research.tsmom_report import (
 )
 
 SPOT_DIR = crypto_dataset_dir("okx", "spot", "1d")
+# OKX 不保留退市历史，退市标的由 Binance 回填（scripts/fetch_delisted_bars.py）
+BINANCE_SPOT_DIR = crypto_dataset_dir("binance", "spot", "1d")
 OUTPUT = Path("data/results/breaks/tsmom_study_spot_1d.parquet")
 DEFAULT_MIN_BARS = 365
 DEFAULT_LIQUID_TOP = 30
@@ -87,6 +90,16 @@ def load_universe(min_bars: int) -> dict[str, pd.DataFrame]:
     """读现货日线缓存，只留有足够历史的标的（退市标的也在池内）。"""
     out: dict[str, pd.DataFrame] = {}
     for path in sorted(SPOT_DIR.glob("*.parquet")):
+        bars = pd.read_parquet(path)
+        if len(bars) >= min_bars:
+            out[path.stem] = bars
+    return out
+
+
+def load_delisted(min_bars: int) -> dict[str, pd.DataFrame]:
+    """读 Binance 回填的退市标的：量化幸存者偏差的保守下界。"""
+    out: dict[str, pd.DataFrame] = {}
+    for path in sorted(BINANCE_SPOT_DIR.glob("*.parquet")):
         bars = pd.read_parquet(path)
         if len(bars) >= min_bars:
             out[path.stem] = bars
@@ -242,6 +255,21 @@ def main() -> int:
         "> 若 TSMOM 只在低波动那一半有效，它就只是截面低波动异象的时序版",
     )
     rows += split_rows
+    delisted = load_delisted(args.min_bars)
+    if delisted:
+        print(f"退市池（Binance 回填）：{len(delisted)} 只")
+        delisted_rows, _ = analyze(
+            "all_with_delisted", {**bars_map, **delisted}, PERP_FEES
+        )
+        rows += delisted_rows
+    rows += print_audit(
+        runs,
+        bars_map,
+        arm="tsmom_ms",
+        baseline=BASELINE,
+        btc_stem=BTC_STEM,
+        universe="all",
+    )
     liquid_rows, _ = analyze("liquid", {stem: bars_map[stem] for stem in liquid}, PERP_FEES)
     rows += liquid_rows
     spot_rows, _ = analyze(
