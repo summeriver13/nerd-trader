@@ -94,9 +94,7 @@ def build_observations(
     return pd.concat([row for row in rows if not row.empty], ignore_index=True)
 
 
-def trend_labels(
-    panel: Panel, options: labels.TrendScanOptions
-) -> pd.DataFrame:
+def trend_labels(panel: Panel, options: labels.TrendScanOptions) -> pd.DataFrame:
     """面板逐标的算趋势扫描标签，拼成长表（date, symbol, trend_label/span/t）。
 
     窗口按**该标的有报价的根**计数（与三重障碍同一口径），停牌/未上市的缺口不补；

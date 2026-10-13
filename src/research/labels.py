@@ -147,7 +147,9 @@ class TrendScanOptions:
 
     def validate(self) -> None:
         if self.min_window < MIN_TREND_WINDOW:
-            raise ValueError(f"回归窗口至少 {MIN_TREND_WINDOW} 根（斜率 t 值的自由度 j−2）")
+            raise ValueError(
+                f"回归窗口至少 {MIN_TREND_WINDOW} 根（斜率 t 值的自由度 j−2）"
+            )
         if self.span < self.min_window:
             raise ValueError("扫描窗口不能小于最小回归窗口")
         if not 0.0 <= self.threshold < 1.0:
@@ -264,6 +266,8 @@ def trend_scan(close: pd.Series, options: TrendScanOptions) -> pd.DataFrame:
     chosen_span = np.asarray(window_lengths, dtype=int)[best]
     labels = np.sign(chosen_t)
     if options.threshold > 0.0:
-        weak = _threshold_weak(close.index.take(rows), np.abs(chosen_t), options.threshold)
+        weak = _threshold_weak(
+            close.index.take(rows), np.abs(chosen_t), options.threshold
+        )
         labels = np.where(weak, 0.0, labels)
     return _trend_frame(close, rows, chosen_span, chosen_t, labels)

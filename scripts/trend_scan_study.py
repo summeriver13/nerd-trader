@@ -167,7 +167,9 @@ def run_arm(
             probability.to_numpy(dtype=float)[observed],
         )
     )
-    print(f"  滚动 {prediction.folds} 折，样本外 {prediction.observations} 注，AUC {auc:.4f}")
+    print(
+        f"  滚动 {prediction.folds} 折，样本外 {prediction.observations} 注，AUC {auc:.4f}"
+    )
     per_bet = pd.Series(side * forward[usable], index=subset.index, dtype=float)
     table = meta.filter_summary(per_bet, probability, THRESHOLDS)
     print(table.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
