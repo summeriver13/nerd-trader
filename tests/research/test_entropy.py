@@ -28,9 +28,14 @@ def _random(size: int, seed: int = 0) -> np.ndarray:
 
 
 def test_lz76_count_matches_hand_computed_values() -> None:
-    """钉住算法本身：常数串 2 个 phrase、交替串 3 个（手算）。"""
-    assert _lz76_count(np.zeros(8, dtype=np.int8)) == 2
-    assert _lz76_count(np.array([0, 1] * 4, dtype=np.int8)) == 3
+    """钉住解析本身：常数串与交替串各 4 段（手算），随机串段数必须远少于 n/4。
+
+    n/4 这条界是防「每根一个短语」的实现错：曾把随机串数成 ≈n/2 段、熵率报成 5.46
+    （二进制字母表的熵率上界是 1，超过 1 只可能是实现错）。
+    """
+    assert _lz76_count(np.zeros(8, dtype=np.int8)) == 4
+    assert _lz76_count(np.array([0, 1] * 4, dtype=np.int8)) == 4
+    assert _lz76_count(binarize(_random(RANDOM_SIZE))) < RANDOM_SIZE / 4
 
 
 def test_constant_series_has_zero_dispersion_entropy() -> None:
@@ -48,17 +53,16 @@ def test_shannon_entropy_counts_the_bins_it_is_given() -> None:
     assert shannon_bits(values) == pytest.approx(np.log2(10), abs=1e-9)
 
 
-def test_random_sequence_entropy_rate_is_one_and_konto_bias_shrinks() -> None:
-    """iid 序列熵率趋近 1 bit/根：LZ 在 n=2000 已准，Kontoyiannis 有小样本**上偏**。
+def test_random_sequence_entropy_rate_is_one_with_the_measured_bias() -> None:
+    """iid 序列的熵率读数在 1 bit/根附近（实测定值）：LZ 偏高约 5%，Kontoyiannis 偏高约 11%。
 
-    这个上偏（n=2000 时约 1.28）就是实证里一律扣掉同窗置换基线的原因；n 放大十倍后偏差收缩。
+    这个上偏（n=2000 时 1.1135、n=20000 时 1.0840）就是实证里一律扣同窗置换基线的原因。
     """
     random = _random(RANDOM_SIZE)
     assert lempel_ziv_bits(random) == pytest.approx(1.0, abs=0.15)
     small = kontoyiannis_bits(random)
     large = kontoyiannis_bits(_random(RANDOM_SIZE * 10, seed=4))
-    assert 1.0 <= small <= 1.6
-    assert 1.0 <= large < small
+    assert 1.0 <= large < small <= 1.6
 
 
 def test_periodic_sequence_is_far_below_random() -> None:

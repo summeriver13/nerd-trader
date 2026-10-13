@@ -90,25 +90,27 @@ def binarize(values: np.ndarray) -> np.ndarray:
 
 
 def _lz76_count(seq: np.ndarray) -> int:
-    """LZ76 子串（phrase）个数 c(n)：Kaspar-Schuster 1987 的算法。"""
-    size = int(seq.size)
-    cursor, match, length, count = 0, 1, 1, 1
-    while length + match <= size:
-        if seq[cursor + match - 1] == seq[length + match - 1]:
-            match += 1
-        else:
-            cursor += 1
-            if cursor == length:
-                count += 1
-                length += match
-                cursor, match = 0, 1
-            else:
-                match = 1
-    return count + 1
+    """LZ76 短语数 c(n)：每段是「最短的、此前未出现过的子串」（Lempel-Ziv 1976 的解析）。
+
+    匹配只在**前面已扫过的前缀**里找（`find` 的 end 参数），故逐段解析即可、不用未来信息。
+    """
+    text = "".join(map(str, seq.tolist()))
+    size = len(text)
+    start, count = 0, 0
+    while start < size:
+        length = 1
+        while start + length <= size and text.find(text[start : start + length], 0, start) >= 0:
+            length += 1
+        count += 1
+        start += length
+    return count
 
 
 def lempel_ziv_bits(values: np.ndarray) -> float:
-    """LZ76 熵率（bit/根）：c(n)·log2(n)/n，随机序列趋近 1、周期序列趋近 0。"""
+    """LZ76 熵率（bit/根）：c(n)·log2(n)/n，随机序列趋近 1、周期序列趋近 0。
+
+    二进制字母表的熵率上界是 1，读数超过 1 只可能是实现错（本函数曾用错误解析给出 ≈5）。
+    """
     if values.size < MIN_SAMPLES:
         return np.nan
     size = int(values.size)
