@@ -32,7 +32,10 @@ import pandas as pd
 
 from src.research.factors.panel import Panel
 
-DEFAULT_BINS: int = 10
+# 固定宽度分箱边界（日收益刻度，±1%/2%/5%/10%），与跨标的可比性绑定
+SHANNON_EDGES: np.ndarray = np.array(
+    [-np.inf, -0.10, -0.05, -0.02, -0.01, 0.0, 0.01, 0.02, 0.05, 0.10, np.inf]
+)
 DEFAULT_ORDER: int = 3
 DEFAULT_WINDOW: int = 100
 MIN_SAMPLES: int = 30
@@ -54,19 +57,19 @@ class EntropyOptions:
     """熵特征参数：窗口长度、分箱数、顺序熵阶数、置换对照次数。"""
 
     window: int = DEFAULT_WINDOW
-    bins: int = DEFAULT_BINS
     order: int = DEFAULT_ORDER
     surrogates: int = SURROGATE_ROUNDS
     seed: int = SURROGATE_SEED
 
 
-def shannon_bits(values: np.ndarray, bins: int = DEFAULT_BINS) -> float:
-    """等频分箱的香农熵（bit/根）。重复分位点会让实际箱数变少。"""
+def shannon_bits(values: np.ndarray, edges: np.ndarray = SHANNON_EDGES) -> float:
+    """固定宽度分箱的香农熵（bit/根），刻度是日收益的百分比。
+
+    **不能用等频分箱**：分位数边界强制每箱等量，熵恒等于 log2(箱数)、信息量为零（本模块踩过
+    这个坑：随机序列与常数序列都给 3.3219）。固定边界下熵随分散度与形状变化。
+    """
     if values.size < MIN_SAMPLES:
         return np.nan
-    edges = np.unique(np.quantile(values, np.linspace(0.0, 1.0, bins + 1)))
-    if edges.size < 2:
-        return 0.0
     counts = np.bincount(np.digitize(values, edges[1:-1]), minlength=edges.size - 1)
     shares = counts[counts > 0] / float(values.size)
     return float(-(shares * np.log2(shares)).sum())
@@ -99,7 +102,10 @@ def _lz76_count(seq: np.ndarray) -> int:
     start, count = 0, 0
     while start < size:
         length = 1
-        while start + length <= size and text.find(text[start : start + length], 0, start) >= 0:
+        while (
+            start + length <= size
+            and text.find(text[start : start + length], 0, start) >= 0
+        ):
             length += 1
         count += 1
         start += length
@@ -140,7 +146,7 @@ def kontoyiannis_bits(values: np.ndarray) -> float:
 def window_bits(values: np.ndarray, options: EntropyOptions) -> dict[str, float]:
     """一个窗口的全部读数：序列类估计量各扣掉同窗置换基线。"""
     point = {
-        "shannon_bits": shannon_bits(values, options.bins),
+        "shannon_bits": shannon_bits(values),
         "ordinal_bits": ordinal_bits(values, options.order),
         "lz_bits": lempel_ziv_bits(values),
         "konto_bits": kontoyiannis_bits(values),

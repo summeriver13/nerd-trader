@@ -46,11 +46,16 @@ def test_constant_series_has_zero_dispersion_entropy() -> None:
     assert lempel_ziv_bits(flat) < lempel_ziv_bits(_random(200))
 
 
-def test_shannon_entropy_counts_the_bins_it_is_given() -> None:
-    """等频分箱的定义性质：两箱各半恰 1 bit，默认十箱各半即 log2(10)。"""
-    values = np.concatenate([np.linspace(-2.0, -1.0, 100), np.linspace(1.0, 2.0, 100)])
-    assert shannon_bits(values, bins=2) == pytest.approx(1.0)
-    assert shannon_bits(values) == pytest.approx(np.log2(10), abs=1e-9)
+def test_shannon_entropy_tracks_dispersion_and_not_equal_frequency() -> None:
+    """固定边界分箱：宽波动窗口的熵必须高于窄波动窗口（等频分箱给不出这个差别）。
+
+    等频分箱会把熵钉死在 log2(箱数)（随机与常数都给 3.3219），故本模块一律固定边界。
+    """
+    narrow = np.random.default_rng(5).normal(0.0, 0.002, 300)
+    wide = np.random.default_rng(5).normal(0.0, 0.02, 300)
+    assert shannon_bits(wide) > shannon_bits(narrow) + 0.5
+    half = np.concatenate([np.full(100, -0.03), np.full(100, 0.03)])
+    assert shannon_bits(half, np.array([-np.inf, 0.0, np.inf])) == pytest.approx(1.0)
 
 
 def test_random_sequence_entropy_rate_is_one_with_the_measured_bias() -> None:
