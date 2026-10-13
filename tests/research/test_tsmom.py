@@ -9,11 +9,14 @@ import pytest
 from src.research.tsmom import (
     TsmomOptions,
     active_counts,
+    book_scale,
     cross_section_mean,
     donchian_signal,
     multi_speed_signal,
     portfolio_returns,
     run_symbol,
+    split_portfolio,
+    trailing_volatility,
     tsmom_signal,
     volatility_scale,
 )
@@ -141,6 +144,71 @@ def test_run_symbol_matches_buy_and_hold_returns() -> None:
     assert np.allclose(
         run.net_ret.to_numpy()[2:], pct.to_numpy()[2:]
     )
+
+
+def test_trailing_volatility_matches_manual_std() -> None:
+    """滚动实现波动 = 收益率滚动标准差 × √365。"""
+    rng = np.random.default_rng(20261014)
+    bars = make_bars(100.0 * np.cumprod(1.0 + rng.normal(0.0, 0.02, BARS)))
+    lookback = 30
+    got = trailing_volatility(bars, lookback)
+    manual = bars["close"].pct_change().rolling(lookback).std() * np.sqrt(365)
+    assert np.allclose(
+        got.to_numpy()[lookback:], manual.to_numpy()[lookback:], equal_nan=True
+    )
+
+
+def test_book_scale_hits_cap_when_book_is_quiet() -> None:
+    """账本波动低于目标时放大（顶到上限），暖机期为 0，任何时刻不超过上限。"""
+    index = pd.date_range("2024-01-01", periods=600, freq="D", tz="UTC")
+    rng = np.random.default_rng(7)
+    quiet = pd.Series(rng.normal(0.0, 0.0002, 600), index=index)
+    wild = pd.Series(rng.normal(0.0, 0.02, 600), index=index)
+    scale_quiet = book_scale(quiet, target=0.40, cap=3.0)
+    scale_wild = book_scale(wild, target=0.40, cap=3.0)
+    assert float(scale_quiet.iloc[-1]) == pytest.approx(3.0)
+    assert float(scale_wild.iloc[-1]) == pytest.approx(1.0, abs=0.25)
+    assert float(scale_quiet.max()) <= 3.0
+    assert float(scale_quiet.iloc[0]) == 0.0
+
+
+def test_split_portfolio_picks_the_right_half() -> None:
+    """按波动分位切两半：低波动那一半只含低波动标的。"""
+    index = pd.date_range("2024-01-01", periods=4, freq="D", tz="UTC")
+    streams = {
+        "quiet": pd.Series(0.01, index=index),
+        "mid": pd.Series(0.02, index=index),
+        "loud": pd.Series(0.03, index=index),
+        "wild": pd.Series(0.04, index=index),
+    }
+    vols = {
+        "quiet": pd.Series(0.2, index=index),
+        "mid": pd.Series(0.3, index=index),
+        "loud": pd.Series(0.4, index=index),
+        "wild": pd.Series(0.5, index=index),
+    }
+    low = split_portfolio(streams, vols, low=True)
+    high = split_portfolio(streams, vols, low=False)
+    assert low.tolist() == pytest.approx([0.015] * 4)  # (0.01 + 0.02) / 2
+    assert high.tolist() == pytest.approx([0.035] * 4)  # (0.03 + 0.04) / 2
+
+
+def test_split_portfolio_skips_missing_volatility_and_thin_halves() -> None:
+    """没有波动读数的标的退出分母；半池成员少于门槛时该日为空（避免单标的爆掉读成 −100%）。"""
+    index = pd.date_range("2024-01-01", periods=2, freq="D", tz="UTC")
+    streams = {
+        "a": pd.Series([0.02, 0.02], index=index),
+        "b": pd.Series([0.04, 0.04], index=index),
+    }
+    vols = {
+        "a": pd.Series([0.2, np.nan], index=index),
+        "b": pd.Series([0.4, 0.4], index=index),
+    }
+    low = split_portfolio(streams, vols, low=True)
+    assert float(low.iloc[0]) == pytest.approx(0.02)
+    assert np.isnan(float(low.iloc[1]))
+    thin = split_portfolio(streams, vols, low=True, min_members=2)
+    assert np.isnan(float(thin.iloc[0]))
 
 
 def test_run_symbol_charges_more_for_churning_signal() -> None:

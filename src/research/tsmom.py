@@ -141,3 +141,53 @@ def portfolio_returns(streams: dict[str, pd.Series]) -> pd.Series:
 def active_counts(streams: dict[str, pd.Series]) -> pd.Series:
     """每个日期参与组合的标的数（即 1/N_t 里的 N）。"""
     return cast(pd.Series, pd.DataFrame(streams).notna().sum(axis=1))
+
+
+# === 正交性与账本级缩放（研究侧工具）===
+
+
+def trailing_volatility(
+    bars: pd.DataFrame, lookback: int = DEFAULT_VOL_LOOKBACK
+) -> pd.Series:
+    """标的自身的滚动实现波动（年化），只用截至当根的收益。"""
+    returns = cast(pd.Series, bars["close"].pct_change())
+    return cast(pd.Series, returns.rolling(lookback).std() * np.sqrt(BARS_PER_YEAR))
+
+
+def book_scale(
+    book_returns: pd.Series,
+    *,
+    target: float,
+    cap: float,
+    lookback: int = DEFAULT_VOL_LOOKBACK,
+) -> pd.Series:
+    """账本级缩放系数：min(cap, 目标 / 账本滚动实现波动)，只用截至当根的收益。
+
+    与逐标的缩放的差别在分母：这里量的是**组合**的波动，所以能把账本整体推到目标；
+    逐标的 40% 目标在信号多数时间为零时只换来约 12% 的账本波动。
+    """
+    realized = book_returns.rolling(lookback).std() * np.sqrt(BARS_PER_YEAR)
+    scale = target / realized
+    return cast(pd.Series, scale.clip(upper=cap).fillna(0.0))
+
+
+def split_portfolio(
+    streams: dict[str, pd.Series],
+    vols: dict[str, pd.Series],
+    *,
+    low: bool,
+    share: float = 0.5,
+    min_members: int = 1,
+) -> pd.Series:
+    """按每日滚动波动分位把标的切两半，取其中一半的等权组合收益。
+
+    ``vols`` 必须已滞后一根（用 t−1 已知的波动决定 t 的成员），否则就是前视；
+    没有波动读数的标的当天自动退出分母。``min_members`` 是宽度门槛：半池成员少于
+    它时返回 NaN——池子早期只有两只标的，半池单标的爆掉会把回撤读成 −100%。
+    """
+    frame = pd.DataFrame(streams)
+    rank = pd.DataFrame(vols).reindex_like(frame).rank(axis=1, pct=True)
+    mask = rank <= share if low else rank > share
+    masked = frame.where(mask)
+    members = cast(pd.Series, masked.notna().sum(axis=1))
+    return cast(pd.Series, cross_section_mean(masked).where(members >= min_members))
