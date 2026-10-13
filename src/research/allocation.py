@@ -205,9 +205,7 @@ def hrp_weights(returns: pd.DataFrame) -> pd.Series:
     return pd.Series(weights, index=returns.columns, dtype=float)
 
 
-def nco_weights(
-    returns: pd.DataFrame, clusters: int = DEFAULT_CLUSTERS
-) -> pd.Series:
+def nco_weights(returns: pd.DataFrame, clusters: int = DEFAULT_CLUSTERS) -> pd.Series:
     """嵌套聚类优化（原文 Snippet 16.5）：先簇内求最优，再在簇之间求最优。
 
     两个层次都解最小方差（`optPort`，允许做空策略），只对簇内小块与簇级矩阵求逆——

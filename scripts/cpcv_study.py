@@ -129,7 +129,10 @@ def path_table(
             series.iloc[split.test_dates] = values[split.test_dates] @ weights
             readings[scheme].append(series)
     return pd.DataFrame(
-        {scheme: per_path_sharpes(readings[scheme], paths, groups) for scheme in schemes}
+        {
+            scheme: per_path_sharpes(readings[scheme], paths, groups)
+            for scheme in schemes
+        }
     )
 
 
