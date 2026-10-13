@@ -30,7 +30,9 @@ def test_bootstrap_sharpe_interval_covers_the_estimate() -> None:
     rng = np.random.default_rng(SEED)
     index = pd.date_range("2024-01-01", periods=800, freq="D", tz="UTC")
     returns = pd.Series(rng.normal(0.001, 0.02, 800), index=index)
-    row = bootstrap_sharpe(returns, label="x", block=10, replicates=REPLICATES, seed=SEED)
+    row = bootstrap_sharpe(
+        returns, label="x", block=10, replicates=REPLICATES, seed=SEED
+    )
     assert row.low <= row.sharpe <= row.high
     assert row.block == 10
     assert row.replicates == REPLICATES
@@ -84,7 +86,10 @@ def test_alive_at_end_splits_by_last_bar() -> None:
 
 def test_coverage_table_reports_first_and_last() -> None:
     """覆盖表：逐标的的根数与首末日期。"""
-    bars_map = {"a": make_bars(120, end="2026-01-01"), "b": make_bars(60, end="2026-02-01")}
+    bars_map = {
+        "a": make_bars(120, end="2026-01-01"),
+        "b": make_bars(60, end="2026-02-01"),
+    }
     table = coverage_table(bars_map)
     assert set(table["stem"]) == {"a", "b"}
     assert int(table.loc[table["stem"] == "a", "bars"].iloc[0]) == 120

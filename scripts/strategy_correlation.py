@@ -253,7 +253,9 @@ def analyze(symbol: str) -> None:
     rows = correction_table(returns, COMBOS, TRIAL_BANDS)
     combo_map = {label: combo_returns(returns, keys) for label, keys in COMBOS.items()}
     pbo = probability_of_backtest_overfitting(combo_map, blocks=PBO_BLOCKS)
-    print_corrections("=== 多重检验校正：组合也要过同一道闸 ===", rows, pbo, TRIAL_BANDS)
+    print_corrections(
+        "=== 多重检验校正：组合也要过同一道闸 ===", rows, pbo, TRIAL_BANDS
+    )
 
     best = max(singles, key=lambda r: r.sharpe)
     avg_sharpe = sum(r.sharpe for r in singles) / len(singles)

@@ -108,7 +108,9 @@ def bootstrap_sharpe_diff(
     draws = np.empty(replicates, dtype=float)
     for index in range(replicates):
         rows = stationary_bootstrap_indices(len(frame), chosen, rng)
-        draws[index] = sharpe_ratio(left_values[rows]) - sharpe_ratio(right_values[rows])
+        draws[index] = sharpe_ratio(left_values[rows]) - sharpe_ratio(
+            right_values[rows]
+        )
     low, high = np.quantile(draws, [LOW_QUANTILE, HIGH_QUANTILE])
     return SharpeInterval(
         label=label,
@@ -141,14 +143,18 @@ def alive_at_end(
     """面板末端仍在更新的标的（最后行情距末端不超过 window_days）。"""
     last = max(bars.index[-1] for bars in bars_map.values())
     threshold = last - np.timedelta64(window_days, "D")
-    return sorted(stem for stem, bars in bars_map.items() if bars.index[-1] >= threshold)
+    return sorted(
+        stem for stem, bars in bars_map.items() if bars.index[-1] >= threshold
+    )
 
 
 def breadth_by_year(streams: dict[str, pd.Series]) -> pd.Series:
     """每年参与组合的标的数（年内中位）。"""
     counts = active_counts(streams)
     stamps = counts.index.to_numpy(dtype="datetime64[ns]")
-    years = pd.Series(stamps.astype("datetime64[Y]").astype(int) + 1970, index=counts.index)
+    years = pd.Series(
+        stamps.astype("datetime64[Y]").astype(int) + 1970, index=counts.index
+    )
     return counts.groupby(years).median()
 
 

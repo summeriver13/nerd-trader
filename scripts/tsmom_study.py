@@ -186,8 +186,10 @@ def book_scale_rows(
     scale = book_scale(book, target=target, cap=BOOK_SCALE_CAP)
     scaled = run_arm(
         bars_map,
-        lambda bars: multi_speed_signal(bars, TsmomOptions(vol_target=None))
-        * scale.reindex(bars.index).fillna(0.0),
+        lambda bars: (
+            multi_speed_signal(bars, TsmomOptions(vol_target=None))
+            * scale.reindex(bars.index).fillna(0.0)
+        ),
     )
     label = f"book_scale@{target:.0%} (cap {BOOK_SCALE_CAP:.0f}x)"
     return [summarize(universe, label, scaled)]
@@ -225,8 +227,12 @@ def analyze(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="多标的时序动量（TSMOM）组合研究")
-    parser.add_argument("--min-bars", type=int, default=DEFAULT_MIN_BARS, help="入池最少根数")
-    parser.add_argument("--liquid-top", type=int, default=DEFAULT_LIQUID_TOP, help="流动性子池大小")
+    parser.add_argument(
+        "--min-bars", type=int, default=DEFAULT_MIN_BARS, help="入池最少根数"
+    )
+    parser.add_argument(
+        "--liquid-top", type=int, default=DEFAULT_LIQUID_TOP, help="流动性子池大小"
+    )
     args = parser.parse_args()
 
     bars_map = load_universe(args.min_bars)
@@ -270,7 +276,9 @@ def main() -> int:
         btc_stem=BTC_STEM,
         universe="all",
     )
-    liquid_rows, _ = analyze("liquid", {stem: bars_map[stem] for stem in liquid}, PERP_FEES)
+    liquid_rows, _ = analyze(
+        "liquid", {stem: bars_map[stem] for stem in liquid}, PERP_FEES
+    )
     rows += liquid_rows
     spot_rows, _ = analyze(
         "all_spot_fee",
