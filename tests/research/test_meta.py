@@ -101,6 +101,27 @@ def test_all_symbols_of_one_date_land_in_the_same_fold() -> None:
     assert counts.nunique() == 1  # 每个被预测的日期都有全部标的
 
 
+def test_embargo_is_counted_in_days_not_observations() -> None:
+    """禁运按天算：按观测算时「200 行」在每天上百只的窄板上只有约 1 天，3 日标签照样重叠。
+
+    造一份每天 `symbols` 只标的的帧，1 天禁运必须挖掉整整一天的观测：训练集末尾停在测试窗
+    首日的**前一天**，而不是「测试窗起始行 − symbols 行」。
+    """
+    symbols = 5
+    options = meta.MetaLabelOptions(
+        min_train=100, test_span=40, embargo=1, n_estimators=10, collect_fits=True
+    )
+    frame = _frame(periods=60, symbols=symbols)
+    prediction = meta.walk_forward_meta(frame, ["signal", "noise"], options)
+    assert prediction.folds > 0
+    fit = prediction.fits[0]
+    train_days = frame.loc[fit.train_rows, meta.DATE_COLUMN].to_numpy()
+    test_days = frame.loc[fit.rows, meta.DATE_COLUMN].to_numpy()
+    gap = (test_days.min() - train_days.max()) / np.timedelta64(1, "D")
+    assert gap == options.embargo + 1  # 挖掉一整天：训练止于测试窗首日的前一天
+    assert len(fit.train_rows) % symbols == 0  # 按天切，不会切出半天
+
+
 def test_filter_summary_baseline_takes_every_bet() -> None:
     returns = pd.Series([0.01, -0.01, 0.02, 0.04])
     probability = pd.Series([0.2, 0.4, 0.6, 0.8])
@@ -162,10 +183,16 @@ def test_filter_summary_pairs_probability_with_the_same_row() -> None:
     配错行时概率来自别的观测，命中率不会随阈值上升。这个检验不依赖任何位置假设，
     只看概率与收益是否落在同一行。
     """
+    # 帧要够大、叶子要够小：这条用例查的是「概率与收益是否落在同一行」，
+    # 若模型平滑到给不出 0.7 以上的概率，bets=0 会让断言与「配错行」无法区分。
     options = meta.MetaLabelOptions(
-        min_train=100, test_span=40, embargo=10, n_estimators=50
+        min_train=100,
+        test_span=40,
+        embargo=10,
+        n_estimators=50,
+        min_samples_leaf=10,
     )
-    frame = _symbol_major_frame()
+    frame = _symbol_major_frame(symbols=5, periods=200)
     prediction = meta.walk_forward_meta(frame, ["signal", "noise"], options)
     table = meta.filter_summary(
         cast(pd.Series, frame[meta.LABEL_COLUMN].astype(float)),

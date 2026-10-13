@@ -40,11 +40,14 @@ PROBABILITY_COLUMN = "probability"
 
 @dataclass(frozen=True)
 class MetaLabelOptions:
-    """滚动训练窗参数。单位都是**观测**（一行 = 一天的一只标的）。"""
+    """滚动训练窗参数。`min_train` 是**观测数**（一行 = 一天的一只标的），
+    `test_span` 与 `embargo` 是**天数**——窗口按唯一日期切，禁运也必须按天：本仓
+    面板每天有上百只标的，按观测数算「200 个观测」只有约 1 天，3 日标签照样重叠。
+    """
 
     min_train: int = 2000  # 首次训练所需的最少观测
-    test_span: int = 250  # 每个测试窗的观测数
-    embargo: int = 50  # 训练与测试之间丢掉的观测数
+    test_span: int = 250  # 每个测试窗的天数
+    embargo: int = 8  # 训练与测试之间挖掉的天数（de Prado 的 0.01T 在本研究样本上约 8 天）
     n_estimators: int = 200
     max_depth: int = 6
     min_samples_leaf: int = 50
@@ -170,7 +173,7 @@ def walk_forward_meta(
     """滚动训练 + 样本外预测。
 
     `frame` 必须含 `date`、`label`（元标签）、`weight`（唯一性权重）与特征列。
-    每个测试窗用**它之前**的全部观测训练，中间隔 `embargo` 个观测。
+    每个测试窗用**它之前**的全部观测训练，末尾再挖掉 `embargo` **天**。
 
     切分按日期：同一日期的所有标的必须落在同一个窗里。
 
@@ -201,9 +204,9 @@ def walk_forward_meta(
         stop = min(cursor + options.test_span, unique_dates.size)
         test_start = int(boundaries[cursor])
         test_stop = int(boundaries[stop]) if stop < unique_dates.size else len(ordered)
-        # 训练集是测试窗之前的全部观测，末尾再切掉 embargo 个；
-        # 同一日期的标的整批落在同一个窗里，所以这里按行切不会泄漏。
-        train_stop = test_start - options.embargo
+        # 训练集是测试窗之前的全部观测，末尾再挖掉 embargo **天**。按日期切到整天边界：
+        # 按观测数切会把不足一天的零头当禁运，3 日标签照样重叠（README 记过的残留漏洞）。
+        train_stop = int(boundaries[max(cursor - options.embargo, 0)])
         if train_stop >= options.min_train:
             model = fit_classifier(ordered.iloc[:train_stop], features, options)
             fitted = _positive_probability(

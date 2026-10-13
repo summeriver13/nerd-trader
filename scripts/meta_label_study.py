@@ -19,7 +19,7 @@
 - 主模型用 rev_3（仓库 IC 最强的因子），side = sign(因子值)。
 - 元标签 = 主模型那一注赚没赚钱。
 - 特征 = 其余五个因子 + 上市天数 + SADF（不含 rev_3——它是主模型）。
-- 滚动训练，按日期切分，训练与测试之间留 embargo（见 src/research/meta.py）。
+- 滚动训练，按日期切分，训练与测试之间留 embargo（**天数**，见 src/research/meta.py）。
 - **唯一性权重在标的内部算**：t1 是标的内的根序号，长表行号是另一套坐标，
   混用会静默错位（踩过）。
 
@@ -208,7 +208,9 @@ def main() -> int:
     parser.add_argument("--vertical", type=int, default=3)
     parser.add_argument("--min-train", type=int, default=20000)
     parser.add_argument("--test-span", type=int, default=60)
-    parser.add_argument("--embargo", type=int, default=200)
+    parser.add_argument(
+        "--embargo", type=int, default=8, help="训练与测试之间挖掉几个交易日"
+    )
     parser.add_argument("--trees", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-save", action="store_true")

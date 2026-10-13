@@ -49,7 +49,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vertical", type=int, default=3, help="三重障碍的垂直屏障")
     parser.add_argument("--min-train", type=int, default=20000)
     parser.add_argument("--test-span", type=int, default=240, help="每折测试窗天数")
-    parser.add_argument("--embargo", type=int, default=200)
+    parser.add_argument(
+        "--embargo", type=int, default=8, help="训练与测试之间挖掉几个交易日"
+    )
     parser.add_argument("--folds", type=int, default=4, help="抽样几折做调参")
     parser.add_argument(
         "--inner-splits", type=int, default=4, help="内层 purged K 折数"
