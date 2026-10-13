@@ -69,7 +69,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--window-days", type=int, default=DEFAULT_WINDOW_DAYS, help="窗口天数"
     )
-    parser.add_argument("--tail", nargs="+", default=list(TAIL_SYMBOLS), help="池尾标的")
+    parser.add_argument(
+        "--tail", nargs="+", default=list(TAIL_SYMBOLS), help="池尾标的"
+    )
     parser.add_argument(
         "--contrast", nargs="+", default=list(CONTRAST_SYMBOLS), help="对照标的"
     )
@@ -83,7 +85,9 @@ def load_minutes(name: str, window_days: int) -> pd.DataFrame | None:
     if not path.exists():
         print(f"{name}-USDT 无 1m 缓存，跳过")
         return None
-    frame = pd.read_parquet(path).loc[:, ["high", "low", "close", "volume"]].astype(float)
+    frame = (
+        pd.read_parquet(path).loc[:, ["high", "low", "close", "volume"]].astype(float)
+    )
     frame = frame.sort_index()
     frame = frame.loc[~frame.index.duplicated(keep="first")]
     stamps = pd.Series(frame.index).dt.normalize().to_numpy()

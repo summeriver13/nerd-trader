@@ -151,7 +151,9 @@ def liquidity_groups(panel: Panel, groups: int) -> dict[str, pd.Index]:
     return buckets
 
 
-def group_table(panel: Panel, mask: pd.DataFrame, horizon: int, groups: int) -> pd.DataFrame:
+def group_table(
+    panel: Panel, mask: pd.DataFrame, horizon: int, groups: int
+) -> pd.DataFrame:
     """按流动性分组重算因子的毛收益/换手/平衡成本（池尾反转能不能做的正面检验）。"""
     buckets = liquidity_groups(panel, groups)
     buckets["全池"] = panel.symbols
@@ -236,7 +238,8 @@ def main() -> None:
         path = RESULTS_DIR / f"cost_sensitivity_{args.market}_{args.timeframe}.parquet"
         pd.concat(frames).to_parquet(path)
         group_path = (
-            RESULTS_DIR / f"cost_sensitivity_groups_{args.market}_{args.timeframe}.parquet"
+            RESULTS_DIR
+            / f"cost_sensitivity_groups_{args.market}_{args.timeframe}.parquet"
         )
         pd.concat(group_frames).to_parquet(group_path)
         print(f"\n读数落盘：{path}｜分组：{group_path}")
