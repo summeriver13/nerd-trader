@@ -86,7 +86,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _ar1(rng: np.random.Generator, observations: int, columns: int, phi: float) -> np.ndarray:
+def _ar1(
+    rng: np.random.Generator, observations: int, columns: int, phi: float
+) -> np.ndarray:
     """AR(1) 噪声矩阵（列 = 候选）：phi=0 即 iid。"""
     noise = rng.standard_normal((observations, columns))
     values = np.empty_like(noise)
@@ -138,7 +140,9 @@ def bed_table(replications: int) -> pd.DataFrame:
             for experiment in range(BED_EXPERIMENTS):
                 rng = np.random.default_rng(BED_SEED_BASE + experiment)
                 frame = simulate(rng, observations, candidates, phi, rho, planted)
-                outcome = rejections(frame, replications, seed=BED_SEED_BASE + experiment)
+                outcome = rejections(
+                    frame, replications, seed=BED_SEED_BASE + experiment
+                )
                 for name in METHODS:
                     rates[name].append(outcome[name])
             rows.append(
@@ -210,7 +214,9 @@ def verdict(
     }
 
 
-def sweep_matrix(panel: Panel, mask: pd.DataFrame, market: str, timeframe: str) -> pd.DataFrame:
+def sweep_matrix(
+    panel: Panel, mask: pd.DataFrame, market: str, timeframe: str
+) -> pd.DataFrame:
     """扫参 IC 矩阵：有缓存读缓存，没有就算一遍并落盘（3276 个候选，约 6 分钟）。"""
     cache = CACHE_DIR / f"sweep_ic_{market}_{timeframe}.parquet"
     if cache.exists():
@@ -220,7 +226,9 @@ def sweep_matrix(panel: Panel, mask: pd.DataFrame, market: str, timeframe: str) 
     _, series = sweep_ic_table(panel, mask, DEFAULT_HORIZONS, families)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     series.to_parquet(cache)
-    print(f"扫参 IC 矩阵已落盘 {cache}（{series.shape[1]} 个候选 × {series.shape[0]} 期）")
+    print(
+        f"扫参 IC 矩阵已落盘 {cache}（{series.shape[1]} 个候选 × {series.shape[0]} 期）"
+    )
     return series
 
 
@@ -250,7 +258,9 @@ def main() -> None:
                     matrix, summary = factor_matrix(panel, mask, horizon)
                     print(f"\n### 主池因子家族（{market}，h={horizon}，钱的口径）")
                     print(summary.round(3).to_string(index=False))
-                    row = verdict(matrix, args.replications, f"factors_{market}_h{horizon}")
+                    row = verdict(
+                        matrix, args.replications, f"factors_{market}_h{horizon}"
+                    )
                     rows.append(row)
                     print(pd.DataFrame([row]).round(4).to_string(index=False))
             if args.stage in ("sweep", "all"):

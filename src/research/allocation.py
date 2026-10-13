@@ -29,13 +29,16 @@ from typing import Final
 
 import numpy as np
 import pandas as pd
-from scipy.cluster.hierarchy import linkage
+from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
 
 # 单链接聚类：与原文一致，也是「链式相关」最自然的度量
 LINKAGE_METHOD: Final[str] = "single"
 # 方差必须为正：逆方差组合在 0 方差上会发散，宁可在入口拦住
 MIN_VARIANCE: Final[float] = 0.0
+# NCO 默认簇数：七个策略切成三簇（原文 maxClusters 是个可调参数，
+# scripts/cpcv_study.py 会扫 2~6 报整个平台）
+DEFAULT_CLUSTERS: Final[int] = 3
 
 
 def correlation_distance(corr: np.ndarray) -> np.ndarray:
@@ -83,6 +86,25 @@ def quasi_diagonal(link: np.ndarray, items: int | None = None) -> list[int]:
     return order
 
 
+def covariance_pair(returns: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """收益表 →（相关矩阵，协方差矩阵），按 `returns.columns` 顺序，含缺失检查。
+
+    HRP 与 NCO 共用同一份校验：全空行先丢掉，相关或协方差含 nan 时直接抛错——
+    相关矩阵估不出来时给「看起来像答案」的等权是最坏的结果。
+    """
+    frame = returns.dropna(how="all")
+    correlation = frame.corr().to_numpy(dtype=float)
+    covariance = frame.cov().to_numpy(dtype=float)
+    if not np.isfinite(correlation).all():
+        remaining = frame.dropna(axis=1)
+        if remaining.shape[1] < 2:
+            raise ValueError("收益表里的缺失太多，相关矩阵估不出来")
+        raise ValueError("相关矩阵含 nan：请先去掉全空的资产或补数据")
+    if not np.isfinite(covariance).all():
+        raise ValueError("协方差矩阵含 nan：请先去掉全空的资产或补数据")
+    return correlation, covariance
+
+
 def inverse_variance_weights(cov: np.ndarray) -> np.ndarray:
     """逆方差组合 `w ∝ 1/diag(Σ)`（原文 getIVP）。对角线非正时抛错。"""
     matrix = np.asarray(cov, dtype=float)
@@ -100,6 +122,39 @@ def cluster_variance(cov: np.ndarray, items: Sequence[int]) -> float:
     block = matrix[np.ix_(indices, indices)]
     weights = inverse_variance_weights(block)
     return float(weights @ block @ weights)
+
+
+def cluster_labels(corr: np.ndarray, clusters: int) -> np.ndarray:
+    """把层次聚类树切成 `clusters` 个簇，返回每个资产（原序）的 0 基簇编号。
+
+    簇数不小于资产数时每个资产自成一簇（退化情形由用例钉住）。
+    """
+    matrix = np.asarray(corr, dtype=float)
+    assets = matrix.shape[0]
+    if clusters < 1:
+        raise ValueError("簇数至少为 1")
+    if clusters >= assets:
+        return np.arange(assets)
+    link = single_linkage(matrix)
+    labels = fcluster(link, t=clusters, criterion="maxclust")
+    return np.asarray(labels, dtype=int) - 1
+
+
+def minimum_variance_weights(cov: np.ndarray) -> np.ndarray:
+    """解析最小方差解 `w ∝ Σ⁻¹1`（原文 optPort，**不约束做空**）。
+
+    只在小块上求逆正是 NCO 与「直接对全矩阵求逆」的区别：本仓实测的七策略协方差
+    条件数中位 29、最大 53，正常求解即可，不额外加 ridge（矩阵真的奇异时让它抛错，
+    而不是偷偷改问题）。
+    """
+    matrix = np.asarray(cov, dtype=float)
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1] or matrix.shape[0] == 0:
+        raise ValueError("协方差矩阵必须是方阵")
+    solution = np.linalg.solve(matrix, np.ones(matrix.shape[0], dtype=float))
+    total = float(solution.sum())
+    if total == 0.0:
+        raise ValueError("最小方差解退化成全零——协方差矩阵不可用")
+    return solution / total
 
 
 def recursive_bisection(cov: np.ndarray, order: Sequence[int]) -> np.ndarray:
@@ -143,17 +198,47 @@ def hrp_weights(returns: pd.DataFrame) -> pd.Series:
         raise ValueError("HRP 至少需要两个资产")
     if returns.shape[0] < 2:
         raise ValueError("HRP 至少需要两期收益")
-    frame = returns.dropna(how="all")
-    correlation = frame.corr().to_numpy(dtype=float)
-    covariance = frame.cov().to_numpy(dtype=float)
-    if not np.isfinite(correlation).all():
-        remaining = frame.dropna(axis=1)
-        if remaining.shape[1] < 2:
-            raise ValueError("收益表里的缺失太多，相关矩阵估不出来")
-        raise ValueError("相关矩阵含 nan：请先去掉全空的资产或补数据")
-    if not np.isfinite(covariance).all():
-        raise ValueError("协方差矩阵含 nan：请先去掉全空的资产或补数据")
+    correlation, covariance = covariance_pair(returns)
     order = quasi_diagonal(single_linkage(correlation))
     weights = np.zeros(len(order), dtype=float)
     weights[np.asarray(order, dtype=int)] = recursive_bisection(covariance, order)
-    return pd.Series(weights, index=frame.columns, dtype=float)
+    return pd.Series(weights, index=returns.columns, dtype=float)
+
+
+def nco_weights(
+    returns: pd.DataFrame, clusters: int = DEFAULT_CLUSTERS
+) -> pd.Series:
+    """嵌套聚类优化（原文 Snippet 16.5）：先簇内求最优，再在簇之间求最优。
+
+    两个层次都解最小方差（`optPort`，允许做空策略），只对簇内小块与簇级矩阵求逆——
+    这正是「马科维茨诅咒」的对策：全矩阵求逆会把相关簇的估计误差放大成极端权重。
+
+    簇级矩阵用簇内组合把协方差收缩：`Σ̃(i,j) = wᵢ' Σ(i,j) wⱼ`（i=j 时就是簇方差），
+    再对 `Σ̃` 解最小方差，最后 `w = 簇内权重 × 簇间权重`。
+    """
+    if returns.shape[1] < 2:
+        raise ValueError("NCO 至少需要两个资产")
+    if returns.shape[0] < 2:
+        raise ValueError("NCO 至少需要两期收益")
+    correlation, covariance = covariance_pair(returns)
+    labels = cluster_labels(correlation, clusters)
+    count = int(labels.max()) + 1
+    blocks: list[list[int]] = []
+    intra_blocks: list[np.ndarray] = []
+    intra = np.zeros(returns.shape[1], dtype=float)
+    for index in range(count):
+        rows = [position for position, label in enumerate(labels) if label == index]
+        block = covariance[np.ix_(rows, rows)]
+        weights = minimum_variance_weights(block)
+        intra[rows] = weights
+        blocks.append(rows)
+        intra_blocks.append(weights)
+    reduced = np.zeros((count, count), dtype=float)
+    for left in range(count):
+        for right in range(left, count):
+            cross = covariance[np.ix_(blocks[left], blocks[right])]
+            value = float(intra_blocks[left] @ cross @ intra_blocks[right])
+            reduced[left, right] = value
+            reduced[right, left] = value
+    inter = minimum_variance_weights(reduced)
+    return pd.Series(intra * inter[labels], index=returns.columns, dtype=float)

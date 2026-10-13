@@ -10,13 +10,17 @@ scripts/cpcv_study.py
 口径：
 - 协方差只从每次切分的**训练组**估，测试组只吃收益。CPCV 的训练组含测试组之后的日期，
   这是原书 K 折口径（不是滚动窗），也是「路径能覆盖全时段」的前提。
-- 同一路径上三个方案走同一批日期，所以差值是**配对读数**——这是它强于「换个分割重跑一遍」
+- 同一路径上各方案走同一批日期，所以差值是**配对读数**——这是它强于「换个分割重跑一遍」
   的地方：日历相位噪声被配对消掉。
+- 第 16 章的 NCO 也在这里比：五臂 = 等权 / 逆方差 / HRP / NCO（簇数 3）/ 全局最小方差，
+  另扫 NCO 的簇数 2~6 报**整个平台**（挑最好的那个就是又一次搜索）。NCO 与全局最小方差
+  两层次都解无约束最小方差（原文 optPort），允许做空策略。
 - purge/embargo 以天计，默认各 1 天（日频 h=1 的价差，只防序列相关）。
 - 报的是**年化**夏普（逐根 × √365）；第 16 章的表是逐根口径（0.045 一类），别直接比数值。
 - 对照组（单次 50% 切分）必须复现第 16 章：swap 逐根 0.0451/0.0475/0.0444、spot
   0.0493/0.0409/0.0630——这条是接线自检，跑一次就能看出接错没有。
-- 不记新试验：策略与配权方案与第 16 章同一批，只换了评估口径（同「预算扫描不计新试验」例）。
+- 不记新试验：策略与第 16 章同一批，只换了评估口径与配权方案；NCO 不生成收益信号，
+  簇数扫描又是「报平台、不挑选」，故都不构成新试验（同「预算扫描不计新试验」例）。
 
 用法：uv run python scripts/cpcv_study.py [--market swap] [--no-save]
 """
@@ -25,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import warnings
+from collections.abc import Sequence
 from itertools import combinations
 from pathlib import Path
 from typing import Final
@@ -34,7 +39,13 @@ import pandas as pd
 
 from src.analytics.metrics import annualized_sharpe
 from src.config.paths import RESULTS_ROOT
-from src.research.allocation import hrp_weights, inverse_variance_weights
+from src.research.allocation import (
+    DEFAULT_CLUSTERS,
+    hrp_weights,
+    inverse_variance_weights,
+    minimum_variance_weights,
+    nco_weights,
+)
 from src.research.cpcv import CombinatorialPurgedCv, CpcvSplit, path_series
 from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
 from src.research.observations import strategy_spreads
@@ -50,7 +61,9 @@ DEFAULT_STRATEGIES: Final[tuple[str, ...]] = (
     "ffd_d0p4",
     "liq_30",
 )
-SCHEMES: Final[tuple[str, ...]] = ("等权", "逆方差", "HRP")
+SCHEMES: Final[tuple[str, ...]] = ("等权", "逆方差", "HRP", "NCO", "最小方差")
+# NCO 簇数扫描：报整个平台而不是挑最好的那个（挑就是又一次搜索）
+NCO_CLUSTER_SCAN: Final[tuple[int, ...]] = (2, 3, 4, 5, 6)
 MIN_SERIES: Final[int] = 400
 MIN_DATES_PER_GROUP: Final[int] = 30
 PERIODS_PER_YEAR: Final[int] = 365
@@ -77,30 +90,97 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def scheme_weights(scheme: str, train: pd.DataFrame) -> np.ndarray:
-    """一个配权方案在训练段上的权重。"""
+def scheme_weights(
+    scheme: str, train: pd.DataFrame, clusters: int = DEFAULT_CLUSTERS
+) -> np.ndarray:
+    """一个配权方案在训练段上的权重（NCO 的簇数由 `clusters` 给）。"""
     if scheme == "等权":
         return np.full(train.shape[1], 1.0 / train.shape[1])
     covariance = train.cov().to_numpy(dtype=float)
     if scheme == "逆方差":
         return inverse_variance_weights(covariance)
+    if scheme == "最小方差":
+        return minimum_variance_weights(covariance)
+    if scheme == "NCO":
+        return nco_weights(train, clusters=clusters).to_numpy(dtype=float)
     return hrp_weights(train).to_numpy(dtype=float)
 
 
-def per_split_returns(
-    frame: pd.DataFrame, splits: list[CpcvSplit], index: pd.Index
-) -> dict[str, list[pd.Series]]:
-    """逐切分算三方案在**测试段**上的加权收益（对齐到全时段，测试段之外为 NaN）。"""
+def path_table(
+    frame: pd.DataFrame,
+    splits: list[CpcvSplit],
+    index: pd.Index,
+    *,
+    paths: np.ndarray,
+    groups: tuple[np.ndarray, ...],
+    schemes: Sequence[str] = SCHEMES,
+    clusters: int = DEFAULT_CLUSTERS,
+) -> pd.DataFrame:
+    """逐切分算各方案在**测试段**上的加权收益（对齐到全时段，测试段之外为 NaN），
+    拼成路径后逐路径算年化夏普。
+    """
     values = frame.to_numpy(dtype=float)
-    out: dict[str, list[pd.Series]] = {scheme: [] for scheme in SCHEMES}
+    readings: dict[str, list[pd.Series]] = {scheme: [] for scheme in schemes}
     for split in splits:
         train = frame.iloc[split.train_dates]
-        for scheme in SCHEMES:
-            weights = scheme_weights(scheme, train)
+        for scheme in schemes:
+            weights = scheme_weights(scheme, train, clusters=clusters)
             series = pd.Series(np.nan, index=index, dtype=float)
             series.iloc[split.test_dates] = values[split.test_dates] @ weights
-            out[scheme].append(series)
-    return out
+            readings[scheme].append(series)
+    return pd.DataFrame(
+        {scheme: per_path_sharpes(readings[scheme], paths, groups) for scheme in schemes}
+    )
+
+
+def cluster_scan(
+    frame: pd.DataFrame,
+    splits: list[CpcvSplit],
+    index: pd.Index,
+    paths: np.ndarray,
+    groups: tuple[np.ndarray, ...],
+) -> pd.DataFrame:
+    """NCO 的簇数扫描：每个 K 一列逐路径夏普。"""
+    columns: dict[str, pd.Series] = {}
+    for clusters in NCO_CLUSTER_SCAN:
+        table = path_table(
+            frame,
+            splits,
+            index,
+            paths=paths,
+            groups=groups,
+            schemes=("NCO",),
+            clusters=clusters,
+        )
+        columns[f"NCO@{clusters}"] = pd.Series(
+            table["NCO"].to_numpy(dtype=float), index=table.index, dtype=float
+        )
+    return pd.DataFrame(columns)
+
+
+def weight_diagnostics(
+    frame: pd.DataFrame, splits: list[CpcvSplit], schemes: Sequence[str] = SCHEMES
+) -> pd.DataFrame:
+    """各方案在训练段上的权重形态：最大绝对权重、集中度（平方和）、负权重个数。"""
+    rows: list[dict[str, object]] = []
+    for scheme in schemes:
+        maxima: list[float] = []
+        concentrations: list[float] = []
+        negatives: list[float] = []
+        for split in splits:
+            weights = scheme_weights(scheme, frame.iloc[split.train_dates])
+            maxima.append(float(np.abs(weights).max()))
+            concentrations.append(float((weights**2).sum()))
+            negatives.append(float((weights < 0).sum()))
+        rows.append(
+            {
+                "方案": scheme,
+                "最大|权重|中位": float(np.median(maxima)),
+                "集中度中位": float(np.median(concentrations)),
+                "负权重数中位": float(np.median(negatives)),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def per_path_sharpes(
@@ -173,13 +253,7 @@ def main() -> int:
     splits = cv.split(dates)
     paths = cv.paths()
     groups = cv.group_dates(dates)
-    readings = per_split_returns(frame, splits, frame.index)
-    table = pd.DataFrame(
-        {
-            scheme: per_path_sharpes(readings[scheme], paths, groups)
-            for scheme in SCHEMES
-        }
-    )
+    table = path_table(frame, splits, frame.index, paths=paths, groups=groups)
 
     print("\n=== 逐路径年化夏普（同一行是同一批日期，可比）===")
     print(table.round(4).to_string())
@@ -193,6 +267,17 @@ def main() -> int:
     print("\n配对差值（同一路径上两方案相减）：")
     for left, right in combinations(SCHEMES, 2):
         print(f"  {left} − {right}：{describe(table[left] - table[right])}")
+
+    scan = cluster_scan(frame, splits, frame.index, paths, groups)
+    print("\nNCO 簇数扫描（逐路径年化夏普；报平台，不挑最好的那个）：")
+    for name in scan.columns:
+        column = scan[name]
+        print(
+            f"  {name:<7}中位 {column.median():+.4f}｜"
+            f"区间 [{column.min():+.4f}, {column.max():+.4f}]"
+        )
+    print("\n权重形态（训练段上的中位数）：")
+    print(weight_diagnostics(frame, splits).round(4).to_string(index=False))
 
     cutoff = int(dates * SINGLE_SPLIT)
     single = single_split_sharpes(frame, cutoff)
