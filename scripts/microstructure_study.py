@@ -7,13 +7,11 @@ scripts/microstructure_study.py
 估计量失效比例）、这些量与 liq_30 是不是同一件事、流动性溢价收不收得上、VPIN 到底
 预测波动还是收益。口径与限制见 README 第十九节。
 
-用法：uv run python scripts/microstructure_study.py [--market swap] [--refresh] [--no-save]
 """
 
 from __future__ import annotations
 
 import argparse
-import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -63,7 +61,6 @@ def micro_table(market: str, *, refresh: bool) -> pd.DataFrame:
     path = RESULTS_DIR / f"microstructure_{market}_1m_daily.parquet"
     if path.exists() and not refresh:
         return pd.read_parquet(path)
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     table = load_microstructure(market=market)
     if not table.empty:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -127,15 +124,15 @@ def cost_table(table: pd.DataFrame, liquidity: pd.Series) -> pd.DataFrame:
         block = table.loc[table["symbol"].isin(symbols)]
         spread = float(block["cs_spread_bp"].median())
         lam = float(block["kyle_lambda_bp"].median())
-        row: dict[str, float | str] = {
+        row = {
             "档": level,
             "标的数": float(len(symbols)),
             "日成交额($M)": float(liquidity.loc[symbols].median() / 1e6),
-            "往返价差(bp)": spread,
-            "CS 失效占比": float((block["cs_spread_bp"] == 0.0).mean()),
-            "单边实测(bp)": spread / 2.0 + TAKER_FEE_BP,
-            "假设单边(bp)": DEFAULT_COST_BP,
         }
+        row["往返价差(bp)"] = spread
+        row["CS 失效占比"] = float((block["cs_spread_bp"] == 0.0).mean())
+        row["单边实测(bp)"] = spread / 2.0 + TAKER_FEE_BP
+        row["假设单边(bp)"] = DEFAULT_COST_BP
         row["λ冲击1M(bp)"] = lam
         rows.append(row)
     frame = pd.DataFrame(rows).set_index("档")
