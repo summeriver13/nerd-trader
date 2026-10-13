@@ -29,8 +29,17 @@ from src.analytics.metrics import (
     bars_per_year,
     calmar_ratio,
     max_drawdown,
+    sharpe_ratio,
     sortino_ratio,
     total_return,
+)
+from src.research.overfitting import (
+    DSR_THRESHOLD,
+    PboResult,
+    deflated_sharpe,
+    expected_max_sharpe,
+    probability_of_backtest_overfitting,
+    sharpe_estimator_variance,
 )
 from src.research.registry import STRATEGY_SHORT_NAMES, resolve_symbols
 
@@ -46,6 +55,9 @@ COMBOS: dict[str, tuple[str, ...]] = {
 }
 LABEL_WIDTH = 40
 CELL_WIDTH = 11
+# 声明的试验数三档：6 = 单策略数（阶段 1 口径）、15 = 策略 + 组合、63 = 6 个成分的全部子集
+TRIAL_BANDS: tuple[int, ...] = (6, 15, 63)
+PBO_BLOCKS = 10
 
 
 @dataclass(frozen=True)
@@ -104,10 +116,15 @@ def print_matrix(title: str, matrix: pd.DataFrame, note: str = "") -> None:
         print(f"{label:<{LABEL_WIDTH}}{cells}")
 
 
+def combo_returns(returns: pd.DataFrame, members: tuple[str, ...]) -> pd.Series:
+    """等权组合的逐根净收益：成分间等分资金，不重新计费（成分已各自扣费）。"""
+    columns = [short_name(k) for k in members]
+    return cast(pd.Series, returns[columns].mean(axis=1))
+
+
 def combo_row(label: str, returns: pd.DataFrame, members: tuple[str, ...]) -> ComboRow:
     """等权组合：逐根取成分净收益的算术平均。"""
-    columns = [short_name(k) for k in members]
-    ret = cast(pd.Series, returns[columns].mean(axis=1))
+    ret = combo_returns(returns, members)
     periods = bars_per_year(ret.index)
     total = total_return(ret)
     dd = max_drawdown(ret)
@@ -148,6 +165,68 @@ def print_combos(title: str, combos: list[ComboRow], singles: list[ComboRow]) ->
         )
 
 
+# 一行读数：候选名、逐根夏普、观测数、各档声明的试验数下的 DSR
+CorrectionRow = tuple[str, float, int, tuple[float, ...]]
+
+
+def correction_table(
+    returns: pd.DataFrame, combos: dict[str, tuple[str, ...]], bands: tuple[int, ...]
+) -> list[CorrectionRow]:
+    """对单策略与组合算 DSR：候选同批、观测同批，只变声明的试验数。
+
+    零假设方差取「候选夏普离散度」与「估计量方差」的较大者（overfitting 口径）。
+    组合是策略的平均、与单策略高度相关，故离散度只反映搜索空间的真实宽度。
+    """
+    series = {short_name(k): cast(pd.Series, returns[short_name(k)]) for k in ALL_KEYS}
+    series.update({k: combo_returns(returns, v) for k, v in combos.items()})
+    sharpes = [sharpe_ratio(stream.to_numpy(dtype=float)) for stream in series.values()]
+    variance = sharpe_estimator_variance(sharpes, len(returns))
+    rows: list[CorrectionRow] = []
+    for label, stream in series.items():
+        tests = [
+            deflated_sharpe(label, stream, expected_max_sharpe(variance, trials=trials))
+            for trials in bands
+        ]
+        rows.append(
+            (label, tests[0].sharpe, tests[0].observations, tuple(t.dsr for t in tests))
+        )
+    return rows
+
+
+def print_corrections(
+    title: str, rows: list[CorrectionRow], pbo: PboResult | None, bands: tuple[int, ...]
+) -> None:
+    """打印 DSR 表与 PBO：组合是在看过单策略之后挑的，按最大一档判更诚实。"""
+    print(f"\n{title}")
+    print(
+        f"口径：夏普逐根（未年化），×sqrt(365) 即年化；DSR 门槛 {DSR_THRESHOLD:.2f}，"
+        "声明的试验数越多门槛越高；verdict 按最大的那一档判"
+    )
+    header = (
+        f"{'candidate':<{LABEL_WIDTH}}{'sharpe/bar':>11}{'obs':>7}"
+        + "".join(f"{'DSR@' + str(trials):>10}" for trials in bands)
+        + "  verdict"
+    )
+    print(header)
+    print("-" * len(header))
+    for label, sharpe, observations, dsr in rows:
+        cells = "".join(f"{value:>10.3f}" for value in dsr)
+        passed = bool(dsr) and dsr[-1] >= DSR_THRESHOLD
+        print(
+            f"{label:<{LABEL_WIDTH}}{sharpe:>11.4f}{observations:>7}{cells}"
+            f"  {'PASS' if passed else 'FAIL'}"
+        )
+    if pbo is None:
+        print("\nPBO: 样本不足以分块（或候选退化），未定义")
+        return
+    verdict = "PASS" if pbo.passed else "FAIL"
+    print(
+        f"\nPBO CSCV（组合候选）: blocks={pbo.blocks} splits={pbo.splits} "
+        f"pbo={pbo.pbo:.1%} winner_oos_sharpe_median={pbo.winner_oos_sharpe_median:.2f}"
+        f" -> {verdict}"
+    )
+
+
 def analyze(symbol: str) -> None:
     """跑一个标的的相关性与组合分析。"""
     returns, positions = load(symbol)
@@ -170,6 +249,11 @@ def analyze(symbol: str) -> None:
     combos = [combo_row(label, returns, keys) for label, keys in COMBOS.items()]
     singles = [combo_row(short_name(k), returns, (k,)) for k in ALL_KEYS]
     print_combos("=== 等权组合 vs 单策略 ===", combos, singles)
+
+    rows = correction_table(returns, COMBOS, TRIAL_BANDS)
+    combo_map = {label: combo_returns(returns, keys) for label, keys in COMBOS.items()}
+    pbo = probability_of_backtest_overfitting(combo_map, blocks=PBO_BLOCKS)
+    print_corrections("=== 多重检验校正：组合也要过同一道闸 ===", rows, pbo, TRIAL_BANDS)
 
     best = max(singles, key=lambda r: r.sharpe)
     avg_sharpe = sum(r.sharpe for r in singles) / len(singles)
