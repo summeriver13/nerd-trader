@@ -281,9 +281,7 @@ def test_zero_funding_matches_no_funding_argument() -> None:
 def test_short_leg_collects_positive_funding() -> None:
     """正费率下空头收钱：单调下跌且开多空的信号，带资金费比不带赚更多。"""
     bars = make_bars(100.0 * (0.985 ** np.arange(BARS)))
-    signal = tsmom_signal(
-        bars, TsmomOptions(vol_target=None, allow_short=True)
-    )
+    signal = tsmom_signal(bars, TsmomOptions(vol_target=None, allow_short=True))
     assert float(signal.iloc[-1]) < 0.0
     funding = pd.Series(0.0005, index=bars.index)
     bare = run_symbol(bars, signal)

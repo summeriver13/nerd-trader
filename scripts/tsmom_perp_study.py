@@ -186,7 +186,9 @@ def funding_drag_rows(
     return rows
 
 
-def print_funding(rows: list[tuple[str, float, float, float, float, float, float]]) -> None:
+def print_funding(
+    rows: list[tuple[str, float, float, float, float, float, float]],
+) -> None:
     """打印资金费拖累表：年化拖累（负 = 被吃掉）与建费前后的年化对照。"""
     header = (
         f"{'arm':<26}{'年化拖累':>10}{'不建费':>9}{'建费':>9}"
@@ -228,10 +230,10 @@ def analyze(
         portfolio_returns(runs["tsmom_ls"].net),
         portfolio_returns(runs[BASELINE].net),
     )
-    print_hits(
-        [(label, *hit_rate(run, runs[BASELINE])) for label, run in runs.items()]
+    print_hits([(label, *hit_rate(run, runs[BASELINE])) for label, run in runs.items()])
+    print_corrections(
+        {label: portfolio_returns(run.net) for label, run in runs.items()}
     )
-    print_corrections({label: portfolio_returns(run.net) for label, run in runs.items()})
     return rows, runs
 
 
