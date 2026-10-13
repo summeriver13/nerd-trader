@@ -10,8 +10,9 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pandas as pd
+import pytest
 
-from src.research import observations
+from src.research import labels, observations
 from src.research.factors.panel import Panel
 
 type PanelFactory = Callable[[dict[str, list[float]]], Panel]
@@ -111,3 +112,28 @@ def test_build_meta_frame_respects_the_tradable_window(
     listed = (frame["date"].min() - panel.index[0]).days
     assert listed >= 180
     assert len(frame) < panel.close.notna().to_numpy().sum()  # 确实滤掉了东西
+
+
+def test_trend_labels_follow_each_symbols_own_bars(
+    panel_factory: PanelFactory,
+) -> None:
+    """面板级趋势扫描：行数按各标的**有报价的根**算，太短的标的整只跳过。
+
+    它是标签不是信号（`trend_label` 用到了未来窗口），所以这里只钉口径：覆盖哪些行、
+    暖机处留 NaN、一只都不够长时抛错而不是惄惄返回空表。
+    """
+    panel = _panel(panel_factory)
+    long = observations.trend_labels(panel, labels.TrendScanOptions(span=10))
+    assert set(long["symbol"]) == set(panel.close.columns)
+    counts = long.groupby("symbol")["trend_label"].size()
+    expected = {
+        symbol: int(panel.close[symbol].notna().sum()) for symbol in panel.close.columns
+    }
+    assert counts.to_dict() == expected
+    assert int(long["trend_label"].isna().sum()) > 0
+    assert int(long["trend_label"].notna().sum()) > 0
+    with pytest.raises(ValueError):
+        observations.trend_labels(
+            panel_factory({"SHORT-USDT": [100.0] * 5}),
+            labels.TrendScanOptions(span=10),
+        )

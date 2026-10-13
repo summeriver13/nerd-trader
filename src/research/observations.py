@@ -94,6 +94,38 @@ def build_observations(
     return pd.concat([row for row in rows if not row.empty], ignore_index=True)
 
 
+def trend_labels(
+    panel: Panel, options: labels.TrendScanOptions
+) -> pd.DataFrame:
+    """面板逐标的算趋势扫描标签，拼成长表（date, symbol, trend_label/span/t）。
+
+    窗口按**该标的有报价的根**计数（与三重障碍同一口径），停牌/未上市的缺口不补；
+    长度不够一个扫描窗口的标的整只跳过。
+
+    注意它是**标签**而不是信号：`trend_label` 用到了未来窗口，不能直接当可交易方向。
+    """
+    pieces: list[pd.DataFrame] = []
+    for symbol in panel.close.columns:
+        close = cast(pd.Series, panel.close[symbol]).dropna()
+        if close.size <= options.span:
+            continue
+        scanned = labels.trend_scan(close, options)
+        pieces.append(
+            pd.DataFrame(
+                {
+                    "date": close.index,
+                    "symbol": symbol,
+                    "trend_label": scanned["label"].to_numpy(dtype=float),
+                    "trend_span": scanned["span"].to_numpy(dtype=float),
+                    "trend_t": scanned["t_value"].to_numpy(dtype=float),
+                }
+            )
+        )
+    if not pieces:
+        raise ValueError("没有标的够长：把 span 调小或换市场")
+    return pd.concat(pieces, ignore_index=True)
+
+
 def to_long(frame: pd.DataFrame, name: str) -> pd.DataFrame:
     """宽表转长表（date, symbol, name）——面板与特征统一到这一个形态才能 join。
 
