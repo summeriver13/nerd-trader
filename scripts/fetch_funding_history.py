@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import cast
 
 import pandas as pd
+from ccxt.base.errors import BadSymbol
 
 from src.utils.data_sources.funding import FundingSource
 
@@ -108,6 +109,11 @@ def run_exchange(exchange_id: str, symbols: list[str], days: int) -> bool:
         tag = f"[{position:>2}/{len(symbols)}]"
         try:
             result = fetch_one(source, symbol, days)
+        except BadSymbol:
+            # 交易所不上这个永续属正常跳过，不是数据源故障，不计入连续失败
+            print(f"{tag} SKIP {symbol:<20} 交易所无此永续", flush=True)
+            failed.append(symbol)
+            continue
         except Exception as error:  # noqa: BLE001 - 单只失败不该杀掉整批
             message = str(error)[:70]
             print(

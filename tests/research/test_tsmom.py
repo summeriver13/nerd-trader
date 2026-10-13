@@ -11,6 +11,7 @@ from src.research.tsmom import (
     active_counts,
     book_scale,
     cross_section_mean,
+    donchian_short_signal,
     donchian_signal,
     multi_speed_signal,
     portfolio_returns,
@@ -75,10 +76,7 @@ def test_multi_speed_signal_is_the_average_of_speeds() -> None:
     options = TsmomOptions(entry_periods=(10, 20, 40), vol_target=None)
     signal = multi_speed_signal(bars, options)
     manual = np.mean(
-        [
-            donchian_signal(bars, entry).to_numpy()
-            for entry in options.entry_periods
-        ],
+        [donchian_signal(bars, entry).to_numpy() for entry in options.entry_periods],
         axis=0,
     )
     assert np.allclose(signal.to_numpy(), manual)
@@ -141,9 +139,7 @@ def test_run_symbol_matches_buy_and_hold_returns() -> None:
     assert float(run.pos.iloc[1]) == 1.0
     assert float(run.net_ret.iloc[0]) == 0.0
     assert float(run.net_ret.iloc[1]) == pytest.approx(float(pct.iloc[1]) - 0.001)
-    assert np.allclose(
-        run.net_ret.to_numpy()[2:], pct.to_numpy()[2:]
-    )
+    assert np.allclose(run.net_ret.to_numpy()[2:], pct.to_numpy()[2:])
 
 
 def test_trailing_volatility_matches_manual_std() -> None:
@@ -209,6 +205,90 @@ def test_split_portfolio_skips_missing_volatility_and_thin_halves() -> None:
     assert np.isnan(float(low.iloc[1]))
     thin = split_portfolio(streams, vols, low=True, min_members=2)
     assert np.isnan(float(thin.iloc[0]))
+
+
+def test_donchian_short_signal_mirrors_long_breakout() -> None:
+    """下跌序列开空后一直持有（−1），上涨序列从不做空（取值只有 0/—1）。
+
+    用几何下跌（每日 −1.5%）：`make_bars` 的 high/low 是 ±1% 带，日跌幅不够就永远
+    破不了前 entry 根的最低 low，空头根本不会开仓。
+    """
+    down = make_bars(100.0 * (0.985 ** np.arange(BARS)))
+    up = make_bars(40.0 * (1.015 ** np.arange(BARS)))
+    short_down = donchian_short_signal(down, ENTRY)
+    short_up = donchian_short_signal(up, ENTRY)
+    assert set(np.unique(short_down.to_numpy()).tolist()) <= {0.0, -1.0}
+    assert float(short_down.iloc[-1]) == -1.0
+    assert float(short_up.abs().sum()) == 0.0
+
+
+def test_short_signal_has_no_lookahead() -> None:
+    """改动 200 根之后的行情不改变之前的空头信号。"""
+    closes = 100.0 + np.sin(np.arange(BARS) / 7.0) * 10.0
+    tweaked = closes.copy()
+    tweaked[200:] *= 0.5
+    base = donchian_short_signal(make_bars(closes), ENTRY)
+    later = donchian_short_signal(make_bars(tweaked), ENTRY)
+    pd.testing.assert_series_equal(base.iloc[:200], later.iloc[:200])
+
+
+def test_multi_speed_long_short_signal_is_signed() -> None:
+    """多空口径：每档先合成 ±1 再跟速度取平均，取值落在 {−1,−2/3,−1/3,0,1/3,2/3,1}。"""
+    closes = 100.0 + np.sin(np.arange(1500) / 11.0) * 18.0
+    signal = tsmom_signal(
+        make_bars(closes), TsmomOptions(vol_target=None, allow_short=True)
+    )
+    values = np.unique(np.round(signal.to_numpy(), 6)).tolist()
+    allowed = np.round([-1.0, -2 / 3, -1 / 3, 0.0, 1 / 3, 2 / 3, 1.0], 6).tolist()
+    assert set(values) <= set(allowed)
+    assert float(signal.min()) < 0.0 < float(signal.max())
+
+
+def test_allow_short_defaults_to_long_only() -> None:
+    """默认口径不变：只多时信号非负，且与显式 allow_short=False 逐位相等。"""
+    closes = 100.0 + np.sin(np.arange(BARS) / 9.0) * 12.0
+    bars = make_bars(closes)
+    default = tsmom_signal(bars, TsmomOptions())
+    explicit = tsmom_signal(bars, TsmomOptions(allow_short=False))
+    pd.testing.assert_series_equal(default, explicit)
+    assert float(default.min()) >= 0.0
+
+
+def test_funding_is_charged_on_position() -> None:
+    """资金费按仓位逐根计：净收益差恰为 −pos × 日费率（正费率 = 多头付钱）。"""
+    closes = 100.0 + np.sin(np.arange(BARS) / 9.0) * 12.0
+    bars = make_bars(closes)
+    signal = tsmom_signal(bars, TsmomOptions(vol_target=None))
+    rate = 0.0003
+    bare = run_symbol(bars, signal)
+    charged = run_symbol(bars, signal, funding=pd.Series(rate, index=bars.index))
+    diff = charged.net_ret.to_numpy(dtype=float) - bare.net_ret.to_numpy(dtype=float)
+    np.testing.assert_allclose(diff, -bare.pos.to_numpy(dtype=float) * rate)
+
+
+def test_zero_funding_matches_no_funding_argument() -> None:
+    """零费率与不传资金费完全等价（不能因为传参多出任何成本）。"""
+    closes = 100.0 + np.sin(np.arange(BARS) / 9.0) * 12.0
+    bars = make_bars(closes)
+    signal = tsmom_signal(bars, TsmomOptions(vol_target=None))
+    zeros = pd.Series(0.0, index=bars.index)
+    pd.testing.assert_series_equal(
+        run_symbol(bars, signal).net_ret,
+        run_symbol(bars, signal, funding=zeros).net_ret,
+    )
+
+
+def test_short_leg_collects_positive_funding() -> None:
+    """正费率下空头收钱：单调下跌且开多空的信号，带资金费比不带赚更多。"""
+    bars = make_bars(100.0 * (0.985 ** np.arange(BARS)))
+    signal = tsmom_signal(
+        bars, TsmomOptions(vol_target=None, allow_short=True)
+    )
+    assert float(signal.iloc[-1]) < 0.0
+    funding = pd.Series(0.0005, index=bars.index)
+    bare = run_symbol(bars, signal)
+    charged = run_symbol(bars, signal, funding=funding)
+    assert float(charged.net_ret.sum()) > float(bare.net_ret.sum())
 
 
 def test_run_symbol_charges_more_for_churning_signal() -> None:

@@ -8,7 +8,10 @@ src/research/tsmom.py
   搜索，而本仓纪律是报平台不挑点（趋势线已实测：入场窗口 20/55/100 在 BTC/ETH 上恒正，
   所以这里直接取三档平均，不选）。
 - **波动率缩放只缩不放**：仓位按近期实现波动缩放到目标，上限 1——不加杠杆，因此不引入
-  强平与资金费建模（`docs/vol_target` 已证明缩放能可靠降波动、不能可靠提夏普）。
+  强平建模（`docs/vol_target` 已证明缩放能可靠降波动、不能可靠提夏普）。现货臂不涉及
+  资金费；永续多空臂（`allow_short=True`）必须把日频资金费传给引擎，否则空头白拿补贴。
+- **空头是镜像状态机**：策略类只多，做空另写（下破 entry 窗口最低价开空、上破 exit
+  窗口最高价平空），且只做单倍杠杆不做逐仓，故不建模强平。
 - **等权 1/N_t**：每个日期按当时有数据的标的数等分资金，新上市标的不会因为数据短而
   拿到额外权重，也不会因为池子变大而稀释老标的。
 - 信号到仓位的滞后由引擎统一处理（`engine.py`：`signal.shift(1)`），本模块不重复滞后。
@@ -48,6 +51,7 @@ class TsmomOptions:
     atr_mult: float = 0.0  # 0 = 无止损（趋势线实测：单倍杠杆下止损削自己）
     vol_target: float | None = DEFAULT_VOL_TARGET
     vol_lookback: int = DEFAULT_VOL_LOOKBACK
+    allow_short: bool = False  # 现货口径只多；永续口径开空头镜像
 
 
 def donchian_signal(
@@ -62,12 +66,47 @@ def donchian_signal(
     return cast(pd.Series, data["signal"])
 
 
+def donchian_short_signal(bars: pd.DataFrame, entry: int) -> pd.Series:
+    """单速度做空信号（0/−1）：下破 entry 窗口最低价开空，上破 exit 窗口最高价平空。
+
+    多头复用策略类，做空没有对应实现，这里按同一状态机镜像写：上下轨都用 shift(1)
+    只看已完成的历史；ATR 止损是给多头臂的（趋势线实测单倍杠杆下止损削自己），
+    做空臂不带走损。
+    """
+    exit_period = max(entry // EXIT_RATIO, MIN_EXIT_PERIOD)
+    close = bars["close"].to_numpy(dtype=float)
+    lower = bars["low"].rolling(entry).min().shift(1).to_numpy(dtype=float)
+    upper = bars["high"].rolling(exit_period).max().shift(1).to_numpy(dtype=float)
+    signals = np.zeros(len(close))
+    holding = False
+    for i in range(len(close)):
+        if np.isnan(upper[i]) or np.isnan(lower[i]):
+            continue
+        if not holding:
+            if close[i] < lower[i]:
+                holding = True
+                signals[i] = -1.0
+            continue
+        if close[i] > upper[i]:
+            holding = False
+        else:
+            signals[i] = -1.0
+    return cast(pd.Series, pd.Series(signals, index=bars.index))
+
+
 def multi_speed_signal(bars: pd.DataFrame, options: TsmomOptions) -> pd.Series:
-    """多速度信号：各速度的 0/1 信号取平均（取值 0、1/n、…、1）。"""
-    signals = [
-        donchian_signal(bars, entry, atr_mult=options.atr_mult)
-        for entry in options.entry_periods
-    ]
+    """多速度信号：各速度取平均（只多 0…1；多空 −1…1）。
+
+    多空时先按速度把多头与空头合成有符号信号（两者互斥，同时成立则归零），再跨速度
+    取平均——先把三档都算成 ±1 再平均，跟把多头与空头信号各算一遍再除以两倍速度数
+    得到的仓位尺度不同。
+    """
+    signals = []
+    for entry in options.entry_periods:
+        leg = donchian_signal(bars, entry, atr_mult=options.atr_mult)
+        if options.allow_short:
+            leg = leg + donchian_short_signal(bars, entry)
+        signals.append(leg)
     return cast(pd.Series, pd.concat(signals, axis=1).mean(axis=1))
 
 
@@ -102,9 +141,18 @@ class SymbolRun:
 
 
 def run_symbol(
-    bars: pd.DataFrame, signal: pd.Series, *, cost: FeeSchedule | None = None
+    bars: pd.DataFrame,
+    signal: pd.Series,
+    *,
+    cost: FeeSchedule | None = None,
+    funding: pd.Series | None = None,
 ) -> SymbolRun:
-    """跑引擎取逐根净收益、仓位与成本；成本默认与趋势线同口径（永续 taker + 滑点）。"""
+    """跑引擎取逐根净收益、仓位与成本。
+
+    成本默认与趋势线同口径（永续 taker + 滑点）；``funding`` 是按日资金费率
+    （正 = 多头付钱，空头收钱），用 ``daily_rates`` 把 8h 结算压成日频后再传，
+    缺日引擎按 0 处理。只多现货臂可省，永续多空臂必须传。
+    """
     data = bars.copy()
     data["signal"] = signal
     domain = (
@@ -113,7 +161,10 @@ def run_symbol(
         else CryptoDomain(fee_rate=cost.taker, slippage=cost.slippage)
     )
     engine = BacktestEngine(
-        domain=domain, initial_capital=INITIAL_CAPITAL, leverage=LEVERAGE
+        domain=domain,
+        initial_capital=INITIAL_CAPITAL,
+        leverage=LEVERAGE,
+        funding=funding,
     )
     result = engine.run(data)
     frame = cast(pd.DataFrame, result["df"])
