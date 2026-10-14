@@ -13,6 +13,8 @@ scripts/tsmom_perp_study.py
 
 臂是「只多 / 多空」×「建资金费 / 不建」的对照：前者量空头带来什么，后者量资金费
 吃掉多少（趋势跟随的择时与资金费负相关：涨的时候做多付高费、跌的时候做空常遇负费）。
+另加两条同速度的「收益符号」臂（经典 TSMOM 口径），用来分辨「是空头不行，还是突破式
+空头不行」：两族池子、缩放、成本全同，只差信号构造。
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ import pandas as pd
 from src.config.paths import crypto_dataset_dir
 from src.core.costs import PERP_FEES, FeeSchedule
 from src.research.tsmom import (
+    SIGNAL_SIGN,
     TsmomOptions,
     active_counts,
     cross_section_mean,
@@ -63,6 +66,9 @@ ARMS: dict[str, TsmomOptions] = {
     "tsmom_ls": TsmomOptions(allow_short=True),
     "tsmom_ls_raw": TsmomOptions(allow_short=True, vol_target=None),
     "tsmom_ls_atr": TsmomOptions(allow_short=True, atr_mult=2.0),
+    # 符号信号臂：与突破臂同速度、同缩放、同成本，只差信号构造
+    "tsmom_sign_long": TsmomOptions(kind=SIGNAL_SIGN),
+    "tsmom_sign_ls": TsmomOptions(kind=SIGNAL_SIGN, allow_short=True),
 }
 # 不建资金费的对照臂只对两个主口径做（量资金费自己吃掉多少）
 NO_FUNDING_ARMS: tuple[str, ...] = ("tsmom_long", "tsmom_ls")
@@ -228,6 +234,11 @@ def analyze(
     print_segments(
         f"=== 分段（多空主口径 vs 篮子，{universe}）===",
         portfolio_returns(runs["tsmom_ls"].net),
+        portfolio_returns(runs[BASELINE].net),
+    )
+    print_segments(
+        f"=== 分段（符号信号多空 vs 篮子，{universe}）===",
+        portfolio_returns(runs["tsmom_sign_ls"].net),
         portfolio_returns(runs[BASELINE].net),
     )
     print_hits([(label, *hit_rate(run, runs[BASELINE])) for label, run in runs.items()])

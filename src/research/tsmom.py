@@ -12,6 +12,9 @@ src/research/tsmom.py
   资金费；永续多空臂（`allow_short=True`）必须把日频资金费传给引擎，否则空头白拿补贴。
 - **空头是镜像状态机**：策略类只多，做空另写（下破 entry 窗口最低价开空、上破 exit
   窗口最高价平空），且只做单倍杠杆不做逐仓，故不建模强平。
+- **可选符号信号（文献口径）**：`kind=SIGNAL_SIGN` 用「过去 N 根收益的符号」代替突破
+  状态机，速度档位与突破臂相同——两族只差信号构造，用来分辨「是空头不行，还是
+  突破式空头不行」。符号信号无状态、翻转更频繁，换手自然更高。
 - **等权 1/N_t**：每个日期按当时有数据的标的数等分资金，新上市标的不会因为数据短而
   拿到额外权重，也不会因为池子变大而稀释老标的。
 - 信号到仓位的滞后由引擎统一处理（`engine.py`：`signal.shift(1)`），本模块不重复滞后。
@@ -32,6 +35,9 @@ from src.research.strategies.donchian_trend import DonchianTrendStrategy
 
 # 多速度档位：短/中/长，取自趋势线已实测恒正的邻域（20/55/100）
 DEFAULT_ENTRY_PERIODS: tuple[int, ...] = (20, 55, 100)
+# 信号构造：突破状态机（默认，与趋势线同实现）或过去 N 根收益的符号（经典 TSMOM）
+SIGNAL_BREAKOUT = "breakout"
+SIGNAL_SIGN = "sign"
 # 出场窗口 = 入场窗口 / 该比例，且不小于下界（与 trend_duel 的扫描口径一致）
 EXIT_RATIO = 3
 MIN_EXIT_PERIOD = 5
@@ -52,6 +58,7 @@ class TsmomOptions:
     vol_target: float | None = DEFAULT_VOL_TARGET
     vol_lookback: int = DEFAULT_VOL_LOOKBACK
     allow_short: bool = False  # 现货口径只多；永续口径开空头镜像
+    kind: str = SIGNAL_BREAKOUT  # SIGNAL_BREAKOUT 或 SIGNAL_SIGN
 
 
 def donchian_signal(
@@ -110,6 +117,25 @@ def multi_speed_signal(bars: pd.DataFrame, options: TsmomOptions) -> pd.Series:
     return cast(pd.Series, pd.concat(signals, axis=1).mean(axis=1))
 
 
+def sign_signal(bars: pd.DataFrame, options: TsmomOptions) -> pd.Series:
+    """多速度「过去 N 根收益的符号」信号（经典 TSMOM 口径）：只多 0/1、多空 −1…1。
+
+    与突破状态机的关键差别是**无状态**：仓位只取决于过去 N 根收益的正负，不记住入场点，
+    因此翻转更频繁、换手更高；暖机期（不足 N 根）给 0。速度档位沿用突破臂的同一组，
+    这样两族只差信号构造，可直接回答「是空头不行，还是突破式空头不行」。
+    """
+    close = cast(pd.Series, bars["close"])
+    legs: list[pd.Series] = []
+    for speed in options.entry_periods:
+        trailing = close / cast(pd.Series, close.shift(speed)) - 1.0
+        leg = pd.Series(np.sign(trailing.to_numpy(dtype=float)), index=bars.index)
+        leg = cast(pd.Series, leg.fillna(0.0))
+        if not options.allow_short:
+            leg = cast(pd.Series, leg.clip(lower=0.0))
+        legs.append(leg)
+    return cast(pd.Series, pd.concat(legs, axis=1).mean(axis=1))
+
+
 def volatility_scale(bars: pd.DataFrame, options: TsmomOptions) -> pd.Series:
     """波动率缩放系数 min(1, 目标/实现波动)：只缩不放，暖机期取 0。
 
@@ -123,9 +149,16 @@ def volatility_scale(bars: pd.DataFrame, options: TsmomOptions) -> pd.Series:
     return cast(pd.Series, scale.clip(upper=1.0).fillna(0.0))
 
 
+def raw_signal(bars: pd.DataFrame, options: TsmomOptions) -> pd.Series:
+    """按 `kind` 分派多速度信号：突破状态机（默认）或过去 N 根收益的符号。"""
+    if options.kind == SIGNAL_SIGN:
+        return sign_signal(bars, options)
+    return multi_speed_signal(bars, options)
+
+
 def tsmom_signal(bars: pd.DataFrame, options: TsmomOptions) -> pd.Series:
     """给引擎用的 signal 列：多速度信号 × 波动率缩放。"""
-    signal = multi_speed_signal(bars, options)
+    signal = raw_signal(bars, options)
     if options.vol_target is None:
         return signal
     return cast(pd.Series, signal * volatility_scale(bars, options))
