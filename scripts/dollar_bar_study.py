@@ -25,12 +25,15 @@ from typing import cast
 import pandas as pd
 
 from src.config.paths import CRYPTO_ROOT, RESULTS_ROOT
-from src.research.factors.evaluation import (
-    forward_returns,
-    non_overlapping_t,
-    rank_ic_series,
+from src.research.bar_factors import (
+    calendar_reversal,
+    ic_row,
+    keep_symbols,
+    load_bar_closes,
+    rescaled_reversal,
 )
-from src.research.factors.panel import Panel, UniverseRule, load_panel, tradable_mask
+from src.research.factors.evaluation import forward_returns
+from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
 
 DEFAULT_WINDOWS = (1, 2, 3, 5, 10, 20, 30)
 DEFAULT_HORIZONS = (1, 3, 5, 10, 20, 30)
@@ -38,90 +41,6 @@ SCALE_CALENDAR = "日历全池"
 SCALE_CALENDAR_SHARED = "日历同池"
 SCALE_INFORMATION = "信息同池"
 DOLLAR_TIMEFRAME = "dollar"
-BAR_COLUMNS = ("close",)
-
-
-def _dollar_closes(market: str) -> dict[str, pd.Series]:
-    """读美元棒收盘价序列（索引是每根棒的收盘时刻）。"""
-    root = CRYPTO_ROOT / "okx" / market / DOLLAR_TIMEFRAME
-    if not root.is_dir():
-        raise FileNotFoundError(f"{root} 不存在：先跑 scripts/build_dollar_bars.py")
-    return {
-        path.stem: cast(
-            pd.Series, pd.read_parquet(path, columns=list(BAR_COLUMNS))["close"]
-        )
-        for path in sorted(root.glob("*.parquet"))
-    }
-
-
-def _reversal(close: pd.DataFrame, window: int) -> pd.DataFrame:
-    """w 期反转：取负号，值越大越看多（与 library 里的方向约定一致）。"""
-    return -(close / close.shift(window) - 1.0)
-
-
-def _calendar_factor(panel: Panel, window: int) -> pd.DataFrame:
-    """日历尺度：日线收盘上的 w 日反转。"""
-    return _reversal(panel.close, window)
-
-
-def _subset(frame: pd.DataFrame, symbols: list[str]) -> pd.DataFrame:
-    """把面板裁到给定标的集。"""
-    return cast(pd.DataFrame, frame[[sym for sym in symbols if sym in frame.columns]])
-
-
-def _information_factor(
-    closes: dict[str, pd.Series], daily_index: pd.DatetimeIndex, window: int
-) -> pd.DataFrame:
-    """信息尺度：美元棒收盘上的 w 根反转，再按日采样。
-
-    反转必须**逐标的**在它自己的棒序列上算。先拼 DataFrame 再 shift 是错的：
-    各标的的美元棒时戳互不相同，拼出来的并集矩阵大部分是 NaN，shift(w) 会变成
-    跨标的的乱移（实测 IC 处处恰好 0，很容易被当成「信号不存在」）。
-
-    日线索引是 K 线的**起始**时刻，所以 `close[D]` 是 D 日末的价格；采样目标要
-    相应加一天，取「D 日收盘之前已收盘的最后一根美元棒」——不加这一天就只用到
-    D 日开盘前的信息，因子会白落后一天。
-    """
-    target = daily_index + pd.Timedelta(days=1)
-    sampled = {
-        symbol: (-(close / close.shift(window) - 1.0)).reindex(target, method="ffill")
-        for symbol, close in closes.items()
-    }
-    frame = pd.DataFrame(sampled)
-    frame.index = daily_index
-    if bool(frame.isna().to_numpy().all()):
-        raise ValueError(
-            "信息尺度因子全为 NaN：美元棒时戳与面板索引对不上，检查抽样目标日"
-        )
-    return frame
-
-
-def _ic_row(
-    label: str,
-    window: int,
-    horizon: int,
-    values: pd.DataFrame,
-    forward: pd.DataFrame,
-    mask: pd.DataFrame,
-) -> dict[str, object]:
-    """一个（尺度 × 窗口 × 期限）的 IC 读数。
-
-    t 值只认非重叠子样本（与 `ic_stats` 同一口径）：重叠样本会把显著性虚高。
-    """
-    series = rank_ic_series(values, forward, mask)
-    if series.empty:
-        t_stat, independent = 0.0, 0
-    else:
-        t_stat, independent = non_overlapping_t(series, horizon)
-    return {
-        "scale": label,
-        "window": window,
-        "horizon": horizon,
-        "mean_ic": float(series.mean()) if not series.empty else 0.0,
-        "t_stat": t_stat,
-        "periods": int(series.size),
-        "independent": independent,
-    }
 
 
 def main() -> int:
@@ -144,7 +63,7 @@ def main() -> int:
 
     panel = load_panel(args.timeframe, market=args.market)
     mask = tradable_mask(panel, rule)
-    closes = _dollar_closes(args.market)
+    closes = load_bar_closes(CRYPTO_ROOT / "okx" / args.market / DOLLAR_TIMEFRAME)
     shared = [sym for sym in panel.symbols if sym in closes]
     print(
         f"美元棒 vs 时间棒 | {args.market} · {args.timeframe} | "
@@ -157,24 +76,24 @@ def main() -> int:
         forward = forward_returns(panel, horizon)
         for window in windows:
             for scale, values in (
-                (SCALE_CALENDAR, _calendar_factor(panel, window)),
+                (SCALE_CALENDAR, calendar_reversal(panel.close, window)),
                 (
                     SCALE_CALENDAR_SHARED,
-                    _subset(_calendar_factor(panel, window), shared),
+                    keep_symbols(calendar_reversal(panel.close, window), shared),
                 ),
                 (
                     SCALE_INFORMATION,
-                    _information_factor(closes, panel.index, window),
+                    rescaled_reversal(closes, panel.index, window),
                 ),
             ):
                 rows.append(
-                    _ic_row(
+                    ic_row(
                         scale,
                         window,
                         horizon,
                         values,
                         forward,
-                        _subset(mask, shared) if scale != SCALE_CALENDAR else mask,
+                        keep_symbols(mask, shared) if scale != SCALE_CALENDAR else mask,
                     )
                 )
         print(

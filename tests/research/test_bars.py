@@ -42,7 +42,7 @@ def _frame(periods: int = 10) -> pd.DataFrame:
 
 
 def _options(threshold: float = THRESHOLD, drop_partial: bool = True):
-    return bars.DollarBarOptions(threshold=threshold, drop_partial=drop_partial)
+    return bars.BarOptions(threshold=threshold, drop_partial=drop_partial)
 
 
 def test_cumulative_notional_defines_the_groups() -> None:
@@ -102,7 +102,7 @@ def test_daily_threshold_targets_one_bar_per_calendar_day() -> None:
     """按「每天一根」折算：两天数据应得到约 2 根棒。"""
     frame = _frame(periods=2880)
     threshold = bars.threshold_for_daily_bars(frame)
-    result = bars.dollar_bars(frame, bars.DollarBarOptions(threshold=threshold))
+    result = bars.dollar_bars(frame, bars.BarOptions(threshold=threshold))
     assert 2 <= len(result) <= 3
 
 
@@ -110,3 +110,35 @@ def test_empty_or_non_positive_threshold_yields_no_bars() -> None:
     """门槛非正时不能返回一根「全量」的假棒。"""
     assert bars.dollar_bars(_frame(), _options(threshold=0.0)).empty
     assert bars.dollar_bars(_frame(), _options(threshold=0.0)).index.name == "datetime"
+
+
+def test_volume_bars_group_on_volume() -> None:
+    """量棒按成交量分组：量恒为 1 时门槛 2.5 得到每根 2~3 的量。"""
+    result = bars.volume_bars(_frame(), _options(threshold=2.5))
+    assert result["volume"].tolist() == [2.0, 2.0, 3.0, 2.0]
+
+
+def test_tick_bars_need_a_trades_column() -> None:
+    """tick 棒按笔数分组；源数据没有 trades 列时必须显式报错，不能拿别的列顶替。"""
+    with pytest.raises(KeyError):
+        bars.tick_bars(_frame(), _options(threshold=2.5))
+    frame = _frame()
+    frame["trades"] = 2.0
+    result = bars.tick_bars(frame, _options(threshold=4.0))
+    assert result["trades"].tolist() == [2.0, 4.0, 4.0, 4.0, 4.0]
+
+
+def test_accumulation_kinds_agree_when_proportional() -> None:
+    """成交量恒为 1 时成交额与成交量成正比，两种分组的切口必须逐根相同。"""
+    dollars = bars.dollar_bars(_frame(), _options(threshold=25.0))
+    volumes = bars.volume_bars(_frame(), _options(threshold=2.5))
+    assert dollars.index.equals(volumes.index)
+    assert dollars["close"].tolist() == volumes["close"].tolist()
+
+
+def test_signed_volume_is_taker_buy_minus_sell() -> None:
+    """订单流净额 = 2×主动买 − 总量（等价于主动买 − 主动卖）。"""
+    frame = _frame()
+    frame["quote_volume"] = 100.0
+    frame["taker_buy_quote"] = 60.0
+    assert bars.signed_volume(frame).tolist() == [20.0] * 10
