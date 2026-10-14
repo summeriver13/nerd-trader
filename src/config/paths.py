@@ -30,6 +30,36 @@ MARKET_SWAP = "swap"
 MARKET_FUNDING = "funding"
 SETTLEMENT_SEP = ":"
 
+# === 预测市场（Polymarket）数据集契约（依据容器 ADR-0007）===
+# <polymarket>/raw/<dataset>/<name>.jsonl
+# events / markets 是每日快照（按日期命名），prices / trades 是逐市场明细（按 slug 命名）。
+POLYMARKET_ROOT = STORAGE_ROOT / "polymarket"
+POLYMARKET_RAW_ROOT = POLYMARKET_ROOT / "raw"
+POLYMARKET_EVENTS = "events"
+POLYMARKET_MARKETS = "markets"
+POLYMARKET_PRICES = "prices"
+POLYMARKET_TRADES = "trades"
+POLYMARKET_DATASETS = (
+    POLYMARKET_EVENTS,
+    POLYMARKET_MARKETS,
+    POLYMARKET_PRICES,
+    POLYMARKET_TRADES,
+)
+
+
+def polymarket_dataset_dir(dataset: str, *, root: Path = POLYMARKET_RAW_ROOT) -> Path:
+    """预测市场数据集目录：<polymarket>/raw/<dataset>。"""
+    return root / dataset
+
+
+def polymarket_jsonl_path(
+    dataset: str, name: str, *, root: Path = POLYMARKET_RAW_ROOT
+) -> Path:
+    """JSONL 文件路径；name 为日期（YYYY-MM-DD）或市场 slug。"""
+    if dataset not in POLYMARKET_DATASETS:
+        raise ValueError(f"未知数据集 {dataset!r}，可选 {POLYMARKET_DATASETS}")
+    return polymarket_dataset_dir(dataset, root=root) / f"{name}.jsonl"
+
 
 def symbol_market(symbol: str) -> str:
     """ccxt 符号 → 市场层级：带结算币后缀的是永续。"""

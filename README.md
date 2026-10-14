@@ -39,6 +39,7 @@
 | **协整配对** | 第一个 beta ≈ 0 的结构（0.012、相关 0.063），但边际几乎为零：主口径年化 −0.4%、最好变体 DSR 0.261 未通过 | [`docs/pairs/README.md`](docs/pairs/README.md) |
 | **被动挂单执行** | 纯被动挂单是负期望生意：加深挂单只降成交频率、不改善盈亏（成交后价格继续走的距离恒为 −1.1 ~ −1.4bp） | [`docs/execution/README.md`](docs/execution/README.md) |
 | **链上聪明钱** | 数据源侦察：链上数据免费拿得到、**标签层拿不到**；可行路径只剩跟踪公开已知地址 | [`docs/onchain/README.md`](docs/onchain/README.md) |
+| **预测市场** | 数据源侦察：**历史全封**（已结算市场无价格序列、subgraph 已关、`/trades` 无时间窗分页），只能前向采集；唯一优势切片是 crypto 阈值市场 | [`docs/polymarket/README.md`](docs/polymarket/README.md) |
 
 ## 快速开始
 
@@ -179,12 +180,13 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 - 复现指纹：每次成功运行写 `data/results/provenance/<run_id>.json`，`repro_hash` = sha256(配置快照 + 数据指纹 + git HEAD/脏标记)，同一命令必得同一 hash（`src/research/provenance.py`）。
 - 资金费率缓存：`data/storage/crypto/binance/funding/8h/<SYMBOL>.parquet`（OKX 只保留约 100 天，长历史取 Binance，回溯至 2019-09）。
 - 数据源：ccxt，交易所实例由调用方注入（行情为 OKX，资金费率为 Binance 公共接口）。
+- 预测市场（Polymarket）自持：`data/storage/polymarket/raw/<events|markets|prices|trades>/<name>.jsonl`（raw 只增不改，去重追加），manifest 落 `data/manifests/polymarket_raw_*.json`；只能前向采集（历史已被实测封死，容器 ADR-0007），验收闸 `scripts/audit_polymarket.py`，细节见 [`docs/polymarket/README.md`](docs/polymarket/README.md)。
 
 ## 目录结构
 
 ```text
 data/              数据湖（不入版本库）：storage/ 行情与资金费率缓存、results/ 回测产物与复现指纹
-scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）、趋势对比（trend_duel）、单策略统一测试（strategy_suite）、重合度与组合（strategy_correlation）、资金费率抓取（fetch_funding_history）、carry 排名（carry_ranking）、截面因子测试（factor_suite）、波动率目标测试（vol_target_study）与上新币效应（listing_study）
+scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）、趋势对比（trend_duel）、单策略统一测试（strategy_suite）、重合度与组合（strategy_correlation）、资金费率抓取（fetch_funding_history）、carry 排名（carry_ranking）、截面因子测试（factor_suite）、波动率目标测试（vol_target_study）与上新币效应（listing_study）；预测市场前向采集（fetch_polymarket）与验收闸（audit_polymarket）
 src/analytics/     绩效指标（单一出处）
 src/cli/           研究回测的命令行与交互菜单
 src/config/        环境配置读取、路径常量、实盘参数表
@@ -194,7 +196,7 @@ src/simulation/    事件驱动：engine、mock_gateway、replay_loader
 src/strategies/    事件驱动策略（dual_ma）
 src/utils/         数据调度与数据源
 run.py / research.py  两个薄壳入口（逻辑在 src/cli/ 与 src/simulation/）
-docs/              因子/模型/书目/交易者笔记/执行与信号研究/趋势研究/组合研究/carry 研究/链上研究
+docs/              因子/模型/书目/交易者笔记/执行与信号研究/趋势研究/组合研究/carry 研究/链上研究/预测市场
 ```
 
 ## 依赖与源
@@ -204,13 +206,12 @@ docs/              因子/模型/书目/交易者笔记/执行与信号研究/�
 
 ## 文档索引
 
-| 目录 | 内容 |
-| --- | --- |
-十条研究线的判定与文档入口见上面的[研究结论索引](#研究结论索引)；其余文档目录：
+十条研究线与一条数据线侦察的判定见上面的[研究结论索引](#研究结论索引)；其余文档目录：
 
 | 目录 | 内容 |
 | --- | --- |
 | `docs/wisdom/` | 交易者思想摘录与方法论笔记（de Prado 各章与仓库的对照审计、每章一条「对仓库做了什么」） |
+| `docs/polymarket/` | 预测市场：端点实测、前向采集契约与验收口径（容器 ADR-0007） |
 | `docs/models/` | 模型笔记 |
 | `docs/library/` | 书籍与视频剪藏 |
 | `docs/src.md/` | 策略源码说明 |
