@@ -34,7 +34,7 @@ from src.research.corrections import (
     naive_p_values,
     reality_check,
 )
-from src.research.factors.library import FACTOR_LIBRARY
+from src.research.factors.library import FACTOR_LIBRARY, MAIN_POOL_KEYS
 from src.research.factors.panel import Panel, load_panel, tradable_mask
 from src.research.factors.portfolio import PortfolioOptions, portfolio_stats
 from src.research.factors.sweep import (
@@ -45,15 +45,6 @@ from src.research.factors.sweep import (
 
 RESULTS_DIR: Path = Path("data/results/breaks")
 CACHE_DIR: Path = RESULTS_DIR / "corrections_cache"
-MAIN_POOL_KEYS: tuple[str, ...] = (
-    "rev_3",
-    "mom_7",
-    "mom_30",
-    "vol_30",
-    "liq_30",
-    "dth_60",
-    "ffd_d0p4",
-)
 FACTOR_HORIZONS: tuple[int, ...] = (1, 7)
 # 家族级检验必须钉同一相位：非重叠网格的起点默认取各自 warmup，相位会错开，拼成的
 # 矩阵每行只剩一个非 NaN、被对齐逻辑整行丢掉（README 第十六节早有这个坑）

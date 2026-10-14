@@ -25,20 +25,11 @@ import numpy as np
 import pandas as pd
 
 from src.core.costs import PERP_FEES
-from src.research.factors.library import FACTOR_LIBRARY
+from src.research.factors.library import FACTOR_LIBRARY, MAIN_POOL_KEYS
 from src.research.factors.panel import Panel, load_panel, tradable_mask
 from src.research.factors.portfolio import PortfolioOptions, portfolio_stats
 
 RESULTS_DIR: Path = Path("data/results/breaks")
-MAIN_POOL_KEYS: tuple[str, ...] = (
-    "rev_3",
-    "mom_7",
-    "mom_30",
-    "vol_30",
-    "liq_30",
-    "dth_60",
-    "ffd_d0p4",
-)
 HORIZONS: tuple[int, ...] = (1, 7)
 COST_GRID_BP: tuple[float, ...] = (0.0, 2.0, 5.4, 8.0, 10.0)
 MEASURED_COST_BP: float = 5.4

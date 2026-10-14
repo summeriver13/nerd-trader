@@ -172,6 +172,19 @@ def _high_spec(window: int) -> FactorSpec:
     )
 
 
+# 主池：第七到第二十五节所有对照脚本用的同一批因子（顺序即报告里的顺序）。
+# 两个研究脚本与合成床各用一份，定义只在这里出一次。
+MAIN_POOL_KEYS: tuple[str, ...] = (
+    "rev_3",
+    "mom_7",
+    "mom_30",
+    "vol_30",
+    "liq_30",
+    "dth_60",
+    "ffd_d0p4",
+)
+
+
 FACTOR_LIBRARY: dict[str, FactorSpec] = {
     spec.key: spec
     for spec in (
