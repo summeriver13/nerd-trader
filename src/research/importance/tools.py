@@ -51,6 +51,7 @@ from src.research.meta import (
     MetaLabelOptions,
     fit_classifier,
 )
+from src.research.tuning import Classifier
 
 DEFAULT_CLUSTER_DISTANCE = 0.5
 IMPORTANCE_COLUMNS = ("mean", "std", "t", "folds", "members")
@@ -85,12 +86,16 @@ def feature_clusters(
 
 
 def block_log_loss(
-    model: RandomForestClassifier,
+    model: Classifier,
     values: np.ndarray,
     target: np.ndarray,
     weight: np.ndarray,
 ) -> float:
-    """模型在这批特征上的加权 log loss（越小越好）。"""
+    """模型在这批特征上的加权 log loss（越小越好）。
+
+    参数类型是 `Classifier`（只需 `fit` + `predict_proba`）而不是随机森林：MDA/SFI 要的
+    只是一个能给出概率的估计器，手写袋化集成（`research.bagging`）也要走这条路。
+    """
     probability = np.asarray(model.predict_proba(values))
     return float(log_loss(target, probability, sample_weight=weight, labels=[0, 1]))
 
@@ -263,5 +268,9 @@ def impurity_importance(
     columns = list(features)
     if not fits:
         return pd.Series(np.zeros(len(columns)), index=columns, name="mdi")
-    values = np.asarray([fit.model.feature_importances_ for fit in fits], dtype=float)
+    # 只有树模型有 MDI；本仓的流水线喂进来的都是森林（含手写袋化森林）
+    values = np.asarray(
+        [cast(RandomForestClassifier, fit.model).feature_importances_ for fit in fits],
+        dtype=float,
+    )
     return pd.Series(values.mean(axis=0), index=columns, name="mdi")

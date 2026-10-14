@@ -25,12 +25,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Final
 
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+
+from src.research.tuning import Classifier
 
 DATE_COLUMN = "date"
 LABEL_COLUMN = "label"
@@ -47,7 +50,9 @@ class MetaLabelOptions:
 
     min_train: int = 2000  # 首次训练所需的最少观测
     test_span: int = 250  # 每个测试窗的天数
-    embargo: int = 8  # 训练与测试之间挖掉的天数（de Prado 的 0.01T 在本研究样本上约 8 天）
+    embargo: int = (
+        8  # 训练与测试之间挖掉的天数（de Prado 的 0.01T 在本研究样本上约 8 天）
+    )
     n_estimators: int = 200
     max_depth: int = 6
     min_samples_leaf: int = 50
@@ -63,6 +68,10 @@ class MetaLabelOptions:
             raise ValueError("禁运不能为负")
 
 
+FitFunction = Callable[[pd.DataFrame, list[str], MetaLabelOptions], Classifier]
+"""`walk_forward_meta` 的拟合扩展点：吃训练帧、特征名与超参，返回**已拟合**的估计器。"""
+
+
 @dataclass(frozen=True)
 class FoldFit:
     """一折的拟合结果：模型 + 它在**测试折**上的行标签 + 它用过的**训练行**。
@@ -74,7 +83,7 @@ class FoldFit:
     没有训练行就没法重训。
     """
 
-    model: RandomForestClassifier
+    model: Classifier
     rows: pd.Index
     train_rows: pd.Index
 
@@ -159,7 +168,7 @@ def fit_classifier(
 
 
 def _positive_probability(
-    model: RandomForestClassifier, test: pd.DataFrame, features: list[str]
+    model: Classifier, test: pd.DataFrame, features: list[str]
 ) -> np.ndarray:
     proba = np.asarray(model.predict_proba(test[features].to_numpy()))
     return np.asarray(proba[:, 1], dtype=float)
@@ -169,6 +178,8 @@ def walk_forward_meta(
     frame: pd.DataFrame,
     features: list[str],
     options: MetaLabelOptions,
+    *,
+    fit: FitFunction | None = None,
 ) -> MetaPrediction:
     """滚动训练 + 样本外预测。
 
@@ -179,6 +190,9 @@ def walk_forward_meta(
 
     返回的概率**按 `frame` 的行标签对齐**，不按位置——调用方很可能是按标的拼的
     frame（本仓库的研究脚本就是），按位置对齐会静默把概率配到别的观测上。
+
+    `fit` 是估计器的扩展点（默认随机森林）。换袋化集成（`research.bagging`）时，
+    模型需要的跨度列随 `frame` 一起传进去，本函数不解释它们。
     """
     options.validate()
     required = (DATE_COLUMN, LABEL_COLUMN, WEIGHT_COLUMN, *features)
@@ -208,9 +222,11 @@ def walk_forward_meta(
         # 按观测数切会把不足一天的零头当禁运，3 日标签照样重叠（README 记过的残留漏洞）。
         train_stop = int(boundaries[max(cursor - options.embargo, 0)])
         if train_stop >= options.min_train:
-            model = fit_classifier(ordered.iloc[:train_stop], features, options)
+            fitted_model = (fit or fit_classifier)(
+                ordered.iloc[:train_stop], features, options
+            )
             fitted = _positive_probability(
-                model, ordered.iloc[test_start:test_stop], features
+                fitted_model, ordered.iloc[test_start:test_stop], features
             )
             rows = labels[test_start:test_stop]
             probability.loc[rows] = fitted
@@ -218,7 +234,7 @@ def walk_forward_meta(
             if options.collect_fits:
                 fits.append(
                     FoldFit(
-                        model=model,
+                        model=fitted_model,
                         rows=rows,
                         train_rows=labels[:train_stop],
                     )
