@@ -163,6 +163,19 @@ def window_bits(values: np.ndarray, options: EntropyOptions) -> dict[str, float]
     return point
 
 
+def entropy_panel_name(
+    market: str, timeframe: str, options: EntropyOptions, *, prefix: str = "entropy"
+) -> str:
+    """熵面板的落盘文件名：市场、周期、窗口、置换基线次数缺一不可。
+
+    少任何一个都会静默读到别的配置——本仓踩过两次：换窗口跑时互相覆盖、换基线次数时读到旧面板。
+    """
+    return (
+        f"{prefix}_{market}_{timeframe}_w{options.window}"
+        f"_s{options.surrogates}_daily.parquet"
+    )
+
+
 def entropy_panel(
     returns: pd.DataFrame, options: EntropyOptions | None = None
 ) -> pd.DataFrame:

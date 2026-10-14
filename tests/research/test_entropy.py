@@ -13,6 +13,7 @@ from src.research.entropy import (
     _lz76_count,
     binarize,
     entropy_panel,
+    entropy_panel_name,
     kontoyiannis_bits,
     lempel_ziv_bits,
     ordinal_bits,
@@ -25,6 +26,23 @@ RANDOM_SIZE = 2000
 
 def _random(size: int, seed: int = 0) -> np.ndarray:
     return np.random.default_rng(seed).standard_normal(size)
+
+
+def test_panel_name_keys_every_configuration() -> None:
+    """面板名必须区分窗口与基线次数（少一个就会静默读到别的配置）。"""
+    base = EntropyOptions(window=250, surrogates=2)
+    assert entropy_panel_name("swap", "1d", base) != entropy_panel_name(
+        "swap", "1d", EntropyOptions(window=500, surrogates=2)
+    )
+    assert entropy_panel_name("swap", "1d", base) != entropy_panel_name(
+        "swap", "1d", EntropyOptions(window=250, surrogates=8)
+    )
+    assert entropy_panel_name("swap", "1d", base) != entropy_panel_name(
+        "spot", "1d", base
+    )
+    assert entropy_panel_name("swap", "1d", base, prefix="entropy_study").startswith(
+        "entropy_study_swap_1d_w250_s2"
+    )
 
 
 def test_lz76_count_matches_hand_computed_values() -> None:

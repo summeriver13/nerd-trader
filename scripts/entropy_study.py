@@ -33,6 +33,7 @@ from src.core.costs import PERP_FEES
 from src.research.entropy import (
     EntropyOptions,
     entropy_panel,
+    entropy_panel_name,
     load_panel_returns,
 )
 from src.research.factors.evaluation import MIN_NAMES_PER_PERIOD, ic_stats
@@ -95,7 +96,7 @@ def entropy_table(
     market: str, timeframe: str, options: EntropyOptions, *, limit: int, refresh: bool
 ) -> pd.DataFrame:
     """读或重建熵长表（全池约数分钟：逐标的滚窗，逐窗算四个估计量加置换对照）。"""
-    path = RESULTS_DIR / f"entropy_{market}_{timeframe}_w{options.window}_daily.parquet"
+    path = RESULTS_DIR / entropy_panel_name(market, timeframe, options)
     if path.exists() and not refresh and limit <= 0:
         return pd.read_parquet(path)
     panel = load_panel(timeframe, market=market)
@@ -234,6 +235,8 @@ def report_portfolios(
     """分位组合：毛收益、10bp 与实测 5.4bp 下的净收益、平衡成本。"""
     print(f"\n### 4. 分位组合（{QUANTILES} 分位，h={horizon}）")
     rows: list[dict[str, float | str]] = []
+    # 对照组的网格起点与熵因子不一定一致（它自带 warmup=30，实测期数多 70~320 期），
+    # 故这一行只当方向参考，不作为「与 vol 比大小」的定量依据
     for spec in [*entropy_specs(table, warmup), FACTOR_LIBRARY["vol_30"]]:
         stats = portfolio_stats(
             spec, panel, mask, PortfolioOptions(horizon=horizon, quantiles=QUANTILES)
@@ -282,7 +285,9 @@ def main() -> None:
     report_information(panel, mask, table, warmup=args.window)
     report_portfolios(panel, mask, table, args.horizon, warmup=args.window)
     if not args.no_save and args.limit_symbols <= 0:
-        path = RESULTS_DIR / f"entropy_study_{args.market}_{args.timeframe}.parquet"
+        path = RESULTS_DIR / entropy_panel_name(
+            args.market, args.timeframe, options, prefix="entropy_study"
+        )
         path.parent.mkdir(parents=True, exist_ok=True)
         table.to_parquet(path, index=False)
         print(f"\n读数落盘 {path}")
