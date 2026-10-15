@@ -114,12 +114,27 @@ def coverage_ok(returns: pd.DataFrame, *, min_ratio: float = 0.8, window: int = 
     return reference > 0 and float(counts.iloc[-1]) >= min_ratio * reference
 
 
+def _align_tz(index: pd.Index, boundary: Any) -> pd.Timestamp:
+    """把边界日期对齐到索引的时区（账本里存的是无时区的日期字符串）。
+
+    K 线索引是 tz-aware（UTC），而账本行的 ``date`` 是 ``YYYY-MM-DD``；直接比较会抛
+    ``Invalid comparison between dtype=datetime64[ns, UTC] and Timestamp``。
+    """
+    stamp = pd.Timestamp(boundary)
+    tz = getattr(index, "tz", None)
+    if tz is not None and stamp.tzinfo is None:
+        return cast(pd.Timestamp, stamp.tz_localize(tz))
+    if tz is None and stamp.tzinfo is not None:
+        return cast(pd.Timestamp, stamp.tz_localize(None))
+    return cast(pd.Timestamp, stamp)
+
+
 def nav_panel(
     held: pd.DataFrame,
     returns: pd.DataFrame,
     *,
     btc_returns: pd.Series | None = None,
-    start: pd.Timestamp | None = None,
+    start: str | pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """按持仓算纸面净值、换手与暴露（逐根收益 = Σ pos×ret − 换手×费率）。
 
@@ -138,7 +153,7 @@ def nav_panel(
     if btc_returns is not None:
         frame["btc_ret"] = btc_returns.reindex(frame.index).fillna(0.0)
     if start is not None:
-        frame = frame.loc[frame.index >= pd.Timestamp(start)].copy()
+        frame = frame.loc[frame.index >= _align_tz(frame.index, start)].copy()
         if len(frame) > 0:
             first = frame.index[0]
             frame.loc[first, "turnover"] = float(held.loc[first].abs().sum())

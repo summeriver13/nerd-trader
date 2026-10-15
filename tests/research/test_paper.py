@@ -210,3 +210,17 @@ def test_coverage_gate_rejects_stale_tail() -> None:
 def test_cost_rate_matches_spot_schedule() -> None:
     """账本成本口径 = 现货 taker + 市价滑点，与研究侧的现货费率臂同源。"""
     assert pytest.approx(SPOT_FEES.taker + SPOT_FEES.slippage) == COST_RATE
+
+
+def test_nav_panel_accepts_naive_start_against_tz_aware_index() -> None:
+    """账本存的是无时区日期，索引是 tz-aware（UTC）——第二次续算时必须能比。"""
+    index = pd.date_range("2026-10-10", periods=4, freq="D", tz="UTC")
+    held = pd.DataFrame({"BTC-USDT": [0.0, 0.5, 0.5, 0.2]}, index=index)
+    returns = pd.DataFrame({"BTC-USDT": [0.0, 0.01, 0.02, 0.03]}, index=index)
+
+    panel = nav_panel(held, returns, start="2026-10-11")
+
+    assert list(panel.index) == list(index[1:])
+    assert float(panel["nav"].iloc[0]) == pytest.approx(
+        1.0 - float(panel["turnover"].iloc[0]) * COST_RATE
+    )
