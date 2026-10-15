@@ -378,3 +378,30 @@ v2 里 Anthropic 拿下 5/7 分类 → Overall 首位，与市场给的 93.7¢ �
   任何一条都足以否决；若将来仍要开，须按容器 ADR 流程新写决策记录；
 - 可复用的是**方法**而非数据：任何「有公开数据源、无对冲腿」的盘，都可用本节 9.5 的可达性试探
   加 9.6 的反向复现两步，先判定它属于「可验证 / 不可验证」，再决定是否值得研究。
+
+## 十、OKX 事件合约初探（2026-10-16，一次探针，未立项）
+
+背景：这条线一直缺「可交易的对冲腿」（§九 的 AI 排行榜族就是被这一条否决的）。
+实测 OKX 已有 `instType=EVENTS` 的事件合约在跑，**阈值型族与 Polymarket 是同构的**：
+
+| 族别（instId 前缀） | 品种数 | 形态 |
+| --- | --- | --- |
+| `{BTC,ETH,XAU,SOL}-ABOVE-DAILY` | 85 ~ 101 | 到期时刻高于某价 |
+| `{BTC,ETH,XAU}-BETWEEN-DAILY` | 60 ~ 84 | 落在价格区间内（含 `-INF` 开区间） |
+| `{BTC,ETH,XAU}-HIT-MONTHLY` | 17 ~ 19 | 月内触碰某价（one-touch） |
+| `{BTC,ETH,XAU}-HIT-DAILY` | 8 ~ 9 | 当日触碰 |
+| `{BTC,ETH,SOL,XAU}-UPDOWN-{5MIN,15MIN,DAILY}` | 各 6 | 超短周期涨跌 |
+
+取数口径（公开接口，无需鉴权）：`GET /api/v5/market/tickers?instType=EVENTS` 返回全部 711 个
+品种与双边报价；`GET /api/v5/public/instruments?instType=EVENTS` 必须带 `seriesId`（否则报
+50014），而 `seriesId` 的命名没探出来（试过 instId 去除/保留末段都是 0 条，`/public/event-series`
+与 `/public/events` 均 404）——**这是下次摸底的第一件事**。
+
+流动性现状（决定性）：711 个里 426 个双边有报价，但 **24h 有成交的只有 13 个**，最大成交
+1025 张；报价本身也是「挂着不成交」的形态，典型如 `BTC-ABOVE-DAILY-261016-1600-86000`
+bid 空 / ask 0.979、`BTC-UPDOWN-15MIN-...` bid 0.011 / ask 0.998（价差 ~99¢）。
+
+判定：**方向成立、暂不立项**。它把「Polymarket 卖长尾 YES、期权腿对冲」的可行性从「不可能」
+改成「看容量」——但要先回答三件事才能算对冲腿：① 结算源与结算口径（哪家价格、收盘还是触碰）；
+② 最小下单量与手续费；③ 谁在做市（现在这个价差不像有人在挂双边）。在①②③有答案前，
+把 Polymarket 那条线的对冲假设建在 EVENTS 上属于过度乐观。
