@@ -28,6 +28,7 @@ from typing import Any, cast
 
 import pandas as pd
 
+from src.config.paths import crypto_dataset_dir
 from src.config.settings import create_data_exchange
 from src.utils.data_loader import MarketDataHandler, TimeFrameStr
 from src.utils.data_sources.crypto import CCXTSource
@@ -113,6 +114,11 @@ def parse_args() -> argparse.Namespace:
     source.add_argument(
         "--symbols", help="显式标的，逗号分隔（ccxt 符号，永续带 :USDT 后缀）"
     )
+    source.add_argument(
+        "--refresh",
+        help="按数据集目录里已有 parquet 的标的刷新，格式 exchange/market/timeframe"
+        "（只补尾部，专给计划任务用；新增标的仍走 --top/--symbols）",
+    )
     parser.add_argument("--timeframe", default=DEFAULT_TIMEFRAME, help="K 线周期")
     parser.add_argument("--days", type=int, default=DEFAULT_DAYS, help="回溯天数")
     parser.add_argument(
@@ -137,7 +143,31 @@ def with_retry(func: Any, label: str) -> Any:
             time.sleep(wait)
 
 
+def symbols_from_dataset(spec: str) -> list[str]:
+    """把数据集目录里已有的 parquet 文件名反解成 ccxt 符号（BTC-USDT → BTC/USDT）。
+
+    用途是计划任务的增量刷新：盘的标的集合由已有缓存决定，不重新按成交额选池，
+    否则每天选池会让池子抖动、也会悄悄丢掉落榜的老标的。
+    """
+    parts = spec.split("/")
+    if len(parts) != 3:
+        raise ValueError(f"--refresh 需要 exchange/market/timeframe 三段，收到：{spec}")
+    exchange, market, timeframe = parts
+    directory = crypto_dataset_dir(exchange, market, timeframe)
+    if not directory.is_dir():
+        raise FileNotFoundError(f"数据集目录不存在：{directory}")
+    symbols = []
+    for path in sorted(directory.glob("*.parquet")):
+        base, _, quote = path.stem.rpartition("-")
+        if base:
+            symbols.append(f"{base}/{quote}")
+    print(f"从 {directory} 读到 {len(symbols)} 个已有标的，只补尾部")
+    return symbols
+
+
 def resolve_symbols(exchange: Any, args: argparse.Namespace) -> list[str]:
+    if args.refresh:
+        return symbols_from_dataset(args.refresh)
     if args.symbols:
         return [item.strip() for item in args.symbols.split(",") if item.strip()]
     candidates = with_retry(lambda: select_top_swaps(exchange, args.top), "选取标的")

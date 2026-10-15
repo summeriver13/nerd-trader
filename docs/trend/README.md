@@ -370,8 +370,9 @@ uv run python scripts/tsmom_paper.py --verify   # 校验哈希链
 代理/模拟盘已就位）、`scripts/measure_maker_fill.py` 与 `scripts/reconcile_execution.py` 已在
 模拟盘下过真单（前者拒绝在非模拟盘执行）。风控闸必须写死：单标的名义额 ≤ 5% × 滞后 30 日
 ADV（`src/research/leverage_cap.py`）、总名义 ≤ 账本、日线缓存滞后超 2 天拒绝跑、
-`clOrdId` 幂等、`--flatten` 一键平仓。**缺的基建只有一件：日线缓存的每日自动刷新任务**
-（现有计划任务只覆盖 polymarket 与 deribit 两个采集）。
+`clOrdId` 幂等、`--flatten` 一键平仓。**记账链路已接计划任务**：`nerd-trader-bars-daily`
+（每日 16:20：刷新 OKX 现货日线 → 重建 manifest → 跑验收闸）与 `nerd-trader-paper-daily`
+（每日 16:45：追加纸面前向账），注册见 `scripts/register_tasks.sh`。
 
 三级递进：纸面（当前）→ OKX 模拟盘 1~3 个月并与 `reconcile_execution.py` 对账滑点/费率
 → $100~$500 小额实盘，标的先限流动性前 30 只（实测 16.8%/1.18/−17.5%，反而比全池好）。

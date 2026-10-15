@@ -180,7 +180,7 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 - 复现指纹：每次成功运行写 `data/results/provenance/<run_id>.json`，`repro_hash` = sha256(配置快照 + 数据指纹 + git HEAD/脏标记)，同一命令必得同一 hash（`src/research/provenance.py`）。
 - 资金费率缓存：`data/storage/crypto/binance/funding/8h/<SYMBOL>.parquet`（OKX 只保留约 100 天，长历史取 Binance，回溯至 2019-09）。
 - 数据源：ccxt，交易所实例由调用方注入（行情为 OKX，资金费率为 Binance 公共接口）。
-- 定时采集：两个数据集已接 Windows 计划任务（`nerd-trader-polymarket-hourly` 每小时第 7 分、`nerd-trader-deribit-daily` 每日 16:05 本机），任务只调 `scripts/scheduled_run.sh <数据集>`，注册/查询/移除用 `scripts/register_tasks.sh`，日志按天落 `logs/scheduled/<数据集>-<日期>.log`。
+- 定时采集：四个数据集/任务已接 Windows 计划任务（`nerd-trader-polymarket-hourly` 每小时第 7 分、`nerd-trader-deribit-daily` 每日 16:05、`nerd-trader-bars-daily` 每日 16:20 刷新 OKX 现货日线 + 重建 manifest + 验收、`nerd-trader-paper-daily` 每日 16:45 追加趋势线纸面前向账），任务只调 `scripts/scheduled_run.sh <数据集>`，注册/查询/移除用 `scripts/register_tasks.sh`，日志按天落 `logs/scheduled/<数据集>-<日期>.log`。
 - 预测市场（Polymarket）自持：`data/storage/polymarket/raw/<events|markets|prices|trades>/<name>.jsonl`（raw 只增不改，去重追加），manifest 落 `data/manifests/polymarket_raw_*.json`；只能前向采集（历史已被实测封死，容器 ADR-0007），验收闸 `scripts/audit_polymarket.py`，细节见 [`docs/polymarket/README.md`](docs/polymarket/README.md)。
 - Deribit 期权链自持：`data/storage/deribit/raw/<options|futures>/<YYYY-MM-DD>.jsonl`（业务键 `(instrument, fetched_at)`，一日可多轮），manifest 落 `data/manifests/deribit_raw_*.json`；它是阈值阶梯的风险中性定价锚与将来的对冲腿来源，采集 `scripts/fetch_deribit.py`、验收闸 `scripts/audit_deribit.py`（容器 ADR-0006 自持），细节见 [`docs/deribit/README.md`](docs/deribit/README.md)。
 
