@@ -35,6 +35,7 @@ default = true
 dev = [
     "basedpyright>=1.40.2",
     "pytest>=9.1.1",
+    "quantlib>=1.44",
     "ruff>=0.16.10",
 ]
 

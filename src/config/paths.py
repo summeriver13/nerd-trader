@@ -35,6 +35,8 @@ SETTLEMENT_SEP = ":"
 # events / markets 是每日快照（按日期命名），prices / trades 是逐市场明细（按 slug 命名）。
 POLYMARKET_ROOT = STORAGE_ROOT / "polymarket"
 POLYMARKET_RAW_ROOT = POLYMARKET_ROOT / "raw"
+# 研究产物（链快照、对照表）落 results，与只增不改的数据湖分开放
+POLYMARKET_RESULTS_ROOT = RESULTS_ROOT / "polymarket"
 POLYMARKET_EVENTS = "events"
 POLYMARKET_MARKETS = "markets"
 POLYMARKET_PRICES = "prices"

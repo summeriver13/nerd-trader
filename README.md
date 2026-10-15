@@ -39,7 +39,7 @@
 | **协整配对** | 第一个 beta ≈ 0 的结构（0.012、相关 0.063），但边际几乎为零：主口径年化 −0.4%、最好变体 DSR 0.261 未通过 | [`docs/pairs/README.md`](docs/pairs/README.md) |
 | **被动挂单执行** | 纯被动挂单是负期望生意：加深挂单只降成交频率、不改善盈亏（成交后价格继续走的距离恒为 −1.1 ~ −1.4bp） | [`docs/execution/README.md`](docs/execution/README.md) |
 | **链上聪明钱** | 数据源侦察：链上数据免费拿得到、**标签层拿不到**；可行路径只剩跟踪公开已知地址 | [`docs/onchain/README.md`](docs/onchain/README.md) |
-| **预测市场** | 数据源侦察：**历史全封**（已结算市场无价格序列、subgraph 已关、`/trades` 无时间窗分页），只能前向采集；唯一优势切片是 crypto 阈值市场 | [`docs/polymarket/README.md`](docs/polymarket/README.md) |
+| **预测市场** | 数据源侦察：**历史全封**（已结算市场无价格序列、subgraph 已关、`/trades` 无时间窗分页），只能前向采集；结算口径已核实（Binance 1 分钟 High/Low + 触碰即结算）；三口径对照面板：上行阶梯 8/8 档比 Deribit 贵 0.4~3.2¢ 且在误差带外，下行夹在 Deribit 与历史之间 | [`docs/polymarket/README.md`](docs/polymarket/README.md) |
 
 ## 快速开始
 
