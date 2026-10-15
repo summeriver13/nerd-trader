@@ -61,6 +61,7 @@ from src.research.tsmom_report import (
     summarize,
     summarize_stream,
 )
+from src.research.universe import liquidity_order, load_bars_dir
 
 SPOT_DIR = crypto_dataset_dir("okx", "spot", "1d")
 # OKX 不保留退市历史，退市标的由 Binance 回填（scripts/fetch_delisted_bars.py）
@@ -84,35 +85,6 @@ ARMS: dict[str, TsmomOptions] = {
     "tsmom_100": TsmomOptions(entry_periods=(100,)),
     "tsmom_atr": TsmomOptions(atr_mult=2.0),
 }
-
-
-def load_universe(min_bars: int) -> dict[str, pd.DataFrame]:
-    """读现货日线缓存，只留有足够历史的标的（退市标的也在池内）。"""
-    out: dict[str, pd.DataFrame] = {}
-    for path in sorted(SPOT_DIR.glob("*.parquet")):
-        bars = pd.read_parquet(path)
-        if len(bars) >= min_bars:
-            out[path.stem] = bars
-    return out
-
-
-def load_delisted(min_bars: int) -> dict[str, pd.DataFrame]:
-    """读 Binance 回填的退市标的：量化幸存者偏差的保守下界。"""
-    out: dict[str, pd.DataFrame] = {}
-    for path in sorted(BINANCE_SPOT_DIR.glob("*.parquet")):
-        bars = pd.read_parquet(path)
-        if len(bars) >= min_bars:
-            out[path.stem] = bars
-    return out
-
-
-def liquidity_order(bars_map: dict[str, pd.DataFrame], top: int) -> list[str]:
-    """按全历史中位日名义成交额取前 top 只（池子的定义，不是交易规则）。"""
-    median: dict[str, float] = {}
-    for stem, bars in bars_map.items():
-        dollar = bars["close"] * bars["volume"]
-        median[stem] = float(dollar.median())
-    return sorted(median, key=lambda stem: median[stem], reverse=True)[:top]
 
 
 def run_arm(
@@ -235,7 +207,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    bars_map = load_universe(args.min_bars)
+    bars_map = load_bars_dir(SPOT_DIR, args.min_bars)
     liquid = liquidity_order(bars_map, args.liquid_top)
     btc_vol = (
         float(trailing_volatility(bars_map[BTC_STEM]).median())
@@ -261,7 +233,7 @@ def main() -> int:
         "> 若 TSMOM 只在低波动那一半有效，它就只是截面低波动异象的时序版",
     )
     rows += split_rows
-    delisted = load_delisted(args.min_bars)
+    delisted = load_bars_dir(BINANCE_SPOT_DIR, args.min_bars)
     if delisted:
         print(f"退市池（Binance 回填）：{len(delisted)} 只")
         delisted_rows, _ = analyze(

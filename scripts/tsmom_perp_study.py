@@ -48,6 +48,7 @@ from src.research.tsmom_report import (
     summarize,
     summarize_stream,
 )
+from src.research.universe import load_bars_dir
 from src.utils.data_sources.funding import (
     FUNDING_TIMEFRAME,
     MARKET_FUNDING,
@@ -72,16 +73,6 @@ ARMS: dict[str, TsmomOptions] = {
 }
 # 不建资金费的对照臂只对两个主口径做（量资金费自己吃掉多少）
 NO_FUNDING_ARMS: tuple[str, ...] = ("tsmom_long", "tsmom_ls")
-
-
-def load_universe(min_bars: int) -> dict[str, pd.DataFrame]:
-    """读 OKX 永续日线，只留够长的标的。"""
-    out: dict[str, pd.DataFrame] = {}
-    for path in sorted(PERP_DIR.glob("*.parquet")):
-        bars = pd.read_parquet(path)
-        if len(bars) >= min_bars:
-            out[path.stem] = bars
-    return out
 
 
 def load_funding_map(stems: list[str]) -> dict[str, pd.Series]:
@@ -255,7 +246,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    bars_all = load_universe(args.min_bars)
+    bars_all = load_bars_dir(PERP_DIR, args.min_bars)
     funding_map = load_funding_map(list(bars_all))
     bars_map = {stem: bars for stem, bars in bars_all.items() if stem in funding_map}
     panel = pd.DataFrame({stem: bars["close"] for stem, bars in bars_map.items()})
