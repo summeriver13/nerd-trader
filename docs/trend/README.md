@@ -339,9 +339,48 @@ FAIL——最好的「只多 + 不建费」为 0.911 / 0.838 / 0.721（@6/@12/@3
 `data/results/breaks/tsmom_study_spot_1d.parquet`；不变量用例
 `uv run pytest tests/research/test_tsmom.py -q`（9 条）。
 
+### 部署路径：先把纸面前向账本开起来
+
+统计门槛已经用尽（DSR/PBO/配对差都不能再刷），剩下的唯一动作是**攒前向样本**。所以第一
+步不是写下单代码，而是让策略每天自己记账：
+
+```bash
+uv run python scripts/tsmom_paper.py            # 追加今天的账（首次运行即起点，不回填）
+uv run python scripts/tsmom_paper.py --verify   # 校验哈希链
+```
+
+口径与回测同源（`tsmom_signal` × 等权 1/N_t、持仓滞后一根、现货 taker+滑点 15bp/边），
+账本落 `data/results/live/tsmom_paper.jsonl`，每行含目标权重、当日净值与 BTC 对照，
+行间用 `sha256(prev_hash + 行内容)` 串链——事后改任何一行都会断链（`--verify` 指到该行），
+使「这是当时写下的」可被复核。三条护栏：
+
+- **起点不回填**：首行从最新一根 K 线起算，起点前的涨跌不计入（首行只计建仓成本）；
+- **数据闸**：最新一根的标的数低于近期中位 80% 就拒绝记账（`N_t` 本身就是权重分母，
+  2026-10-10 只有 8 只标的出数，那种日子记账会把持仓放大 25 倍）；
+- **同日重算不一致报警而不覆盖**：本地数据被修订时，旧行保留、冲突日期打出来。
+
+**现状（2026-10-16）**：账本已开，1 行，起点 2026-10-15，nav 0.999745（建仓成本 0.0255%），
+目标 136 只、敞口 17.0%、BTC 对照基准 1.0。注意两个口径差：现货费率口径的研究读数是
+13.1%/1.10/−17.3%（不是表头的 13.3%/1.11，那个用永续费率 10bp/边）；前向读数为 0 天，
+满 180 天后才值得看。
+
+**执行层（还没写）**：账本只产出「今天该持有什么」，下单是独立的一步。最简形态是
+一个日线薄脚本 + 计划任务：读日线缓存 → 算目标权重 → 读 OKX 持仓 → 差异订单 →
+风控闸 → 下单。OKX 侧已有可用件：`src/config/settings.py` 的 `create_exchange()`（凭据/
+代理/模拟盘已就位）、`scripts/measure_maker_fill.py` 与 `scripts/reconcile_execution.py` 已在
+模拟盘下过真单（前者拒绝在非模拟盘执行）。风控闸必须写死：单标的名义额 ≤ 5% × 滞后 30 日
+ADV（`src/research/leverage_cap.py`）、总名义 ≤ 账本、日线缓存滞后超 2 天拒绝跑、
+`clOrdId` 幂等、`--flatten` 一键平仓。**缺的基建只有一件：日线缓存的每日自动刷新任务**
+（现有计划任务只覆盖 polymarket 与 deribit 两个采集）。
+
+三级递进：纸面（当前）→ OKX 模拟盘 1~3 个月并与 `reconcile_execution.py` 对账滑点/费率
+→ $100~$500 小额实盘，标的先限流动性前 30 只（实测 16.8%/1.18/−17.5%，反而比全池好）。
+规模上限记住上表：**容量在 $1M ~ $10M 之间**。
+
 ### 局限（已对上文实测更新，只列仍未解决的）
 
-- **零前向验证**：全部读数都来自同一段历史的回看，没有 paper trading 或未来样本；
+- **零前向验证**：全部读数都来自同一段历史的回看；纸面账本已于 2026-10-15 开线，
+  但只有 1 行、0 天前向读数（要满 6 个月才够回答「前向是否一致」）。
   MinTRL 789 对 3195 期只说明「记录够长」，不等于「已验证」。
 - **统计门槛仍差一口气**：DSR 只在最宽松的 @6 档过（0.977，@12/@30 = 0.949/0.890）、
   PBO 两池不过一池过（all 59.1%、liquid 42.5%）、对 BTC 的配对差 95% 区间含 0
@@ -374,6 +413,8 @@ uv run python research.py --symbol c1 --strategy donchian --timeframe 1d --bars 
 uv run python scripts/tsmom_study.py            # 多标的扩展（约 4 分钟）
 uv run python scripts/tsmom_capacity_study.py   # 容量口径（约 2 分钟）
 uv run python scripts/tsmom_perp_study.py       # 永续多空 + 真实资金费（约 1 分钟）
+uv run python scripts/tsmom_paper.py --check    # 纸面口径回填对照（现货费率臂 194.6%/13.1%/1.10）
+uv run python scripts/tsmom_paper.py            # 追加今天的纸面前向账（不下单）
 ```
 
 **重跑复核（2026-10-16）**：现货版主口径 13.3% / 夏普 1.11 / 回撤 −17.1% / PSR 1.000 /
