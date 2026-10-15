@@ -7,6 +7,7 @@
     uv run python scripts/tsmom_paper.py --no-write    # 只看决策，不落账
     uv run python scripts/tsmom_paper.py --check       # 全历史回填，与研究读数对照
     uv run python scripts/tsmom_paper.py --verify      # 校验账本哈希链
+    uv run python scripts/tsmom_paper.py --status      # 按预注册阈值裁决（0/1/2）
 
 为什么需要它：趋势线的统计门槛已用尽（DSR/PBO/配对差），`docs/trend/README.md`
 把「零前向验证」列为仍未解决的限制——前向记录是唯一还能增加真样本的动作。这一层
@@ -45,6 +46,7 @@ from src.research.paper import (
     signal_panel,
     verify_ledger,
 )
+from src.research.paper_status import VERDICT_KILL, retire_status, status_report
 from src.research.universe import liquidity_order, load_bars_dir
 
 # 标的池：自持 OKX 现货日线（与研究侧同源）
@@ -171,7 +173,21 @@ def main() -> int:
     parser.add_argument("--no-write", action="store_true", help="只看决策，不落账")
     parser.add_argument("--check", action="store_true", help="全历史回填，与研究读数对照")
     parser.add_argument("--verify", action="store_true", help="校验账本哈希链后退出")
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="按预注册判据裁决账本后退出（退出码 0/1/2 = 健康/观察/退役）",
+    )
     args = parser.parse_args()
+
+    if args.status:
+        panel = ledger_panel(read_ledger(args.ledger))
+        if panel.empty:
+            print(f"账本 {args.ledger} 还没有行，先跑一次记账")
+            return 1
+        status = retire_status(panel)
+        print(status_report(status))
+        return status.exit_code
 
     if args.verify:
         ledger_rows_read = read_ledger(args.ledger)
@@ -212,7 +228,11 @@ def main() -> int:
             print(f"⚠ 数据修订：{', '.join(conflicts)} 已在账本内，重算结果不一致（旧行保留）")
     print()
     print_forward(read_ledger(args.ledger))
-    return 0
+    # 判据随账打印：日志里只要出现 kill 就能被搜到，不需要额外跑一次 --status
+    status = retire_status(ledger_panel(read_ledger(args.ledger)))
+    print(status_report(status))
+    # 只有退役才让任务失败：观察状态每天都会出现，不该把日志刷成红色
+    return status.exit_code if status.verdict == VERDICT_KILL else 0
 
 
 if __name__ == "__main__":

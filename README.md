@@ -30,7 +30,7 @@
 | 研究线 | 一行判定 | 文档 |
 | --- | --- | --- |
 | **截面因子** | `vol_30` 信号为真（IC t = 14.27、六项证伪全过），但六个因子**全部跑输 BTC 买入持有**——最优实现是不持山寨币、买 BTC | [`docs/factors/README.md`](docs/factors/README.md) |
-| **时序动量** | 简单赢：约 60 行唐奇安打赢 292 行自适应双均线；多标的 TSMOM 夏普 1.11、回撤 −17.1%，是唯一风险调整后胜过 BTC 的读数（代价是平均暴露只有 10%，杠杆版容量 $1M~$10M；纸面前向账本 2026-10-15 开线）——但 DSR 只在最宽松档过（@6 = 0.977）、PBO 两池不过一池过、对 BTC 配对差区间含 0，是候选不是已验证策略 | [`docs/trend/README.md`](docs/trend/README.md) |
+| **时序动量** | 简单赢：约 60 行唐奇安打赢 292 行自适应双均线；多标的 TSMOM 夏普 1.11、回撤 −17.1%，是唯一风险调整后胜过 BTC 的读数（代价是平均暴露只有 10%，杠杆版容量 $1M~$10M；纸面前向账本 2026-10-15 开线并已接每日计划任务、退役判据预注册）；组合层定位是**加 20~30% 净值当 overlay**（年化 23.17% → 24.56%、回撤 −77.4% → −63.3%），执行不敏感（成本 ×3 只掉 1pp）——但 DSR 只在最宽松档过（@6 = 0.977）、PBO 两池不过一池过、对 BTC 配对差区间含 0，是候选不是已验证策略 | [`docs/trend/README.md`](docs/trend/README.md) |
 | **组合** | 单策略冠军换标就换人（BTC 上趋势+反转、ETH 上唐奇安）；相关性实测最高 0.53，四个趋势策略不是「同一笔交易的四种写法」 | [`docs/portfolio/README.md`](docs/portfolio/README.md) |
 | **资金费率 carry** | 跨源替代只对大盘币成立；等权组合衰减到近 365 天 −2.08%（夏普 −7.86），29 只里只有 1 只过多重检验校正 | [`docs/carry/README.md`](docs/carry/README.md) |
 | **波动率目标** | 波动削减装置、不是收益改善装置：降波动可靠、提夏普不显著、2024-08 起两标的同步失效 | [`docs/vol_target/README.md`](docs/vol_target/README.md) |
@@ -188,7 +188,7 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 
 ```text
 data/              数据湖（不入版本库）：storage/ 行情与资金费率缓存、results/ 回测产物与复现指纹
-scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）、趋势对比（trend_duel）、单策略统一测试（strategy_suite）、重合度与组合（strategy_correlation）、资金费率抓取（fetch_funding_history）、carry 排名（carry_ranking）、截面因子测试（factor_suite）、波动率目标测试（vol_target_study）与上新币效应（listing_study）；预测市场前向采集（fetch_polymarket）、验收闸（audit_polymarket）与三口径对照（polymarket_digital_study）、期权链快照（fetch_deribit）与其验收闸（audit_deribit）、计划任务入口与注册（scheduled_run、register_tasks）
+scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）、趋势对比（trend_duel）、单策略统一测试（strategy_suite）、重合度与组合（strategy_correlation）、资金费率抓取（fetch_funding_history）、carry 排名（carry_ranking）、截面因子测试（factor_suite）、波动率目标测试（vol_target_study）、上新币效应（listing_study）、前向纸面账本（tsmom_paper）与执行敏感性/组合层扫描（tsmom_overlay_study）；预测市场前向采集（fetch_polymarket）、验收闸（audit_polymarket）与三口径对照（polymarket_digital_study）、期权链快照（fetch_deribit）与其验收闸（audit_deribit）、计划任务入口与注册（scheduled_run、register_tasks）
 src/analytics/     绩效指标（单一出处）
 src/cli/           研究回测的命令行与交互菜单
 src/config/        环境配置读取、路径常量、实盘参数表
