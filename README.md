@@ -181,12 +181,13 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 - 资金费率缓存：`data/storage/crypto/binance/funding/8h/<SYMBOL>.parquet`（OKX 只保留约 100 天，长历史取 Binance，回溯至 2019-09）。
 - 数据源：ccxt，交易所实例由调用方注入（行情为 OKX，资金费率为 Binance 公共接口）。
 - 预测市场（Polymarket）自持：`data/storage/polymarket/raw/<events|markets|prices|trades>/<name>.jsonl`（raw 只增不改，去重追加），manifest 落 `data/manifests/polymarket_raw_*.json`；只能前向采集（历史已被实测封死，容器 ADR-0007），验收闸 `scripts/audit_polymarket.py`，细节见 [`docs/polymarket/README.md`](docs/polymarket/README.md)。
+- Deribit 期权链自持：`data/storage/deribit/raw/<options|futures>/<YYYY-MM-DD>.jsonl`（业务键 `(instrument, fetched_at)`，一日可多轮），manifest 落 `data/manifests/deribit_raw_*.json`；它是阈值阶梯的风险中性定价锚与将来的对冲腿来源，采集 `scripts/fetch_deribit.py`、验收闸 `scripts/audit_deribit.py`（容器 ADR-0006 自持），细节见 [`docs/deribit/README.md`](docs/deribit/README.md)。
 
 ## 目录结构
 
 ```text
 data/              数据湖（不入版本库）：storage/ 行情与资金费率缓存、results/ 回测产物与复现指纹
-scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）、趋势对比（trend_duel）、单策略统一测试（strategy_suite）、重合度与组合（strategy_correlation）、资金费率抓取（fetch_funding_history）、carry 排名（carry_ranking）、截面因子测试（factor_suite）、波动率目标测试（vol_target_study）与上新币效应（listing_study）；预测市场前向采集（fetch_polymarket）与验收闸（audit_polymarket）
+scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）、趋势对比（trend_duel）、单策略统一测试（strategy_suite）、重合度与组合（strategy_correlation）、资金费率抓取（fetch_funding_history）、carry 排名（carry_ranking）、截面因子测试（factor_suite）、波动率目标测试（vol_target_study）与上新币效应（listing_study）；预测市场前向采集（fetch_polymarket）、验收闸（audit_polymarket）与三口径对照（polymarket_digital_study）、期权链快照（fetch_deribit）与其验收闸（audit_deribit）
 src/analytics/     绩效指标（单一出处）
 src/cli/           研究回测的命令行与交互菜单
 src/config/        环境配置读取、路径常量、实盘参数表
@@ -212,6 +213,7 @@ docs/              因子/模型/书目/交易者笔记/执行与信号研究/�
 | --- | --- |
 | `docs/wisdom/` | 交易者思想摘录与方法论笔记（de Prado 各章与仓库的对照审计、每章一条「对仓库做了什么」） |
 | `docs/polymarket/` | 预测市场：端点实测、前向采集契约与验收口径（容器 ADR-0007） |
+| `docs/deribit/` | 期权链数据集：契约、采集/验收命令与已踩的坑（容器 ADR-0006） |
 | `docs/models/` | 模型笔记 |
 | `docs/library/` | 书籍与视频剪藏 |
 | `docs/src.md/` | 策略源码说明 |

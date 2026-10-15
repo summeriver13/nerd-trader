@@ -63,6 +63,27 @@ def polymarket_jsonl_path(
     return polymarket_dataset_dir(dataset, root=root) / f"{name}.jsonl"
 
 
+# === Deribit 期权链数据集契约（crypto 数据自持，容器 ADR-0006）===
+# <deribit>/raw/<dataset>/<YYYY-MM-DD>.jsonl，一日可多轮快照（键含 fetched_at）
+DERIBIT_ROOT = STORAGE_ROOT / "deribit"
+DERIBIT_RAW_ROOT = DERIBIT_ROOT / "raw"
+DERIBIT_OPTIONS = "options"
+DERIBIT_FUTURES = "futures"
+DERIBIT_DATASETS = (DERIBIT_OPTIONS, DERIBIT_FUTURES)
+
+
+def deribit_dataset_dir(dataset: str, *, root: Path = DERIBIT_RAW_ROOT) -> Path:
+    """Deribit 数据集目录：<deribit>/raw/<dataset>。"""
+    return root / dataset
+
+
+def deribit_jsonl_path(dataset: str, name: str, *, root: Path = DERIBIT_RAW_ROOT) -> Path:
+    """JSONL 文件路径；name 为日期（YYYY-MM-DD）。"""
+    if dataset not in DERIBIT_DATASETS:
+        raise ValueError(f"未知数据集 {dataset!r}，可选 {DERIBIT_DATASETS}")
+    return deribit_dataset_dir(dataset, root=root) / f"{name}.jsonl"
+
+
 def symbol_market(symbol: str) -> str:
     """ccxt 符号 → 市场层级：带结算币后缀的是永续。"""
     return MARKET_SWAP if SETTLEMENT_SEP in symbol else MARKET_SPOT
