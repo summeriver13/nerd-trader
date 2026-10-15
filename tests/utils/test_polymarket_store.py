@@ -11,15 +11,17 @@ from pathlib import Path
 import pytest
 
 from src.config.paths import POLYMARKET_MARKETS, POLYMARKET_PRICES, POLYMARKET_TRADES
-from src.utils.polymarket_store import (
-    KEY_FIELDS,
+from src.utils.jsonl_store import (
     append_jsonl,
     day_stamp,
     existing_keys,
-    latest_market_snapshot,
     read_jsonl,
     row_key,
     to_epoch,
+)
+from src.utils.polymarket_store import (
+    KEY_FIELDS,
+    latest_market_snapshot,
     update_manifest,
 )
 

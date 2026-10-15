@@ -11,7 +11,7 @@ import pytest
 import requests
 
 from src.utils import polymarket_collect as pc
-from src.utils.polymarket_store import read_jsonl
+from src.utils.jsonl_store import read_jsonl
 
 PRICE_HISTORY = [{"t": 100, "p": 0.25}, {"t": 200, "p": 0.5}]
 TRADE = {
@@ -51,7 +51,7 @@ def raw_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     monkeypatch.setattr(pc, "polymarket_jsonl_path", fake_path)
     monkeypatch.setattr(
-        pc.pm, "create_session", lambda: cast(requests.Session, object())
+        pc, "create_session", lambda: cast(requests.Session, object())
     )
     monkeypatch.setattr(pc.time, "sleep", lambda _: None)
     return tmp_path

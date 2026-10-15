@@ -60,9 +60,10 @@ data/manifests/polymarket_raw_{events,markets,prices,trades}.json
 ```
 
 - 路径统一从 `src/config/paths.py` 取；自持不入湖的依据是容器 ADR-0007（同 ADR-0006 的 crypto）。
-- 字段名保留上游原样（camelCase），只做白名单裁剪：一条市场里 `description`/`icon`/`events`
-  嵌套合计 50KB+，一条成交里 `icon`/`profileImage`/`bio` 之类展示字段合计约 900B
-  （40 只市场一天的增量就能写成 50MB），而上述白名单之外的东西都不会再被取第二次。
+- 字段名保留上游原样（camelCase），只做白名单裁剪：一条市场里 `icon`/`events` 嵌套合计 50KB+，
+  一条成交里 `icon`/`profileImage`/`bio` 之类展示字段合计约 900B（40 只市场一天的增量就能写成 50MB）。
+  `description`/`resolutionSource` 例外保留（约 1.2KB/市场/天）：结算规则只写在这里，
+  它是「按 one-touch 口径定价」的凭证（§七）。
 - 快照类数据集保留 `updatedAt` 的历史行（同一市场每轮一行），用于回看「当时看到的是什么」。
 - manifest 只对本次触及的文件重算 sha256，其余沿用旧条目。
 

@@ -33,7 +33,8 @@ from src.config.paths import (
     POLYMARKET_TRADES,
     polymarket_dataset_dir,
 )
-from src.utils.polymarket_store import KEY_FIELDS, read_jsonl, row_key
+from src.utils.jsonl_store import read_jsonl, row_key
+from src.utils.polymarket_store import KEY_FIELDS
 
 DEFAULT_STALE_DAYS = 2
 DEFAULT_PAGE_LIMIT = 500

@@ -12,7 +12,8 @@ Polymarket 前向采集：活跃 crypto 市场的快照 + 价格历史 + 成交�
 
 选池口径：`tag_slug=crypto` 的活跃市场里**成交额前 N**；价格历史默认 7 天窗口、逐小时粒度，
 窗口重叠靠去重兜底；成交明细从最新一页往前翻，翻到「整页都已落盘」即停（增量水位）。
-落盘见 `src/utils/polymarket_store.py`，验收见 `scripts/audit_polymarket.py`。
+落盘见 `src/utils/polymarket_store.py`（通用存储层在 `src/utils/jsonl_store.py`），
+验收见 `scripts/audit_polymarket.py`。
 """
 
 from __future__ import annotations
@@ -31,11 +32,11 @@ from src.config.paths import (
     polymarket_jsonl_path,
 )
 from src.utils.data_sources import polymarket as pm
+from src.utils.data_sources.base import create_session
+from src.utils.jsonl_store import append_jsonl, day_stamp
 from src.utils.polymarket_collect import CollectSpec, collect_market
 from src.utils.polymarket_store import (
     KEY_FIELDS,
-    append_jsonl,
-    day_stamp,
     latest_market_snapshot,
     update_manifest,
 )
@@ -112,7 +113,7 @@ def main() -> int:
     else:
         try:
             events = pm.fetch_crypto_events(
-                pm.create_session(),
+                create_session(),
                 pages=args.event_pages,
                 page_size=args.event_page_size,
             )

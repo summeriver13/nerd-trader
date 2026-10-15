@@ -4,20 +4,20 @@ Polymarket 数据源：Gamma（市场/事件）、CLOB（价格历史）、Data 
 历史回填已被实测封死（容器 ADR-0007）：已结算市场价格取不到、subgraph 已关、`/trades`
 无时间窗分页，所以这里只有前向采集用的三个端点；落盘见 `src/utils/polymarket_store.py`。
 
-字段名保留上游原样（camelCase），只做白名单裁剪：`description`/`icon`/`events` 嵌套
-在一条市场里合计 50KB+，而研究只用到白名单里那些。
+字段名保留上游原样（camelCase），只做白名单裁剪：`icon` 与 `events` 嵌套在一条市场里
+合计 50KB+，而研究只用到白名单里那些；`description`/`resolutionSource` 例外保留，
+因为结算规则（判定源、1 分钟 High/Low、窗口起点）是定价口径的唯一凭证。
 """
 
 from __future__ import annotations
 
 import json
-import time
 from collections.abc import Sequence
 from typing import Any
 
 import requests
 
-from src.config.settings import load_config
+from src.utils.data_sources.base import SourceHTTPError, get_json
 
 GAMMA_EVENTS = "https://gamma-api.polymarket.com/events"
 CLOB_PRICE_HISTORY = "https://clob.polymarket.com/prices-history"
@@ -37,11 +37,16 @@ PRICE_WINDOW_DAYS = 7
 PRICE_WINDOW_FALLBACKS = (3, 1)
 DEFAULT_FIDELITY = 60
 
-# 快照白名单：Gamma 的市场/事件对象里 description、icon、events 嵌套是体积大头
+# 快照白名单：Gamma 的市场/事件对象里 icon、events 嵌套是体积大头，裁掉。
+# description 与 resolutionSource 必须留：结算规则（判定源、1 分钟 High/Low、窗口起点）
+# 只写在这里，是「按 one-touch 口径定价」合法性的唯一凭证；各约 1.2KB/市场/天，
+# 相对 daily trades 50MB/天 可忽略。
 MARKET_FIELDS = (
     "id",
     "slug",
     "question",
+    "description",
+    "resolutionSource",
     "conditionId",
     "questionID",
     "outcomes",
@@ -118,48 +123,6 @@ EVENT_FIELDS = (
     "negRisk",
     "commentCount",
 )
-
-
-class PolymarketHTTPError(RuntimeError):
-    """非 200 响应，携带状态码供调用方降级（400 = 价格窗口过长）。"""
-
-    def __init__(self, status: int, url: str, body: str) -> None:
-        super().__init__(f"HTTP {status} {url}: {body[:200]}")
-        self.status = status
-
-
-def create_session() -> requests.Session:
-    """沿用 OKX 的代理开关：Polymarket 本机直连不通（实测），必须走代理。"""
-    session = requests.Session()
-    config = load_config()
-    if config.use_proxy and config.proxy_url:
-        session.proxies.update({"http": config.proxy_url, "https": config.proxy_url})
-    return session
-
-
-def get_json(
-    session: requests.Session,
-    url: str,
-    params: dict[str, Any],
-    *,
-    attempts: int = RETRY_ATTEMPTS,
-) -> Any:
-    """带重试的 GET；代理切节点会让 SSL 直接断（实测频繁），故只对可重试状态码重来。"""
-    last_error: Exception | None = None
-    for attempt in range(attempts):
-        try:
-            response = session.get(url, params=params, timeout=REQUEST_TIMEOUT)
-        except requests.RequestException as error:
-            last_error = error
-        else:
-            if response.status_code == HTTP_OK:
-                return response.json()
-            error = PolymarketHTTPError(response.status_code, url, response.text[:200])
-            if response.status_code not in HTTP_RETRY_STATUSES:
-                raise error
-            last_error = error
-        time.sleep(RETRY_BACKOFF * (attempt + 1))
-    raise RuntimeError(f"{url} 连续 {attempts} 次请求失败") from last_error
 
 
 def pick(source: dict[str, Any], fields: Sequence[str]) -> dict[str, Any]:
@@ -259,7 +222,7 @@ def price_points(
 ) -> list[dict[str, Any]]:
     """单个 token 的成交价格历史（CLOB），窗口过长时逐档收缩。"""
     windows = (window_days, *PRICE_WINDOW_FALLBACKS)
-    last_error: PolymarketHTTPError | None = None
+    last_error: SourceHTTPError | None = None
     for days in windows:
         try:
             payload = get_json(
@@ -272,7 +235,7 @@ def price_points(
                     "fidelity": fidelity,
                 },
             )
-        except PolymarketHTTPError as error:
+        except SourceHTTPError as error:
             if error.status != HTTP_BAD_REQUEST:
                 raise
             last_error = error

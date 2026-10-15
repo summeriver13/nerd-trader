@@ -19,7 +19,9 @@ import requests
 
 from src.config.paths import POLYMARKET_PRICES, POLYMARKET_TRADES, polymarket_jsonl_path
 from src.utils.data_sources import polymarket as pm
-from src.utils.polymarket_store import KEY_FIELDS, append_jsonl
+from src.utils.data_sources.base import create_session
+from src.utils.jsonl_store import append_jsonl
+from src.utils.polymarket_store import KEY_FIELDS
 
 RETRY_PAUSE_SECONDS = 3.0
 
@@ -142,7 +144,7 @@ def _trade_rows(
 
 def _collect_once(market: dict[str, Any], spec: CollectSpec) -> MarketResult:
     """一个市场的完整采集；每个 worker 自建 session（Session 不保证线程安全）。"""
-    session = pm.create_session()
+    session = create_session()
     result = MarketResult(str(market.get("slug")), 0, 0, 0, 0)
     if not spec.skip_prices:
         result = collect_prices(session, market, spec)

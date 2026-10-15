@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 import requests
 
+from src.utils.data_sources import base as dsb
 from src.utils.data_sources import polymarket as pm
 
 
@@ -59,6 +60,7 @@ def _market(
         "clobTokenIds": tokens,
         "outcomes": '["Yes", "No"]',
         "description": "x" * 5000,
+        "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
         "events": [{"id": 1}],
     }
     return market
@@ -90,7 +92,10 @@ def test_active_crypto_markets_filters_dedupes_and_sorts() -> None:
     assert picked[0]["volumeNum"] == 9000
     assert picked[0]["eventSlug"] == "ev-2"
     assert picked[0]["tags"] == ["crypto"]
-    assert "description" not in picked[0]
+    # 规则字段必须留下：它是 price → payoff 口径（one-touch、1 分钟 High/Low、窗口起点）的凭证
+    assert picked[0]["resolutionSource"] == "https://www.binance.com/en/trade/BTC_USDT"
+    assert picked[0]["description"]
+    assert "events" not in picked[0]
 
 
 def test_active_crypto_markets_respects_limit() -> None:
@@ -117,7 +122,7 @@ def test_clob_token_ids_and_outcome_names_accept_both_shapes() -> None:
 
 def test_price_points_shrinks_window_on_400(monkeypatch: pytest.MonkeyPatch) -> None:
     """服务端嫌窗口太长（400）时降到 3 天窗口，而不是放弃这个市场。"""
-    monkeypatch.setattr(pm.time, "sleep", lambda _: None)
+    monkeypatch.setattr(dsb.time, "sleep", lambda _: None)
     session = _session(
         _Response({"error": "interval is too long"}, status=400),
         _Response({"history": [{"t": 100, "p": 0.25}, {"t": 200, "p": 0.5}]}),
@@ -129,7 +134,7 @@ def test_price_points_shrinks_window_on_400(monkeypatch: pytest.MonkeyPatch) -> 
 def test_price_points_raises_when_all_windows_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(pm.time, "sleep", lambda _: None)
+    monkeypatch.setattr(dsb.time, "sleep", lambda _: None)
     session = _session(
         *[_Response({"error": "too long"}, status=400) for _ in range(3)]
     )
@@ -139,15 +144,15 @@ def test_price_points_raises_when_all_windows_rejected(
 
 def test_price_points_reraises_non_400(monkeypatch: pytest.MonkeyPatch) -> None:
     """404 之类的错误不是「窗口太长」，不该被降级逻辑吞掉。"""
-    monkeypatch.setattr(pm.time, "sleep", lambda _: None)
+    monkeypatch.setattr(dsb.time, "sleep", lambda _: None)
     session = _session(_Response({"error": "not found"}, status=404))
-    with pytest.raises(pm.PolymarketHTTPError):
+    with pytest.raises(pm.SourceHTTPError):
         pm.price_points(session, "tok", now=1_000_000)
 
 
 def test_get_json_retries_transient_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     """代理切节点会让 SSL 直接断，重试是常态而不是异常处理。"""
-    monkeypatch.setattr(pm.time, "sleep", lambda _: None)
+    monkeypatch.setattr(dsb.time, "sleep", lambda _: None)
     session = _session(
         requests.ConnectionError("proxy down"),
         _Response({"ok": True}),
