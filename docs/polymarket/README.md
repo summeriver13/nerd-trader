@@ -272,3 +272,109 @@ uv run python scripts/polymarket_digital_study.py --block-hours 168 --vol-target
 | 结算文本混用直引号与弯引号 | 弯引号的 6 档抽不出规则，全被归成 `unbounded` | 价格类型正则改用 `["“”]` 字符集 |
 | 到期码的日可是一位数 | `6NOV26` 解析失败（`pd.Timestamp.strptime` 对不上） | 改用 `^(\d{1,2})([A-Z]{3})(\d{2})$` 正则 |
 | 永续被当成到期合约 | `BTC-PERPETUAL` 进 carry 分母（T 无穷大） | `is_expiry_code()` 拦住，carry 只用到期期货 |
+
+## 九、全站锚定层级与 AI 排行榜族（一次性摸底，2026-10-15）
+
+本节结论**未入库、未进采集线**，证据来自一次性探针：`GET gamma-api.polymarket.com/markets`
+（`order=volume1mo&closed=false&limit=100&offset=0|100`，样本 = 成交额榜前 200 只）与
+`GET /events/{id}`。
+
+### 9.1 全站头部市场的结算锚分布
+
+**97/200 有 `resolutionSource`，103/200 为空**——空 = 默认交 UMA 裁量，而全部 200 只里只有 1 只
+把「由 UMA 裁定」写进描述，即**沉默就是 UMA**。非空来源域名计数：
+
+| 域名 | 数 | 域名 | 数 | 域名 | 数 |
+| --- | --- | --- | --- | --- | --- |
+| `binance.com` | 19 | `gol.gg` | 5 | `arena.ai` | 2 |
+| `interieur.gouv.fr` | 17 | `portwatch.imf.org` | 5 | `mlb.com` | 2 |
+| `federalreserve.gov` | 12 | `dadosabertos.tse.jus.br` | 2 | 其余（`congress.gov`/`bea.gov`/`cmegroup.com`/`un.org`/`francefootball.fr` 等） | 各 1 |
+| `nfl.com` | 11 | `hltv.org` | 2 | | |
+
+按「锚的硬度」分三级：
+
+| 级别 | 实例 | 性质 |
+| --- | --- | --- |
+| **A 机械锚** | Binance 行情、联盟官方赛果、各国选举委计数、Fed/BEA/国会文件 | 单一公开源，可本地复现 |
+| **B 有源但需一次解释** | `portwatch.imf.org`（霍尔木兹流量「恢复正常」）、`arena.ai`（「best model」= 榜单第 1 名）、`cmegroup.com`（「new all-time high」口径） | 源硬，「达标」是判断 |
+| **C 无源** | Jesus/aliens/Epstein/地缘政治等（103/200） | 无客观判据，价格含纯主观溢价 |
+
+三个判据决定一条盘能不能做：**① 有客观判定源 ② 我们有对照数据 ③ 有可交易对冲腿**。
+三项齐全的只有 Binance 价格族（① Binance 1m High/Low ② 自持 1h K 线等价判定 ③ Deribit 期权）；
+Fed/选举/体育只有 ①；portwatch 只有 ① 的一半；链上锚两头都缺。
+
+顺带一条反直觉事实：**前 200 只里 `chainlink`/`etherscan`/`dune` 命中 0**，最可复现的一类锚
+在头部盘完全缺席——成交额由叙述驱动，不由可验证性驱动。
+
+### 9.2 我们自持 40 只的锚（快照 `markets/2026-10-15.jsonl`）
+
+| 锚 | 只数 | 说明 |
+| --- | --- | --- |
+| `binance.com` | 27 | 全站最硬那一档，即 §七 的 1m High/Low 口径 |
+| FDV 开盘盘 | 10 | 源指向 `x.com/<项目>` 或项目官网，等于没源（噪音） |
+| `congress.gov` | 1 | `clarity-act-signed-into-law-in-2026` |
+| `intel.arkm.com` | 1 | `will-satoshi-move-any-bitcoin-in-2026`，全池唯一链上锚 |
+| 空 | 1 | `will-china-unban-bitcoin-by-2027` |
+
+### 9.3 AI 排行榜族：市场与报价（2026-10-15）
+
+| 盘（结算） | 规模 | 逐公司报价 |
+| --- | --- | --- |
+| best AI model **end of October**（10-31） | 累计 $2.56M / 近月 $2.06M | **Google 72.1¢**、Anthropic 26.5¢、Meta 0.8¢、OpenAI 0.55¢ |
+| best AI model end of **November**（11-30） | 近月 $0.27M | Anthropic 47¢、Google 46¢、OpenAI 3.7¢、Meta 3.45¢ |
+| best AI model **end of 2026**（12-31） | 累计 $2.53M / 近月 $1.20M | Anthropic 44.5¢、Google 39.5¢、OpenAI 7.8¢、xAI 1.85¢ |
+| **Best Chinese AI Company** end of October | 近月 $0.19M | Xiaomi 56.5¢、Alibaba 26¢、Moonshot 7.5¢、Z.ai 7.1¢、DeepSeek 1.9¢ |
+| LiveBench (**Overall**) end of October | 近月 $0.04M | **Anthropic 93.7¢**、OpenAI 1.75¢、Google 0.6¢ |
+| LiveBench (**Mathematics**) end of October | 近月 $0.05M | **Anthropic 76.5¢**、OpenAI 18¢、Google 7.85¢ |
+| Which companies will have a **#1 AI model** by Dec 31（15 只多选） | 累计 $0.21M | Google 100¢、Meta 13¢、OpenAI 12.5¢、xAI 7¢ |
+| Will any AI model reach **\_\_\_ Coding Arena Score** by Dec 31 | 累计 $0.24M | 1560 → 50.5¢、1580 → 16.5¢、1600 → 6.4¢（数值阈值阶梯，结构与 §八 的 BTC 触碰阶梯同型） |
+
+已结算实例证明它是月度滚动系列：9 月 Code Arena WebDev、8 月 Code Arena WebDev 与 Math 全部结算给 **Anthropic**。
+
+### 9.4 结算规则原文要点（决定「能不能反向复现」）
+
+| 盘 | 判定源与口径 |
+| --- | --- |
+| LiveBench (Overall) | 2026-10-31 12:00 ET 检查 `livebench.ai`，取 **latest available release** + category=「All」的 Overall 列 |
+| LiveBench (Mathematics) | 同上，但 category=「Mathematics」（源写 `livebench.ai/#/?cats=Mathematics`） |
+| arena.ai Text Arena | **style control off**（Adjustments: None）、filter「Models」；标 `AutoEval` 的行**不计**（无论是否显示排名）；并列先比 Arena score、再按公司名字母序（例文：Google 排在 SpaceXAI 前） |
+| lmarena.ai 多选盘 | `lmarena.ai/leaderboard/text`，style control off；**并列第一也算 Yes**（这就是 Google 报 100¢ 的原因） |
+
+### 9.5 锚可达性实测（唯一决定「能否机器验证」的一步）
+
+| 锚 | 结果 |
+| --- | --- |
+| `arena.ai` / `lmarena.ai` | **HTTP 403**，Cloudflare `Just a moment...`（根路径、`/leaderboard/text/overall`、`/api/leaderboard` 全试过）→ 只能靠浏览器/人工 |
+| `livebench.ai` | 可达：`/v2/table_<release-id>.csv` 与 `/v2/categories_<release-id>.json`（v1 在 `/v1/...`）；**release id 与应用显示日期不同名**（id `2026-09-02` 显示为 `14 October 2026`），id 列表藏在站点 JS 的时间线数组里；猜名（`table.csv`、`table_2026_10_14.csv`）一律 404 |
+| 榜源码 | `LiveBench/new-livebench`（v2）与 `LiveBench/livebench.github.io`（v1）的 `public/` 目录含同名 CSV，是 GitHub raw 这条备用路径 |
+
+### 9.6 LiveBench 侧反向复现：市场定价是对的
+
+按 9.5 的路径取数、用 `categories_*.json` 的分组算各分类均值：
+
+| release | 分类冠军 |
+| --- | --- |
+| **v2**（id `2026_09_02`，7 分类） | Anthropic 5（Long-Horizon 85.0 / Coding 98.3 / Browser 100.0 / Research 88.9 / Design 86.9）、Google 2（Reasoning 95.1 / Data Analysis 85.2） |
+| **v1**（id `2026_06_25`，7 分类） | Anthropic 3（Coding 91.4 / **Mathematics 97.1** / Language 90.7）、OpenAI 2（Reasoning / Data Analysis）、DeepSeek 1（Agentic Coding）、Google 1（IF） |
+
+v2 里 Anthropic 拿下 5/7 分类 → Overall 首位，与市场给的 93.7¢ 一致：**在可机器验证的那一半，市场定价没有明显错价**。
+
+### 9.7 这族真正的风险是口径断层，不是错价
+
+1. **v1 → v2 分类重排**：v2 的 7 个分类是 Long-Horizon / Reasoning / Coding / Browser / Data Analysis /
+   Research / Design，**没有 Mathematics**；而 v1 的最新发布停在 2026-06-25。于是
+   `LiveBench (Mathematics) end of October` 的规则文字「latest available release + category=Mathematics」
+   **指向一个在最新 release 里已不存在的列**：按冻结的 v1 数据 Anthropic 早已居首（97.1，应值 ~100¢），
+   按最新 release 则无从取值——市场却仍给它 76.5¢ 的定价，即定价里混着结算口径的不确定性。
+2. **style control 由 on 翻成 off**：2025-12 的老盘写 `Style Control On`，当前 arena.ai 盘写的是
+   `overall-no-style-control`（Adjustments: None）→ 历史盘与当前盘**不是同一张榜**，不可直接比较。
+3. **容量小一档**：单盘近月 $0.19M~$2.06M，对照我们 40 只 crypto 阈值族合计 $18.6M/月。
+
+### 9.8 结论
+
+- 该族只适合**校准研究**（锚间分歧、榜 vs 市价），且验证能力只覆盖一半：LiveBench 可反向复现，
+  LMArena 必须人工；
+- **不开采集线**：无对冲腿（没有「排行榜分数」的期权/期货）+ 容量小一档 + 锚会改版，三条里
+  任何一条都足以否决；若将来仍要开，须按容器 ADR 流程新写决策记录；
+- 可复用的是**方法**而非数据：任何「有公开数据源、无对冲腿」的盘，都可用本节 9.5 的可达性试探
+  加 9.6 的反向复现两步，先判定它属于「可验证 / 不可验证」，再决定是否值得研究。
