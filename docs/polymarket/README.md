@@ -101,6 +101,32 @@ uv run python scripts/audit_polymarket.py
 1.35 万行（4.1MB，覆盖 7 天）、成交 5.7 万行（白名单后 539B/行，28MB，回溯到 2026-02-24）；
 **第二轮增量 5 分钟**，每只只多 2 个价格点、成交整页命中水位后立即停（这就是每天该有的成本）。
 
+### 定时采集（2026-10-15 接入）
+
+```bash
+bash scripts/register_tasks.sh          # 注册/更新两个 Windows 计划任务（幂等）
+bash scripts/register_tasks.sh --query  # 看存的命令与下次运行时间
+bash scripts/register_tasks.sh --remove # 移除
+```
+
+| 任务 | 频度 | 理由 |
+| --- | --- | --- |
+| `nerd-trader-polymarket-hourly` | 每小时第 7 分 | 前向采集是**唯一**入口（历史已被实测封死），采样分辨率完全由频度决定；错开整点避开上游高峰 |
+| `nerd-trader-deribit-daily` | 每日 16:05 本机（08:05 UTC） | 到期结算（08:00 UTC）后 5 分钟取链 |
+
+任务只做一件事：跑 `scripts/scheduled_run.sh <数据集>`（cd 项目 → 采集 → 日志按天落
+`logs/scheduled/<数据集>-<日期>.log`，日志尾记退出码）。**采集参数的唯一出处**是那个脚本，
+不用默认参数的场合改它而不是在任务里堆 flag。
+
+稳定态成本实测（2026-10-15，默认参数）：**24 秒/轮**、价格 +80 行、成交 +0 行（距上轮仅 1 分钟）；
+首轮深采时才需要 11 分钟——「整页全重复即停」让重读已落盘数据的成本接近 0，所以**不该给成交
+翻页设上限**：真有大成交量时要的正是多翻几页，限页只会攒断新进池市场的历史（实测 `--trade-pages 3`
+把一只新市场截在恰好 1500 笔）。
+
+两个 git-bash 专属坑：计划任务不继承交互终端环境，未设 `PYTHONIOENCODING=utf-8` 会让日志中文
+变 GBK 乱码；`schtasks` 的参数会被 MSYS 当路径改写（`/create` → `C:/Program Files/Git/create`），
+必须 `MSYS_NO_PATHCONV=1`（已在 `register_tasks.sh` 里处理）。
+
 ## 五、验收闸与语义校验
 
 `scripts/audit_polymarket.py` 的口径：

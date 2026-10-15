@@ -42,7 +42,9 @@ uv run python scripts/audit_deribit.py --stale-hours 30
 ```
 
 建议频度**日频**：微笑的日内变化远小于其它误差源（S0 用 Deribit 永续 mark、逐档 IV 是一阶近似、
-两边 payoff 不同源），多轮快照只在做对冲报价研究时才有意义。
+两边 payoff 不同源），多轮快照只在做对冲报价研究时才有意义。已接 Windows 计划任务
+`nerd-trader-deribit-daily`（每日 16:05 本机 = 08:05 UTC，到期结算后 5 分钟；注册与移除见
+[`../polymarket/README.md`](../polymarket/README.md) §四的「定时采集」）。
 
 首轮实测（2026-10-15）：BTC 930 档 + ETH 812 档期权、各 13 张期货，约 800 KB/天。
 
