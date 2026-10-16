@@ -7,6 +7,7 @@ scripts/factor_smoothing.py
     uv run python scripts/factor_smoothing.py --market swap
     uv run python scripts/factor_smoothing.py --factors rev_3 --operations decay5,decay20
     uv run python scripts/factor_smoothing.py --anchor none           # 复现文档单因子表
+    uv run python scripts/factor_smoothing.py --single-anchor --verify  # 再跑 PBO/DSR 判定
 
 口径：分位组合（5 档、多空价差、名义基准）与「平衡成本」全部走 portfolio.py 的同一套
 实现，成本默认 10bp/边（OKX 永续 taker 5bp + 滑点 5bp）。锚点默认固定为 0（跨变体同相位），
@@ -14,8 +15,11 @@ h>1 再额外跑两个相位（0/h÷3/2h÷3）并把范围带进表里：固定�
 敏感性（实测 `ts_rank` 变体换锚点后只多腿净复利能从 −12% 跳到 +31%）；`--single-anchor`
 可关掉，`--anchor none` 回到文档单因子表的口径（各自从预热起点起算）。
 
-**这不是验证。** 本表是方法论筛查：40 个变体里挑最大值必然出好东西，任何过线的变体
-必须接 factor_verify.py 并把变体数写进 --trials，否则 DSR/PBO 那点纪律白给。
+**这不是验证。** 本表是方法论筛查：40 个变体里挑最大值必然出好东西，判定要显式开
+`--verify`——它用与筛选同一口径的序列（只多腿净收益、anchor=0 同一相位）跑 PBO（整组
+候选）与 DSR（逐候选），N 默认取候选数 × 调仓档数，也可用 `--trials` 声明更大的挑选空间。
+（sweep 空间用 scripts/factor_verify.py；这里管的是派生变体空间，账本不记变体，所以 N
+必须由调用方声明，默认就是本次挑选空间的大小。）
 
 只读 data/storage/crypto/okx/<market>/<timeframe>/ 下的缓存，不触发采集。
 """
@@ -34,7 +38,13 @@ from src.config.paths import RESULTS_ROOT
 from src.research.factors.library import FactorSpec, resolve_factors
 from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
 from src.research.factors.portfolio import DEFAULT_ONE_WAY_COST
-from src.research.factors.smoothing import ScanConfig, scan, summarize
+from src.research.factors.smoothing import (
+    GridVerdict,
+    ScanConfig,
+    scan,
+    summarize,
+    verify_grid,
+)
 from src.research.factors.variants import resolve_interaction, resolve_smoothing
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "factors"
@@ -44,6 +54,7 @@ KIND_INTERACTION: Final[str] = "交互"
 KEY_WIDTH: Final[int] = 24
 LABEL_WIDTH: Final[int] = 14
 SUMMARY_WIDTH: Final[int] = 18
+VERDICT_TOP: Final[int] = 12
 
 
 def parse_args() -> argparse.Namespace:
@@ -82,6 +93,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-listed-days", type=int, default=180)
     parser.add_argument(
         "--no-interaction", action="store_true", help="不跑量价交互族（corr_pv_*）"
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="另跑收益层判定（PBO/DSR）：只跑 anchor=0，序列用只多腿净收益",
+    )
+    parser.add_argument(
+        "--trials",
+        type=int,
+        default=None,
+        help="DSR 声明的试验次数 N（默认 = 候选数 × 调仓档数，即本次挑选空间的大小）",
     )
     parser.add_argument("--no-save", action="store_true", help="不落盘，只打印")
     return parser.parse_args()
@@ -164,6 +186,56 @@ def print_summary(summary: pd.DataFrame) -> None:
         )
 
 
+def print_verdicts(
+    verdicts: list[GridVerdict], summary: pd.DataFrame, trials: int
+) -> None:
+    """收益层判定表：逐调仓周期的 PBO，逐候选的 DSR，外加「胜 BTC 的行」的点名。"""
+    print(
+        f"\n=== 收益层判定（序列 = 只多腿净收益，anchor=0，声明的试验次数 N={trials}）==="
+    )
+    lookup: dict[tuple[int, str], dict[str, object]] = {}
+    for verdict in verdicts:
+        pbo = "不可算" if verdict.pbo is None else f"{verdict.pbo:.1%}"
+        passed = int(cast(pd.Series, verdict.rows["passed"]).sum())
+        print(
+            f"\n调仓 {verdict.horizon} 根 | 候选 {verdict.candidates} | 观测 {verdict.observations}"
+            f" | PBO {pbo} {'PASS' if verdict.pbo_passed else 'FAIL'}"
+            f" | 过 DSR {passed}/{len(verdict.rows)}"
+        )
+        print(f"{'候选':<{KEY_WIDTH}}{'只多净复利':>11}{'夏普':>7}{'DSR':>7}{'裁决':>8}")
+        ordered = verdict.rows.sort_values("dsr", ascending=False)
+        for row in ordered.head(VERDICT_TOP).to_dict(orient="records"):
+            lookup[(int(cast(int, row["horizon"])), str(row["factor"]))] = row
+            print(
+                f"{str(row['factor']):<{KEY_WIDTH}}{float(cast(float, row['annual'])):>11.1%}"
+                f"{float(cast(float, row['sharpe'])):>7.2f}{float(cast(float, row['dsr'])):>7.3f}"
+                f"{verdict_flag(row):>8}"
+            )
+    winners = cast(pd.DataFrame, summary[summary["beats_all"]])
+    print("\n胜 BTC 的全部相位候选（相位中位口径）的 DSR：")
+    if winners.empty:
+        print("  没有。")
+    for row in winners.to_dict(orient="records"):
+        hit = lookup.get((int(cast(int, row["horizon"])), str(row["factor"])))
+        verdict = (
+            f"（在 DSR 前{VERDICT_TOP} 名之外）" if hit is None else verdict_flag(hit)
+        )
+        print(
+            f"  {str(row['factor']):<{KEY_WIDTH}}h={int(cast(int, row['horizon']))}"
+            f" 只多净复利中位 {float(cast(float, row['long_med'])):>7.1%}  {verdict}"
+        )
+    print(
+        "\n判据：DSR ≥ 0.95 且 PBO < 50% 才算过。N 若小于真实的挑选空间，门槛还是低估。"
+    )
+
+
+def verdict_flag(row: dict[str, object]) -> str:
+    """候选裁决：样本不足与未通过要分开——前者不是证据。"""
+    if not bool(row["sufficient"]):
+        return "样本不足"
+    return "PASS" if bool(row["passed"]) else "FAIL"
+
+
 def main() -> int:
     args = parse_args()
     warnings.filterwarnings("ignore", category=FutureWarning)
@@ -202,12 +274,27 @@ def main() -> int:
     print_table(summary, cost_one_way * 1e4)
     print_summary(summary)
 
+    if args.verify:
+        specs = build_specs(args)
+        trials = (
+            int(args.trials)
+            if args.trials is not None
+            else len(specs) * len(config.horizons)
+        )
+        print(
+            f"\n跑收益层判定（{len(specs)} 个候选 × {len(config.horizons)} 个调仓档，单相位）"
+        )
+        verify_started = time.time()
+        verdicts = verify_grid(specs, panel, mask, config, trials)
+        print_verdicts(verdicts, summary, trials)
+        print(f"判定耗时 {time.time() - verify_started:.1f}s")
+
     if not args.no_save:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         path = OUTPUT_DIR / f"factor_smoothing_{args.market}_{args.timeframe}.parquet"
         frame.to_parquet(path)
         print(f"\n落盘 {path}")
-    print("提醒：过线变体要接 factor_verify.py（--trials 声明变体数），否则就是挑最大值。")
+    print("提醒：主表是筛查不是判定；过线候选要用 --verify 跑 PBO/DSR 才算结论。")
     return 0
 
 

@@ -2701,8 +2701,28 @@ PYTHONIOENCODING=utf-8 PYTHONUTF8=1 uv run python scripts/factor_smoothing.py --
 1. **只多腿能胜 BTC 的行全落在已判死的因子上**：spot 的 `dth_60`（第四、二十四节：分位
    收益反向单调 −0.80、唯一被多重检验校正打掉的因子）与 swap 的 `liq_30`（第八节：多头腿
    是小市值，幸存者偏差最重）。所以「过线」不等于「可做」，本节的结论一条都没翻。
-2. 8 因子 × 5 算子 × 2 调仓 = 80 格，本表是**方法论筛查**：任何过线变体必须接
-   `scripts/factor_verify.py` 并把变体数写进 `--trials`，否则就是 80 格里挑最大值。
+2. 8 因子 × 5 算子 × 2 调仓 = 80 格，本表是**方法论筛查**：判定已接进脚本本身——
+   `--verify` 用与筛选**同一口径的序列**（只多腿净收益、anchor=0 的同一相位）跑 PBO
+   （整组候选）与 DSR（逐候选），N 默认 = 候选数 × 调仓档数（本次 50 × 2 = 100）。
+
+**判定结果：两族「胜 BTC」的行正式打死**（`--verify`，两市场各约 3.5 分钟）：
+
+| 市场 | 调仓 | PBO | 过 DSR | 榜首（胜 BTC 那些行） |
+|---|---|---|---|---|
+| spot | h=1 | 6.0% PASS | 0/50 | `dth_60@decay5` 只多净 64.1%、DSR 0.519 |
+| spot | h=3 | 0.8% PASS | 0/50 | `dth_60@decay5` 54.4%、DSR 0.428 |
+| swap | h=1 | 15.9% PASS | 0/50 | `liq_30@decay10` 41.7%、DSR 0.288 |
+| swap | h=3 | 11.5% PASS | 0/50 | `liq_30@decay10` 42.6%、DSR 0.297 |
+
+PBO 低不等于有技能：同族候选高度相关，样本内冠军在样本外照样靠前（这正是 CSCV 在这里
+宽松的原因）；DSR 说的是另一件事——**50 个候选里没有一个能把夏普抬到跟「试 100 次碰
+运气」区分开的程度**（门槛 0.95，实际最高 0.519）。所以本节开头的「挑最大值」不是
+修辞，是实测。复现：
+
+```bash
+PYTHONIOENCODING=utf-8 PYTHONUTF8=1 uv run python scripts/factor_smoothing.py --market spot --single-anchor --verify --no-save
+PYTHONIOENCODING=utf-8 PYTHONUTF8=1 uv run python scripts/factor_smoothing.py --market swap --single-anchor --verify --no-save
+```
 
 **仍未做**：只多腿口径的可执行扫描（本表已给 `long_net_compounded` 与 `beats_btc` 两列，
 但主判据仍是多空价差的平衡成本）；以及把平滑与 maker 执行（第二十二节、docs/execution：

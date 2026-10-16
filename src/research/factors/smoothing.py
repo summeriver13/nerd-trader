@@ -10,6 +10,11 @@ src/research/factors/smoothing.py
 判据口径：`break_even_bp` 是**多空价差**的平衡成本（回答「成本空间够不够」），
 `long_net_compounded` 才是**可执行口径**（最高分位等权、扣该腿自己的换手成本）——
 crypto 上做不了空头腿（借币成本 + 无上限），两者不能混读。详见 docs/factors/README.md 第二十八节。
+
+判定层（`verify_grid`）：多重检验校正必须用**与筛选同一口径的序列**——本节按只多腿净复利
+挑候选，所以 PBO/DSR 吃的也是只多腿净收益，不是多空价差；锚点固定 0 让全部候选落在同一张
+非重叠网格上。这类派生变体刻意不进 trials 账本（进了会抬高全库门槛），所以 `trials` 由调用方
+声明，默认取本次挑选空间的大小（候选数 × 调仓档数）。
 """
 
 from __future__ import annotations
@@ -27,6 +32,8 @@ from src.research.factors.portfolio import (
     leg_stats,
     portfolio_stats,
 )
+from src.research.overfitting import build_overfitting_report
+from src.research.overlap import DEFAULT_EMBARGO_RATIO
 
 PHASES_PER_HORIZON: int = 3
 
@@ -108,6 +115,105 @@ def _record(
         "btc_compounded": stats.btc_leg.annual_compounded,
         "beats_btc": long_leg.annual_compounded > stats.btc_leg.annual_compounded,
     }
+
+
+def long_net_series(
+    specs: list[tuple[str, FactorSpec]],
+    panel: Panel,
+    mask: pd.DataFrame,
+    config: ScanConfig,
+    horizon: int,
+) -> tuple[dict[str, pd.Series], float]:
+    """收一组候选在**同一相位**（anchor=0）下的只多腿净收益逐期序列，返回 (序列, 年化期数)。
+
+    序列口径必须与挑候选时用的统计量一致：本节按「只多腿净复利」挑，所以这里收的也
+    是扣该腿自身换手成本后的净收益，不是多空价差（价差含不可执行的空头腿）。
+    锚点固定 0 是为了让全部候选落在同一张非重叠网格上，否则 CSCV 的共同时间轴对不上。
+    年化期数取同一批候选的第一个（同调仓周期下各候选只有零点几个百分点的差）。
+    """
+    series: dict[str, pd.Series] = {}
+    periods_per_year = 0.0
+    for kind, spec in specs:
+        stats = portfolio_stats(
+            spec,
+            panel,
+            mask,
+            PortfolioOptions(
+                horizon=horizon,
+                quantiles=config.quantiles,
+                cost_one_way=config.cost_one_way,
+                anchor=0,
+            ),
+        )
+        net = stats.long_returns - 2.0 * stats.long_turnover * config.cost_one_way
+        series[f"{kind}:{spec.key}@h{horizon}"] = net
+        periods_per_year = stats.periods_per_year
+    return series, periods_per_year
+
+
+@dataclass(frozen=True)
+class GridVerdict:
+    """一个调仓周期的收益层判定：整组候选的 PBO + 逐候选 DSR。"""
+
+    horizon: int
+    candidates: int
+    observations: int
+    trials: int
+    pbo: float | None
+    pbo_passed: bool
+    rows: pd.DataFrame
+
+
+def verify_grid(
+    specs: list[tuple[str, FactorSpec]],
+    panel: Panel,
+    mask: pd.DataFrame,
+    config: ScanConfig,
+    trials: int,
+) -> list[GridVerdict]:
+    """逐调仓周期做多重检验校正：PBO 看整组候选，DSR 看单个候选。
+
+    `trials` 必须是**挑选空间的大小**（变体数 × 调仓档数），不是候选数：只数本批候选
+    正是 de Prado 第 7 条 pitfall（账本里记着全库累计，这里刻意不写账本——派生变体只
+    在显式点名时才算试验）。
+    """
+    verdicts: list[GridVerdict] = []
+    for horizon in config.horizons:
+        series, periods_per_year = long_net_series(specs, panel, mask, config, horizon)
+        report = build_overfitting_report(
+            series, trials, embargo=DEFAULT_EMBARGO_RATIO
+        )
+        tests = {test.label: test for test in report.sharpe_tests}
+        rows: list[dict[str, object]] = []
+        for kind, spec in specs:
+            label = f"{kind}:{spec.key}@h{horizon}"
+            test = tests[label]
+            rows.append(
+                {
+                    "horizon": horizon,
+                    "kind": kind,
+                    "factor": spec.key,
+                    "periods": test.observations,
+                    "annual": leg_stats(series[label], periods_per_year).annual_compounded,
+                    "sharpe": test.sharpe,
+                    "dsr": test.dsr,
+                    "passed": test.passed,
+                    "sufficient": test.sufficient,
+                }
+            )
+        pbo = report.pbo
+        verdicts.append(
+            GridVerdict(
+                horizon=horizon,
+                candidates=len(series),
+                observations=report.observations,
+                trials=report.trials,
+                pbo=None if pbo is None else pbo.pbo,
+                pbo_passed=bool(pbo is not None and pbo.passed),
+                rows=pd.DataFrame.from_records(rows),
+            )
+        )
+    return verdicts
 
 
 def summarize(frame: pd.DataFrame) -> pd.DataFrame:
