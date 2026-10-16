@@ -84,6 +84,24 @@ def deribit_jsonl_path(dataset: str, name: str, *, root: Path = DERIBIT_RAW_ROOT
     return deribit_dataset_dir(dataset, root=root) / f"{name}.jsonl"
 
 
+# === OKX 跟单榜单数据集契约 ===
+# <okx_copy>/raw/lead_traders/<YYYY-MM-DD>.jsonl，按天快照（业务键 (uniqueCode, dataVer)）。
+# 这是本项目自持的第三方榜单数据（不是加密行情），故与 crypto 数据根分开存放。
+OKX_COPY_ROOT = STORAGE_ROOT / "okx_copy"
+OKX_COPY_RAW_ROOT = OKX_COPY_ROOT / "raw"
+OKX_COPY_TRADERS = "lead_traders"
+
+
+def okx_copy_dataset_dir(*, root: Path = OKX_COPY_RAW_ROOT) -> Path:
+    """OKX 跟单数据集目录：<okx_copy>/raw/lead_traders。"""
+    return root / OKX_COPY_TRADERS
+
+
+def okx_copy_jsonl_path(name: str, *, root: Path = OKX_COPY_RAW_ROOT) -> Path:
+    """JSONL 文件路径；name 为日期（YYYY-MM-DD）。"""
+    return okx_copy_dataset_dir(root=root) / f"{name}.jsonl"
+
+
 def symbol_market(symbol: str) -> str:
     """ccxt 符号 → 市场层级：带结算币后缀的是永续。"""
     return MARKET_SWAP if SETTLEMENT_SEP in symbol else MARKET_SPOT
