@@ -29,6 +29,7 @@ from src.utils.deribit_store import (
     append_chain,
     update_manifest,
 )
+from src.utils.jsonl_store import day_stamp
 
 DEFAULT_CURRENCIES = ("BTC", "ETH")
 DEFAULT_SLEEP_SECONDS = 2.0
@@ -65,9 +66,8 @@ def main() -> int:
 
     currencies = parse_currencies(args.currency)
     session = create_session()
-    stamp = datetime.now(tz=UTC)
+    started = datetime.now(tz=UTC)
     touched: dict[str, list[str]] = {DERIBIT_OPTIONS: [], DERIBIT_FUTURES: []}
-    day = stamp.strftime("%Y-%m-%d")
     failures = 0
 
     for currency in currencies:
@@ -80,6 +80,9 @@ def main() -> int:
         print(f"[{currency}] {describe(chain)}")
         if args.list_only:
             continue
+        # 分区日跟快照自己的时刻（UTC）走，不跟运行时刻：跑在 UTC 午夜前后时
+        # 两者会分到不同的文件里（采集任务在 00:20 跑，正好踩这个窗口）。
+        day = day_stamp(chain.fetched_at.to_pydatetime())
         counts = append_chain(chain, day=day)
         for dataset, (added, skipped) in counts.items():
             print(f"    {dataset}: 新增 {added:,} 行，跳过重复 {skipped:,} 行")
@@ -93,7 +96,7 @@ def main() -> int:
             path = update_manifest(dataset, touched=set(names))
             print(f"manifest 已更新：{path}")
 
-    print(f"\n来源 {SOURCE}；快照时刻 {stamp.isoformat()}；验收：scripts/audit_deribit.py")
+    print(f"\n来源 {SOURCE}；运行时刻 {started.isoformat()}；验收：scripts/audit_deribit.py")
     return 1 if failures == len(currencies) else 0
 
 

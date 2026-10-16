@@ -16,7 +16,6 @@ manifest 落 `data/manifests/deribit_raw_<dataset>.json`（容器 ADR-0006 自�
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -96,8 +95,12 @@ def append_chain(
     day: str | None = None,
     root: Path = DERIBIT_RAW_ROOT,
 ) -> dict[str, tuple[int, int]]:
-    """把整条链追加进当日文件，返回每个数据集的 (新增, 跳过)。"""
-    name = day or day_stamp(datetime.now(tz=UTC))
+    """把整条链追加进当日文件，返回每个数据集的 (新增, 跳过)。
+
+    分区日默认取**快照自己的时刻**（`chain.fetched_at`，UTC），不取墙上时钟：跨 UTC
+    午夜重跑（或把历史快照补进来）时按运行时刻分区，会把数据落到错误的文件里。
+    """
+    name = day or day_stamp(chain.fetched_at.to_pydatetime())
     payloads: Mapping[str, list[dict[str, Any]]] = {
         DERIBIT_OPTIONS: option_rows(chain),
         DERIBIT_FUTURES: future_rows(chain),
