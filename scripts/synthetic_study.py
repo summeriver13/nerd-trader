@@ -26,7 +26,8 @@ from src.research.corrections import (
     naive_p_values,
     reality_check,
 )
-from src.research.synthetic import BEDS, SyntheticSpec, run_bed
+from src.research.synthetic import BEDS, SyntheticSpec
+from src.research.synthetic_checks import run_bed
 
 RESULTS_DIR: Final[Path] = Path("data/results/breaks")
 DEFAULT_SEEDS: Final[int] = 10

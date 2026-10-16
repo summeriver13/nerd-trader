@@ -18,10 +18,9 @@ from src.research.synthetic import (
     IC_MIRROR,
     IC_VISIBLE,
     SyntheticSpec,
-    run_bed,
     synthetic_panel,
-    truth_checks,
 )
+from src.research.synthetic_checks import run_bed, truth_checks
 
 TEST_DAYS = 520
 TEST_KEYS = ("rev_3", "mom_7", "liq_30")
