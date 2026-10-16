@@ -47,11 +47,12 @@ from src.research.allocation import (
     nco_weights,
 )
 from src.research.cpcv import CombinatorialPurgedCv, CpcvSplit, path_series
+from src.research.factors.library import MAIN_POOL_KEYS
 from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
 from src.research.observations import strategy_spreads
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "breaks"
-# 与第 16 章同一批策略，保证两节的读数可比
+# 与第 16 章同一批策略（成员来自主池、启动时校验；顺序锁死，理由见 hrp_study.py）
 DEFAULT_STRATEGIES: Final[tuple[str, ...]] = (
     "vol_30",
     "mom_7",
@@ -61,6 +62,10 @@ DEFAULT_STRATEGIES: Final[tuple[str, ...]] = (
     "ffd_d0p4",
     "liq_30",
 )
+if set(DEFAULT_STRATEGIES) != set(MAIN_POOL_KEYS):
+    raise RuntimeError(
+        f"默认策略集与主池漂移：{sorted(set(DEFAULT_STRATEGIES) ^ set(MAIN_POOL_KEYS))}"
+    )
 SCHEMES: Final[tuple[str, ...]] = ("等权", "逆方差", "HRP", "NCO", "最小方差")
 # NCO 簇数扫描：报整个平台而不是挑最好的那个（挑就是又一次搜索）
 NCO_CLUSTER_SCAN: Final[tuple[int, ...]] = (2, 3, 4, 5, 6)

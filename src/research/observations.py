@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import cast
+from typing import Final, cast
 
 import numpy as np
 import pandas as pd
@@ -23,6 +23,20 @@ from src.research import labels, overlap
 from src.research.factors.library import FACTOR_LIBRARY
 from src.research.factors.panel import Panel, listing_age_days, tradable_mask
 from src.research.factors.portfolio import PortfolioOptions, portfolio_stats
+
+# 元标签研究线的固定观测口径（bagging / trend_scan / meta_label / tuning* 五个脚本共用）：
+# 主模型取反转 `rev_3`，特征取主池里除主模型与 `ffd_*` 之外的 5 个因子，另加两个状态列。
+# 只此一处定义：这几个键决定搜索空间，而搜索空间的大小要进 trials 账本，多份拷贝
+# 会静默分裂账本的多重性口径。
+PRIMARY_FACTOR: Final[str] = "rev_3"
+FEATURE_FACTORS: Final[tuple[str, ...]] = (
+    "mom_7",
+    "mom_30",
+    "vol_30",
+    "liq_30",
+    "dth_60",
+)
+SADF_COLUMN: Final[str] = "sadf"
 
 BARRIER_FIELDS = ("label", "t1", "ret")
 MIN_BARS_PER_VERTICAL = 4

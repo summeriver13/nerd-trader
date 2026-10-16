@@ -34,12 +34,14 @@ import pandas as pd
 
 from src.research import bagging, ensembles, meta, observations
 from src.research.factors.panel import load_panel
+from src.research.observations import (
+    AGE_COLUMN,
+    FEATURE_FACTORS,
+    PRIMARY_FACTOR,
+    SADF_COLUMN,
+)
 from src.research.trials import Trial, TrialLedger
 
-PRIMARY_KEY = "rev_3"
-FEATURE_KEYS = ("mom_7", "mom_30", "vol_30", "liq_30", "dth_60")
-AGE_KEY = "age_days"
-SADF_KEY = "sadf"
 THRESHOLDS = (0.0, 0.55, 0.6, 0.7)
 SHARES = (0.05, 0.02)
 """固定预算口径要取的份额（概率最高的前 5% / 前 2%）——臂间唯一可比的那把尺。"""
@@ -84,14 +86,14 @@ def _span_frame(market: str, timeframe: str, *, vertical: int) -> pd.DataFrame:
     panel = load_panel(timeframe, market=market)
     frame = observations.build_meta_frame(
         panel,
-        primary_key=PRIMARY_KEY,
-        feature_keys=FEATURE_KEYS,
+        primary_key=PRIMARY_FACTOR,
+        feature_keys=FEATURE_FACTORS,
         vertical=vertical,
     )
     cached = pd.read_parquet(OUTPUT_DIR / f"sadf_{market}_{timeframe}.parquet")
     sadf = cached.reindex(index=panel.index, columns=panel.close.columns)
     frame = frame.merge(
-        observations.to_long(sadf, SADF_KEY), on=["date", "symbol"], how="inner"
+        observations.to_long(sadf, SADF_COLUMN), on=["date", "symbol"], how="inner"
     )
 
     frame = ensembles.attach_spans(frame, panel.close)
@@ -129,7 +131,7 @@ def _run_arm(
     train = frame.copy()
     train[meta.LABEL_COLUMN] = (frame[label_column] > 0).astype(int)
     train[meta.WEIGHT_COLUMN] = frame[weight_column]
-    features = [*FEATURE_KEYS, AGE_KEY, SADF_KEY]
+    features = [*FEATURE_FACTORS, AGE_COLUMN, SADF_COLUMN]
     prediction = meta.walk_forward_meta(train, features, settings.meta_options, fit=fit)
     outcomes = frame["side"] * frame["forward"]
     filtered = meta.filter_summary(outcomes, prediction.probability, THRESHOLDS)

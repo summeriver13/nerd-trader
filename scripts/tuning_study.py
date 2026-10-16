@@ -32,11 +32,13 @@ from scipy import stats
 from src.config.paths import RESULTS_ROOT
 from src.research import meta, observations, tuning
 from src.research.factors.panel import Panel, load_panel
+from src.research.observations import (
+    AGE_COLUMN,
+    FEATURE_FACTORS,
+    PRIMARY_FACTOR,
+)
 from src.research.trials import Trial, TrialLedger
 
-PRIMARY_KEY: Final[str] = "rev_3"
-FEATURE_KEYS: Final[tuple[str, ...]] = ("mom_7", "mom_30", "vol_30", "liq_30", "dth_60")
-AGE_KEY: Final[str] = "age_days"
 LABEL_SOURCE: Final[str] = observations.BARRIER_LABEL_COLUMN
 WEIGHT_COLUMN: Final[str] = "weight_unique"
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "breaks"
@@ -70,8 +72,8 @@ def prepare(args: argparse.Namespace) -> tuple[pd.DataFrame, Panel]:
     panel = load_panel(args.timeframe, market=args.market)
     frame = observations.build_meta_frame(
         panel,
-        primary_key=PRIMARY_KEY,
-        feature_keys=FEATURE_KEYS,
+        primary_key=PRIMARY_FACTOR,
+        feature_keys=FEATURE_FACTORS,
         vertical=args.vertical,
     )
     print(
@@ -203,7 +205,7 @@ def main() -> int:
         seed=args.seed,
         collect_fits=True,  # 要拿每折的训练/测试行号，否则没有折的切法
     )
-    features = [*FEATURE_KEYS, AGE_KEY]
+    features = [*FEATURE_FACTORS, AGE_COLUMN]
     trained = frame.copy()
     trained[meta.LABEL_COLUMN] = (frame[LABEL_SOURCE] > 0).astype(int)
     trained[meta.WEIGHT_COLUMN] = frame[WEIGHT_COLUMN]

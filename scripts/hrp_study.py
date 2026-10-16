@@ -32,12 +32,16 @@ import pandas as pd
 
 from src.config.paths import RESULTS_ROOT
 from src.research.allocation import hrp_weights, inverse_variance_weights
+from src.research.factors.library import MAIN_POOL_KEYS
 from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
 from src.research.observations import strategy_spreads
 from src.research.track_record import TrackRecord, track_record
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "breaks"
-# 参与组合的策略（都是库里已有的因子，期限由 --horizon 统一给）
+# 参与组合的策略：成员永远是主池（启动时校验），但**报告顺序锁在这里**。
+# 为什么锁：HRP 的准对角化用叶子下标决定左右次序，换列序会得到不同的权重与读数——
+# 同一份数据、只换这 7 个键的顺序，cpcv 的第一条路径夏普实测 0.629 → 0.971（等权 /
+# 逆方差 / NCO / 最小方差一格不动）。本节与第十八节的读数都是在这个序下产出的。
 DEFAULT_STRATEGIES: Final[tuple[str, ...]] = (
     "vol_30",
     "mom_7",
@@ -47,6 +51,10 @@ DEFAULT_STRATEGIES: Final[tuple[str, ...]] = (
     "ffd_d0p4",
     "liq_30",
 )
+if set(DEFAULT_STRATEGIES) != set(MAIN_POOL_KEYS):
+    raise RuntimeError(
+        f"默认策略集与主池漂移：{sorted(set(DEFAULT_STRATEGIES) ^ set(MAIN_POOL_KEYS))}"
+    )
 DEFAULT_SPLIT: Final[float] = 0.5
 MIN_SERIES: Final[int] = 400
 MIN_TEST_PERIODS: Final[int] = 60

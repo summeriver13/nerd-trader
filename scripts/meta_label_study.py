@@ -45,12 +45,14 @@ from src.research.factors.panel import (
     load_panel,
     tradable_mask,
 )
+from src.research.observations import (
+    AGE_COLUMN,
+    FEATURE_FACTORS,
+    PRIMARY_FACTOR,
+    SADF_COLUMN,
+)
 from src.research.trials import Trial, TrialLedger
 
-PRIMARY_KEY = "rev_3"
-FEATURE_KEYS = ("mom_7", "mom_30", "vol_30", "liq_30", "dth_60")
-AGE_KEY = "age_days"
-SADF_KEY = "sadf"
 SADF_CACHE = Path("data/results/breaks/sadf_swap_1d.parquet")
 OUTPUT_DIR = Path("data/results/breaks")
 THRESHOLDS = (0.0, 0.5, 0.55, 0.6, 0.7)
@@ -65,11 +67,11 @@ def _stack(frame: pd.DataFrame, name: str) -> pd.DataFrame:
 
 def _feature_frame(panel: Panel) -> pd.DataFrame:
     """元模型的特征：长表（date, symbol, 各特征）。"""
-    pieces = [_stack(FACTOR_LIBRARY[key].values(panel), key) for key in FEATURE_KEYS]
-    pieces.append(_stack(listing_age_days(panel), AGE_KEY))
+    pieces = [_stack(FACTOR_LIBRARY[key].values(panel), key) for key in FEATURE_FACTORS]
+    pieces.append(_stack(listing_age_days(panel), AGE_COLUMN))
     cached = pd.read_parquet(SADF_CACHE)
     sadf = cached.reindex(index=panel.index, columns=panel.close.columns)
-    pieces.append(_stack(sadf, SADF_KEY))
+    pieces.append(_stack(sadf, SADF_COLUMN))
     merged = pieces[0]
     for piece in pieces[1:]:
         merged = merged.merge(piece, on=["date", "symbol"], how="inner")
@@ -83,7 +85,7 @@ def prepare(args: argparse.Namespace) -> tuple[pd.DataFrame, Panel]:
         f"{args.market} {args.timeframe}：{panel.close.shape[1]} 只 × {panel.close.shape[0]} 天"
     )
 
-    side_frame = FACTOR_LIBRARY[PRIMARY_KEY].values(panel)
+    side_frame = FACTOR_LIBRARY[PRIMARY_FACTOR].values(panel)
     table = observations.build_observations(panel, side_frame, args.vertical)
     tradable = pd.DataFrame({"tradable": mask.stack(future_stack=True)}).reset_index()
     tradable.columns = pd.Index(["date", "symbol", "tradable"])
@@ -226,7 +228,7 @@ def main() -> int:
 
     outcomes = frame["side"].to_numpy() * frame["forward"].to_numpy()
     print(
-        f"\n主模型（{PRIMARY_KEY}）全量下注：每注 {outcomes.mean() * 1e4:+.2f}bp  "
+        f"\n主模型（{PRIMARY_FACTOR}）全量下注：每注 {outcomes.mean() * 1e4:+.2f}bp  "
         f"命中率 {(outcomes > 0).mean():.1%}  共 {outcomes.size} 注"
     )
     exits = frame["barrier_ret"].to_numpy(dtype=float)
@@ -245,7 +247,7 @@ def main() -> int:
         seed=args.seed,
         collect_fits=True,
     )
-    features = [*FEATURE_KEYS, AGE_KEY, SADF_KEY]
+    features = [*FEATURE_FACTORS, AGE_COLUMN, SADF_COLUMN]
     results: dict[str, pd.DataFrame] = {}
     sizing_results: dict[str, pd.DataFrame] = {}
     importance_results: dict[str, pd.DataFrame] = {}

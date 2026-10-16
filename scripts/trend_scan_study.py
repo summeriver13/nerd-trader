@@ -37,12 +37,14 @@ from sklearn.metrics import roc_auc_score
 
 from src.research import labels, meta, observations
 from src.research.factors.panel import Panel, load_panel
+from src.research.observations import (
+    AGE_COLUMN,
+    FEATURE_FACTORS,
+    PRIMARY_FACTOR,
+    SADF_COLUMN,
+)
 from src.research.trials import Trial, TrialLedger
 
-PRIMARY_KEY = "rev_3"
-FEATURE_KEYS = ("mom_7", "mom_30", "vol_30", "liq_30", "dth_60")
-AGE_KEY = "age_days"
-SADF_KEY = "sadf"
 UNIFORM_WEIGHT = "weight_uniform"
 OUTPUT_DIR = Path("data/results/breaks")
 THRESHOLDS = (0.0, 0.5, 0.55, 0.6, 0.7)
@@ -53,8 +55,8 @@ def prepare(args: argparse.Namespace) -> tuple[pd.DataFrame, Panel]:
     panel = load_panel(args.timeframe, market=args.market)
     frame = observations.build_meta_frame(
         panel,
-        primary_key=PRIMARY_KEY,
-        feature_keys=FEATURE_KEYS,
+        primary_key=PRIMARY_FACTOR,
+        feature_keys=FEATURE_FACTORS,
         vertical=args.vertical,
     )
     cache = OUTPUT_DIR / f"sadf_{args.market}_{args.timeframe}.parquet"
@@ -62,7 +64,7 @@ def prepare(args: argparse.Namespace) -> tuple[pd.DataFrame, Panel]:
         index=panel.index, columns=panel.close.columns
     )
     frame = frame.merge(
-        observations.to_long(sadf, SADF_KEY), on=["date", "symbol"], how="inner"
+        observations.to_long(sadf, SADF_COLUMN), on=["date", "symbol"], how="inner"
     )
     frame = frame.merge(
         observations.trend_labels(panel, labels.TrendScanOptions(span=args.span)),
@@ -100,7 +102,7 @@ def label_layer(frame: pd.DataFrame) -> pd.DataFrame:
         f"{(trend[usable] == side[usable]).mean():.1%}"
     )
     rows: list[dict[str, object]] = []
-    for name, direction in ((f"primary_{PRIMARY_KEY}", side), ("trend_oracle", trend)):
+    for name, direction in ((f"primary_{PRIMARY_FACTOR}", side), ("trend_oracle", trend)):
         taken = direction[usable] * forward[usable]
         taken = taken[direction[usable] != 0.0]
         rows.append(
@@ -219,11 +221,11 @@ def main() -> int:
         n_estimators=args.trees,
         seed=args.seed,
     )
-    features = [*FEATURE_KEYS, AGE_KEY, SADF_KEY]
+    features = [*FEATURE_FACTORS, AGE_COLUMN, SADF_COLUMN]
     ledger = TrialLedger()
     arms = [
         (
-            f"A 主因子 {PRIMARY_KEY} + 固定期限（对照）",
+            f"A 主因子 {PRIMARY_FACTOR} + 固定期限（对照）",
             "meta_label",
             "fixed_label",
             frame["fixed_label"],

@@ -24,10 +24,12 @@ import pandas as pd
 from src.config.paths import RESULTS_ROOT
 from src.research import cpcv, meta, observations, sizing, tuning
 from src.research.factors.panel import Panel, load_panel
+from src.research.observations import (
+    FEATURE_FACTORS,
+    PRIMARY_FACTOR,
+)
 from src.research.trials import Trial, TrialLedger
 
-PRIMARY_KEY: Final[str] = "rev_3"
-FEATURE_KEYS: Final[tuple[str, ...]] = ("mom_7", "mom_30", "vol_30", "liq_30", "dth_60")
 LABEL_SOURCE: Final[str] = observations.BARRIER_LABEL_COLUMN
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "breaks"
 ALL_IN: Final[str] = "全下（等权）"
@@ -60,8 +62,8 @@ def _dataset(args: argparse.Namespace) -> tuple[pd.DataFrame, Panel]:
     panel = load_panel(args.timeframe, market=args.market)
     frame = observations.build_meta_frame(
         panel,
-        primary_key=PRIMARY_KEY,
-        feature_keys=FEATURE_KEYS,
+        primary_key=PRIMARY_FACTOR,
+        feature_keys=FEATURE_FACTORS,
         vertical=args.vertical,
     )
     trained = frame.copy()
@@ -254,7 +256,7 @@ def main() -> int:
     args = parse_args()
     warnings.filterwarnings("ignore")
     trained, panel = _dataset(args)
-    features = [*FEATURE_KEYS, "age_days"]
+    features = [*FEATURE_FACTORS, "age_days"]
     base = meta.MetaLabelOptions(seed=args.seed)
     cv = cpcv.CombinatorialPurgedCv(
         n_groups=args.groups,

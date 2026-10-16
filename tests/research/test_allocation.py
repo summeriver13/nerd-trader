@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -193,6 +195,38 @@ def test_recursive_bisection_weights_follow_the_order() -> None:
     cov = np.diag([0.01, 0.04])
     weights = recursive_bisection(cov, [1, 0])
     assert weights[0] > weights[1]  # order 的第一位是下标 1，它方差大、应拿更少
+
+
+def test_hrp_weights_depend_on_column_order_but_inverse_variance_does_not() -> None:
+    """HRP 对输入列序敏感（等权/逆方差不敏感）——这是算法固有的，不是 bug。
+
+    准对角化用 linkage 的**叶子下标**决定每个簇的左右次序，递归二分又按这个展开顺序
+    切半；两份输入只是列序不同时，距离矩阵与树都同构，但展开顺序不同 → 权重不同。
+    实测后果：`scripts/cpcv_study.py` 里把 7 个策略键重排一次，第一条回测路径的 HRP
+    夏普就从 0.629 变 0.971，而等权/逆方差/NCO/最小方差一格未动。所以两个研究脚本
+    把报告列序写死（成员仍来自 `MAIN_POOL_KEYS`，启动时校验），见第十六/十八节。
+    """
+    rng = np.random.default_rng(7)
+    columns = ["rev_3", "mom_7", "mom_30", "vol_30", "liq_30", "dth_60", "ffd_d0p4"]
+    data = rng.normal(size=(300, len(columns)))
+    data[:, 1] += 0.8 * data[:, 0]  # 造两对相关，贴近真实但不随机
+    data[:, 3] += 0.6 * data[:, 2]
+    frame = pd.DataFrame(data, columns=pd.Index(columns))
+    order = [3, 1, 2, 0, 5, 6, 4]
+    shuffled = cast(pd.DataFrame, frame[[columns[i] for i in order]])
+
+    hrp_gap = float(
+        (hrp_weights(shuffled).reindex(frame.columns) - hrp_weights(frame)).abs().max()
+    )
+    # 逆方差吃协方差矩阵、返回位置数组：换序后的第 i 位应对应原始第 order[i] 位
+    inverse_base = np.asarray(inverse_variance_weights(np.asarray(frame.cov())), dtype=float)
+    inverse_perm = np.asarray(
+        inverse_variance_weights(np.asarray(shuffled.cov())), dtype=float
+    )
+    iv_gap = float(np.abs(inverse_perm - inverse_base[np.asarray(order, dtype=int)]).max())
+
+    assert hrp_gap > 1e-3  # 列序真的在改权重，且远大于浮点噪声
+    assert iv_gap < 1e-12  # 逆方差只看每列自己的方差，与列序无关
 
 
 def test_hrp_rejects_degenerate_input() -> None:
