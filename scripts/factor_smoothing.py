@@ -8,7 +8,6 @@ scripts/factor_smoothing.py
     uv run python scripts/factor_smoothing.py --factors rev_3 --operations decay5,decay20
     uv run python scripts/factor_smoothing.py --anchor none           # 复现文档单因子表
     uv run python scripts/factor_smoothing.py --single-anchor --verify  # 再跑 PBO/DSR 判定
-
 口径：分位组合（5 档、多空价差、名义基准）与「平衡成本」全部走 portfolio.py 的同一套
 实现，成本默认 10bp/边（OKX 永续 taker 5bp + 滑点 5bp）。锚点默认固定为 0（跨变体同相位），
 h>1 再额外跑两个相位（0/h÷3/2h÷3）并把范围带进表里：固定锚点只解决可比性，解决不了相位
@@ -19,9 +18,8 @@ h>1 再额外跑两个相位（0/h÷3/2h÷3）并把范围带进表里：固定�
 `--verify`——它用与筛选同一口径的序列（只多腿净收益、anchor=0 同一相位）跑 PBO（整组
 候选）与 DSR（逐候选），N 默认取候选数 × 调仓档数，也可用 `--trials` 声明更大的挑选空间。
 （sweep 空间用 scripts/factor_verify.py；这里管的是派生变体空间，账本不记变体，所以 N
-必须由调用方声明，默认就是本次挑选空间的大小。）
-
-只读 data/storage/crypto/okx/<market>/<timeframe>/ 下的缓存，不触发采集。
+必须由调用方声明，默认就是本次挑选空间的大小。）只读 data/storage/crypto/okx/<market>/<timeframe>/
+下的缓存，不触发采集。
 """
 
 from __future__ import annotations
