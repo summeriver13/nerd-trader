@@ -16,8 +16,8 @@ from pathlib import Path
 import pandas as pd
 
 from src.config.paths import RESULTS_ROOT
+from src.research.meme_bars import CoinBars
 from src.research.meme_profile import (
-    CoinBars,
     benchmark_table,
     burst_table,
     lifecycle_table,

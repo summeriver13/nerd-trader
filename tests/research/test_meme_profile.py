@@ -17,14 +17,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.research.meme_bars import CoinBars, load_bars, load_universe
 from src.research.meme_profile import (
-    CoinBars,
     _forward_return,
     benchmark_table,
     burst_table,
     lifecycle_table,
-    load_bars,
-    load_universe,
     profile_table,
 )
 

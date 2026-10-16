@@ -10,7 +10,7 @@
 
 import argparse
 
-from src.research.meme_profile import load_universe
+from src.research.meme_bars import load_universe
 from src.research.meme_report import (
     OUTPUT_DIR,
     build_report,
