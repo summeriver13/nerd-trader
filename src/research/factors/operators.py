@@ -3,7 +3,7 @@ src/research/factors/operators.py
 Alpha101（Kakushadze 2016, arXiv:1601.00991）里的三个通用算子：不含因子语义，只吃历史。
 
 为什么只搬算子、不搬那 101 条公式：见 docs/factors/README.md 第二十八节。实测结论是
-「信号真、成本不允许」——纯 OHLCV 的条目在永续日线 h=1 的平衡成本只有 0~4.4bp，
+「信号真、成本不允许」——纯 OHLCV 的条目在永续日线 h=1 的平衡成本只有 0.0~1.1bp，
 而本库单边成本 10bp；缺的不是公式，是能把换手压下来的变换。
 
 约定与 library.py 一致：
