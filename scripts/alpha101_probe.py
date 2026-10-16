@@ -5,7 +5,6 @@ Alpha101 可行性探针：把论文当**算子库**而不是策略库，量一�
 用法：
     uv run python scripts/alpha101_probe.py                     # 四个探针全跑
     uv run python scripts/alpha101_probe.py --probe base
-    uv run python scripts/alpha101_probe.py --probe decay
     uv run python scripts/alpha101_probe.py --horizons 1,3,7,30
 
 四个探针（`docs/factors/README.md` 第二十八节的出处）：
