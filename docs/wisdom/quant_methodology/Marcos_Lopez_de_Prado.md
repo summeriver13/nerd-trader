@@ -398,7 +398,7 @@ Search-Adjusted Estimation》证明：
 7. **诚实计数 N**（§3 第 7 条）——已建（`src/research/trials.py`，append-only 账本
    + `scripts/trials_ledger.py`）。接线后 `verify()` 的 N 默认取账本累计数，
    scope 为空且未声明 `--trials` 时**打印警告**（低估从此是可见的）。
-   当前账本 **N = 6663**（分项见 README 第十九节）。
+   当前账本 **N = 7808**（2026-10-16 两市场整池 `factor_verify --pool all` 复跑后；分项口径见 README 第十九节，实时数以 `scripts/trials_ledger.py` 为准）。
    对已有结论的影响是**把门槛抬高、裁决不变**：那些 DSR 本来就在最宽松的 N 下
    （本批 3~7 或 468）不通过，换成 6625 只会更低。账本是**下界**——建账前的零星
    尝试（carry、配对、maker、美元棒、反转）没有完整网格，一律不计。
