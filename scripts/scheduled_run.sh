@@ -5,6 +5,7 @@
 #   bash scripts/scheduled_run.sh deribit
 #   bash scripts/scheduled_run.sh bars      # 刷新 OKX 现货日线 + 重建 manifest + 验收
 #   bash scripts/scheduled_run.sh paper     # 追加趋势线纸面前向账（不下单）
+#   bash scripts/scheduled_run.sh copy      # 抓 OKX 跟单榜单快照 + 验收
 #
 # 频度与参数在 scripts/register_tasks.sh 里（那里是采集参数的唯一出处，改参数改那里）；
 # 这里只管「怎么跑」：日志按天切、退出码记进日志尾（计划任务自己的历史记录只留 0x0/0x1）。
@@ -15,7 +16,7 @@ set -uo pipefail
 export PYTHONIOENCODING=utf-8
 export PYTHONUTF8=1
 
-DATASET="${1:?用法: bash scripts/scheduled_run.sh polymarket|deribit|bars|paper}"
+DATASET="${1:?用法: bash scripts/scheduled_run.sh polymarket|deribit|bars|paper|copy}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR"
 mkdir -p logs/scheduled
@@ -39,6 +40,12 @@ LOG="logs/scheduled/${DATASET}-$(date +%F).log"
       ;;
     # 放到 bars 之后跑：账本要的是当天最新一根 K 线，滞后会被--no-write 闸拦下。
     paper) uv run python scripts/tsmom_paper.py ;;
+    # 榜单在本地 23:00 前后刷新 dataVer，任务排在 23:40；同版本重跑靠业务键去重，
+    # 所以重试安全，不需要额外的幂等处理。
+    copy)
+      uv run python scripts/fetch_okx_copy.py &&
+        uv run python scripts/audit_okx_copy.py
+      ;;
     *) echo "未知数据集：$DATASET"; exit 2 ;;
   esac
   STATUS=$?

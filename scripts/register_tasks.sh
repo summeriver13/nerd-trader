@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 注册（或更新）四个 Windows 计划任务，幂等：同名任务先删后建。
+# 注册（或更新）五个 Windows 计划任务，幂等：同名任务先删后建。
 #
 #   nerd-trader-polymarket-hourly  每小时第 7 分：前向采集是唯一入口（历史已被实测封死），
 #                                  采样分辨率由频度决定，故按小时；错开整点避开上游高峰。
@@ -9,6 +9,8 @@
 #                                  → 跑验收闸。日线在 00:00 UTC（08:00 本机）收盘，
 #                                  16:20 跑时最后一根已封口 8 小时。
 #   nerd-trader-paper-daily        每日 16:45：追加趋势线纸面前向账（依赖 bars 已跑完）。
+#   nerd-trader-copy-daily         每日 23:40：抓 OKX 跟单榜单快照 + 验收。榜单版本号
+#                                  （dataVer）在本地 23:00 前后刷新，晚 40 分钟取当天定稿快照。
 #
 # 用法：
 #   bash scripts/register_tasks.sh            # 注册/更新
@@ -30,10 +32,12 @@ POLYMARKET_TASK='nerd-trader-polymarket-hourly'
 DERIBIT_TASK='nerd-trader-deribit-daily'
 BARS_TASK='nerd-trader-bars-daily'
 PAPER_TASK='nerd-trader-paper-daily'
+COPY_TASK='nerd-trader-copy-daily'
 POLYMARKET_START='00:07'
 DERIBIT_START='16:05'
 BARS_START='16:20'
 PAPER_START='16:45'
+COPY_START='23:40'
 
 command_for() {
   # 任务命令行：bash.exe 路径带空格要带引号，脚本路径无空格按原样给 bash -lc
@@ -57,11 +61,14 @@ register() {
     /tr "$(command_for bars)"
   run_schtasks /create /f /tn "$PAPER_TASK" /sc DAILY /st "$PAPER_START" \
     /tr "$(command_for paper)"
+  run_schtasks /create /f /tn "$COPY_TASK" /sc DAILY /st "$COPY_START" \
+    /tr "$(command_for copy)"
   echo
   echo "已注册：$POLYMARKET_TASK（每小时第 $POLYMARKET_START 分）"
   echo "        $DERIBIT_TASK（每日 $DERIBIT_START 本机时间）"
   echo "        $BARS_TASK（每日 $BARS_START：刷新日线 + manifest + 验收）"
   echo "        $PAPER_TASK（每日 $PAPER_START：追加纸面前向账）"
+  echo "        $COPY_TASK（每日 $COPY_START：抓跟单榜单快照 + 验收）"
   echo "日志：$PROJECT_DIR/logs/scheduled/<数据集>-<日期>.log"
   echo "核对：bash scripts/register_tasks.sh --query"
 }
@@ -71,10 +78,11 @@ remove() {
   run_schtasks /delete /f /tn "$DERIBIT_TASK"
   run_schtasks /delete /f /tn "$BARS_TASK"
   run_schtasks /delete /f /tn "$PAPER_TASK"
+  run_schtasks /delete /f /tn "$COPY_TASK"
 }
 
 query() {
-  for name in "$POLYMARKET_TASK" "$DERIBIT_TASK" "$BARS_TASK" "$PAPER_TASK"; do
+  for name in "$POLYMARKET_TASK" "$DERIBIT_TASK" "$BARS_TASK" "$PAPER_TASK" "$COPY_TASK"; do
     echo "=== $name ==="
     run_schtasks /query /tn "$name" /fo LIST /v |
       grep -E "要运行的任务|Task To Run|下次运行时间|Next Run Time|上次运行时间|Last Run Time|上次结果|Last Result" |
