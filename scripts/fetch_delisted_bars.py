@@ -23,13 +23,17 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from typing import Any, cast
+from typing import cast
 
 import pandas as pd
 import requests
 
 from src.config.paths import crypto_bar_path
-from src.config.settings import load_config
+from src.utils.data_sources.binance import (
+    REQUEST_PAUSE,
+    binance_proxies,
+    fetch_klines,
+)
 
 # OKX 官方退市公告（help/section/announcements-delistings）中，Binance 仍保留历史的标的。
 # 名单是 2026-10-11 的快照；再退市的标的需要重新抓公告页补进来。
@@ -53,86 +57,14 @@ DELISTED_SYMBOLS: tuple[str, ...] = (
 
 BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
 INTERVAL = "1d"
-# 单次最多 1000 根；全历史分页拉取
-PAGE_LIMIT = 1000
 COLUMNS = ("open", "high", "low", "close", "volume")
-REQUEST_TIMEOUT = 30.0
-# 请求间隔：Binance 现货权重限制宽松，留一点余量即可
-REQUEST_PAUSE = 0.25
-# 网络抖动重试（代理切节点会让 SSL 直接断开）
-RETRY_ATTEMPTS = 4
-RETRY_BACKOFF = 3.0
-
-
-def _proxies() -> dict[str, str] | None:
-    """沿用 OKX 的代理开关：Binance 同样走本机代理。"""
-    config = load_config()
-    if not (config.use_proxy and config.proxy_url):
-        return None
-    return {"http": config.proxy_url, "https": config.proxy_url}
-
-
-def _get_klines(
-    session: requests.Session, symbol: str, start_ms: int
-) -> list[list[Any]]:
-    """拉一页日线；网络错误按次数重试，业务错误直接抛。"""
-    params = {
-        "symbol": symbol,
-        "interval": INTERVAL,
-        "startTime": start_ms,
-        "limit": PAGE_LIMIT,
-    }
-    last_error: Exception | None = None
-    for attempt in range(RETRY_ATTEMPTS):
-        try:
-            response = session.get(
-                BINANCE_KLINES, params=params, timeout=REQUEST_TIMEOUT
-            )
-            if response.status_code == 200:
-                return response.json()
-            # 400 = 标的不存在（已从 Binance 彻底下架），不该重试
-            raise ValueError(f"HTTP {response.status_code}: {response.text[:120]}")
-        except (requests.RequestException, ValueError) as error:
-            if isinstance(error, ValueError):
-                raise
-            last_error = error
-            time.sleep(RETRY_BACKOFF * (attempt + 1))
-    raise RuntimeError(f"{symbol} 连续 {RETRY_ATTEMPTS} 次请求失败") from last_error
 
 
 def fetch_daily(session: requests.Session, base: str) -> pd.DataFrame:
-    """拉取单个标的的全部日线，返回与缓存同构的 DataFrame。"""
-    symbol = f"{base}USDT"
-    rows: list[list[Any]] = []
-    cursor = 0
-    while True:
-        page = _get_klines(session, symbol, cursor)
-        if not page:
-            break
-        rows.extend(page)
-        if len(page) < PAGE_LIMIT:
-            break
-        # 下一页从最后一根之后开始（+1ms 避免重复取到同一根）
-        cursor = int(page[-1][0]) + 1
-        time.sleep(REQUEST_PAUSE)
-
-    if not rows:
-        raise ValueError(f"{symbol} 无任何 K 线")
-
-    frame = pd.DataFrame(
-        {
-            "datetime": pd.to_datetime(
-                [int(row[0]) for row in rows], unit="ms", utc=True
-            ),
-            "open": [float(row[1]) for row in rows],
-            "high": [float(row[2]) for row in rows],
-            "low": [float(row[3]) for row in rows],
-            "close": [float(row[4]) for row in rows],
-            "volume": [float(row[5]) for row in rows],
-        }
-    )
-    # 与 okx 缓存同构：DatetimeIndex 名为 datetime，五列全 float64
-    return cast(pd.DataFrame, frame.set_index("datetime")[list(COLUMNS)])
+    """拉取单个标的的全部日线，返回与 okx 缓存同构的 5 列 DataFrame。"""
+    full = fetch_klines(session, f"{base}USDT", interval=INTERVAL)
+    # 与 okx 缓存同构：只留 OHLCV，DatetimeIndex 名为 datetime，五列全 float64
+    return cast(pd.DataFrame, full[list(COLUMNS)])
 
 
 def main() -> int:
@@ -151,7 +83,7 @@ def main() -> int:
         else DELISTED_SYMBOLS
     )
 
-    proxies = _proxies()
+    proxies = binance_proxies()
     session = requests.Session()
     if proxies:
         session.proxies.update(proxies)
