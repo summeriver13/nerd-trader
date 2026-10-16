@@ -40,6 +40,7 @@
 | **被动挂单执行** | 纯被动挂单是负期望生意：加深挂单只降成交频率、不改善盈亏（成交后价格继续走的距离恒为 −1.1 ~ −1.4bp） | [`docs/execution/README.md`](docs/execution/README.md) |
 | **链上聪明钱** | 数据源侦察：链上数据免费拿得到、**标签层拿不到**；可行路径只剩跟踪公开已知地址 | [`docs/onchain/README.md`](docs/onchain/README.md) |
 | **预测市场** | 数据源侦察：**历史全封**（已结算市场无价格序列、subgraph 已关、`/trades` 无时间窗分页），只能前向采集；结算口径已核实（Binance 1 分钟 High/Low + 触碰即结算）；三口径对照面板：上行阶梯 8/8 档比 Deribit 贵 0.4~3.2¢ 且在误差带外，下行夹在 Deribit 与历史之间 | [`docs/polymarket/README.md`](docs/polymarket/README.md) |
+| **跟单榜单** | 数据线侦察：榜上「收益率」是交易员**自有投入资金**的累计口径（`pnlRatio ≈ pnl / investAmt`），跟单者盈亏在另一个字段——AUM≥$1 万的 59 人自报中位 +19.2%，跟单者口径中位只有 +6.0%（汇总 +6.5%）；246 人里 113 人无跟单者、26% 累计亏损、正收益前 10 人占 47%，累计跟单 ≥100 人的现存/累计中位仅 4.5%，官方分润最高 30%（带单门槛 10 万 USDT）；榜单是幸存者快照，2026-10-17 起每日留档做前向验证（判据预注册） | [`docs/copy-trading/README.md`](docs/copy-trading/README.md) |
 
 ## 快速开始
 
@@ -180,9 +181,10 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 - 复现指纹：每次成功运行写 `data/results/provenance/<run_id>.json`，`repro_hash` = sha256(配置快照 + 数据指纹 + git HEAD/脏标记)，同一命令必得同一 hash（`src/research/provenance.py`）。
 - 资金费率缓存：`data/storage/crypto/binance/funding/8h/<SYMBOL>.parquet`（OKX 只保留约 100 天，长历史取 Binance，回溯至 2019-09）。
 - 数据源：ccxt，交易所实例由调用方注入（行情为 OKX，资金费率为 Binance 公共接口）。
-- 定时采集：四个数据集/任务已接 Windows 计划任务（`nerd-trader-polymarket-hourly` 每小时第 7 分、`nerd-trader-deribit-daily` 每日 16:05、`nerd-trader-bars-daily` 每日 16:20 刷新 OKX 现货日线 + 重建 manifest + 验收、`nerd-trader-paper-daily` 每日 16:45 追加趋势线纸面前向账），任务只调 `scripts/scheduled_run.sh <数据集>`，注册/查询/移除用 `scripts/register_tasks.sh`，日志按天落 `logs/scheduled/<数据集>-<日期>.log`。
+- 定时采集：五个数据集/任务已接 Windows 计划任务（`nerd-trader-polymarket-hourly` 每小时第 7 分、`nerd-trader-deribit-daily` 每日 16:05、`nerd-trader-bars-daily` 每日 16:20 刷新 OKX 现货日线 + 重建 manifest + 验收、`nerd-trader-paper-daily` 每日 16:45 追加趋势线纸面前向账、`nerd-trader-copy-daily` 每日 23:40 抓 OKX 跟单榜单快照 + 验收），任务只调 `scripts/scheduled_run.sh <数据集>`，注册/查询/移除用 `scripts/register_tasks.sh`，日志按天落 `logs/scheduled/<数据集>-<日期>.log`。
 - 预测市场（Polymarket）自持：`data/storage/polymarket/raw/<events|markets|prices|trades>/<name>.jsonl`（raw 只增不改，去重追加），manifest 落 `data/manifests/polymarket_raw_*.json`；只能前向采集（历史已被实测封死，容器 ADR-0007），验收闸 `scripts/audit_polymarket.py`，细节见 [`docs/polymarket/README.md`](docs/polymarket/README.md)。
 - Deribit 期权链自持：`data/storage/deribit/raw/<options|futures>/<YYYY-MM-DD>.jsonl`（业务键 `(instrument, fetched_at)`，一日可多轮），manifest 落 `data/manifests/deribit_raw_*.json`；它是阈值阶梯的风险中性定价锚与将来的对冲腿来源，采集 `scripts/fetch_deribit.py`、验收闸 `scripts/audit_deribit.py`（容器 ADR-0006 自持），细节见 [`docs/deribit/README.md`](docs/deribit/README.md)。
+- OKX 跟单榜单自持：`data/storage/okx_copy/raw/lead_traders/<YYYY-MM-DD>.jsonl`（业务键 `(uniqueCode, dataVer)`，同版本重跑不写重复行），manifest 落 `data/manifests/okx_copy_raw_lead_traders.json`；采集 `scripts/fetch_okx_copy.py`、验收闸 `scripts/audit_okx_copy.py`，榜上收益率是交易员自有资金口径、跟单者盈亏另算，细节见 [`docs/copy-trading/README.md`](docs/copy-trading/README.md)。
 
 ## 目录结构
 
@@ -208,13 +210,14 @@ docs/              因子/模型/书目/交易者笔记/执行与信号研究/�
 
 ## 文档索引
 
-十条研究线与一条数据线侦察的判定见上面的[研究结论索引](#研究结论索引)；其余文档目录：
+十条研究线与两条数据线侦察的判定见上面的[研究结论索引](#研究结论索引)；其余文档目录：
 
 | 目录 | 内容 |
 | --- | --- |
 | `docs/wisdom/` | 交易者思想摘录与方法论笔记（de Prado 各章与仓库的对照审计、每章一条「对仓库做了什么」） |
 | `docs/polymarket/` | 预测市场：端点实测、前向采集契约与验收口径（容器 ADR-0007） |
 | `docs/deribit/` | 期权链数据集：契约、采集/验收命令与已踩的坑（容器 ADR-0006） |
+| `docs/copy-trading/` | OKX 跟单榜单：字段口径、采集/验收作业与预注册的前向跟踪判据 |
 | `docs/models/` | 模型笔记 |
 | `docs/library/` | 书籍与视频剪藏 |
 | `docs/src.md/` | 策略源码说明 |
