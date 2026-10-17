@@ -41,6 +41,7 @@
 | **被动挂单执行** | 纯被动挂单是负期望生意：加深挂单只降成交频率、不改善盈亏（成交后价格继续走的距离恒为 −1.1 ~ −1.4bp） | [`docs/execution/README.md`](docs/execution/README.md) |
 | **链上聪明钱** | 数据源侦察：链上数据免费拿得到、**标签层拿不到**；可行路径只剩跟踪公开已知地址 | [`docs/onchain/README.md`](docs/onchain/README.md) |
 | **预测市场** | 数据源侦察：**历史全封**（已结算市场无价格序列、subgraph 已关、`/trades` 无时间窗分页），只能前向采集；结算口径已核实（Binance 1 分钟 High/Low + 触碰即结算）；三口径对照面板：上行阶梯 8/8 档比 Deribit 贵 0.4~3.2¢ 且在误差带外，下行夹在 Deribit 与历史之间 | [`docs/polymarket/README.md`](docs/polymarket/README.md) |
+| **代币化股票** | 口径侦察：「代币化闪迪」是**两个产品**——链上代币现货 `XSNDK`（有股息，以 multiplier 再投资成份数；但 20 档卖盘累计仅 $10K）与 USDT 永续 `SNDK-USDT-SWAP`（无股息、75x 只对应 175 USDT 名义、24/7 但周末量占 2.3%、非交易时段指数不冻结即无外部锚）；流动性全在永续（140 个现货对 $29.0M vs 198 个永续 $994.3M，34 倍），缺失股息被资金费率定价回去（SNDK 年化 +6.40% 多头付、KO −5.26% 多头收） | [`docs/tokenized-stocks/README.md`](docs/tokenized-stocks/README.md) |
 | **跟单榜单** | 数据线侦察：榜上「收益率」是交易员**自有投入资金**的累计口径（`pnlRatio ≈ pnl / investAmt`），跟单者盈亏在另一个字段——AUM≥$1 万的 59 人自报中位 +19.2%，跟单者口径中位只有 +6.0%（汇总 +6.5%）；246 人里 113 人无跟单者、26% 累计亏损、正收益前 10 人占 47%，累计跟单 ≥100 人的现存/累计中位仅 4.5%，官方分润最高 30%（带单门槛 10 万 USDT）；榜单是幸存者快照，2026-10-17 起每日留档做前向验证（判据预注册） | [`docs/copy-trading/README.md`](docs/copy-trading/README.md) |
 
 ## 快速开始
