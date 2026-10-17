@@ -28,7 +28,8 @@ import pandas as pd
 
 from src.config.paths import crypto_dataset_dir
 from src.core.costs import PERP_FEES, FeeSchedule
-from src.research.tsmom import (
+from src.research.study.universe import load_bars_dir
+from src.research.trend.tsmom import (
     SIGNAL_SIGN,
     TsmomOptions,
     active_counts,
@@ -37,7 +38,7 @@ from src.research.tsmom import (
     run_symbol,
     tsmom_signal,
 )
-from src.research.tsmom_report import (
+from src.research.trend.tsmom_report import (
     ArmRow,
     ArmRun,
     hit_rate,
@@ -48,7 +49,6 @@ from src.research.tsmom_report import (
     summarize,
     summarize_stream,
 )
-from src.research.universe import load_bars_dir
 from src.utils.data_sources.funding import (
     FUNDING_TIMEFRAME,
     MARKET_FUNDING,

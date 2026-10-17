@@ -96,7 +96,9 @@ def main() -> int:
             path = update_manifest(dataset, touched=set(names))
             print(f"manifest 已更新：{path}")
 
-    print(f"\n来源 {SOURCE}；运行时刻 {started.isoformat()}；验收：scripts/audit_deribit.py")
+    print(
+        f"\n来源 {SOURCE}；运行时刻 {started.isoformat()}；验收：scripts/audit_deribit.py"
+    )
     return 1 if failures == len(currencies) else 0
 
 

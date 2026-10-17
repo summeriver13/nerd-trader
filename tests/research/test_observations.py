@@ -12,8 +12,9 @@ from collections.abc import Callable
 import pandas as pd
 import pytest
 
-from src.research import labels, observations
 from src.research.factors.panel import Panel
+from src.research.labeling import labels
+from src.research.study import observations
 
 type PanelFactory = Callable[[dict[str, list[float]]], Panel]
 

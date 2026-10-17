@@ -11,7 +11,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.research import bars
+from src.research.sampling import bars
 
 CLOSES = [10.0] * 10
 OPENS = [10.0, 10.1, 9.9, 10.2, 9.8, 10.3, 9.7, 10.4, 9.6, 10.5]

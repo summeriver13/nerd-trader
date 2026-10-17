@@ -17,8 +17,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.meme_bars import CoinBars, load_bars, load_universe
-from src.research.meme_profile import (
+from src.research.meme.meme_bars import CoinBars, load_bars, load_universe
+from src.research.meme.meme_profile import (
     _forward_return,
     benchmark_table,
     burst_table,

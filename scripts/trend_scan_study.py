@@ -35,15 +35,16 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
-from src.research import labels, meta, observations
 from src.research.factors.panel import Panel, load_panel
-from src.research.observations import (
+from src.research.labeling import labels, meta
+from src.research.study import observations
+from src.research.study.observations import (
     AGE_COLUMN,
     FEATURE_FACTORS,
     PRIMARY_FACTOR,
     SADF_COLUMN,
 )
-from src.research.trials import Trial, TrialLedger
+from src.research.validation.trials import Trial, TrialLedger
 from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 UNIFORM_WEIGHT = "weight_uniform"

@@ -1,5 +1,5 @@
 """
-`src/research/tuning.py` 的用例（二）：**搜索语义**（候选生成、选优、可复现、权重切片）。
+`src/research/labeling/tuning.py` 的用例（二）：**搜索语义**（候选生成、选优、可复现、权重切片）。
 
 折的切分与打分口径在 `test_tuning.py`。这里的分母是「搜索选对了没有」。用假分类器而不是
 真随机森林，是为了让每个断言都精确、且单文件用例总耗时低于 1 秒。
@@ -12,7 +12,7 @@ from typing import Any, override
 import numpy as np
 import pytest
 
-from src.research.tuning import (
+from src.research.labeling.tuning import (
     PurgedKFold,
     TuningProblem,
     candidate_list,

@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.research.backtest.engine import BacktestEngine
 from src.research.domains.crypto import CryptoDomain
-from src.research.engine import BacktestEngine
 
 
 def _frame(signal: list[float]) -> pd.DataFrame:

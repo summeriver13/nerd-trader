@@ -16,14 +16,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.vol_target import (
+from src.research.trend.vol_target import (
     VolTargetSpec,
     build_grid,
     matched_control,
     run_constant,
     run_spec,
 )
-from src.research.vol_target_report import _block_sample, _segment_edges
+from src.research.trend.vol_target_report import _block_sample, _segment_edges
 
 BARS = 400
 SEED = 7

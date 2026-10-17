@@ -32,8 +32,8 @@ from src.research.factors.portfolio import (
     leg_stats,
     portfolio_stats,
 )
-from src.research.overfitting import build_overfitting_report
-from src.research.overlap import DEFAULT_EMBARGO_RATIO
+from src.research.validation.overfitting import build_overfitting_report
+from src.research.validation.overlap import DEFAULT_EMBARGO_RATIO
 
 PHASES_PER_HORIZON: int = 3
 

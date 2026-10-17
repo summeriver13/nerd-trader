@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research import bagging, ensembles, meta
+from src.research.backtest import ensembles
+from src.research.labeling import bagging, meta
 
 FEATURES = ["mom_7", "age_days"]
 

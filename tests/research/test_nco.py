@@ -2,7 +2,7 @@
 NCO（嵌套聚类优化，de Prado 第 16 章）的不变量用例。
 
 与 HRP 的用例分开放：HRP 钉的是「递归二分的顺序依赖」，NCO 钉的是「两层次最小方差的
-恒等式」与两个退化情形（一簇、每资产一簇）。共用工具都在 src/research/allocation.py。
+恒等式」与两个退化情形（一簇、每资产一簇）。共用工具都在 src/research/backtest/allocation.py。
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.allocation import (
+from src.research.backtest.allocation import (
     cluster_labels,
     covariance_pair,
     minimum_variance_weights,

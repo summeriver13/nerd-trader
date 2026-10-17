@@ -28,7 +28,7 @@ from src.research.factors.portfolio import (
     forward_returns,
     portfolio_stats,
 )
-from src.research.microstructure import load_microstructure
+from src.research.liquidity.microstructure import load_microstructure
 from src.utils.study_cli import add_no_save
 
 RESULTS_DIR: Path = Path("data/results/breaks")

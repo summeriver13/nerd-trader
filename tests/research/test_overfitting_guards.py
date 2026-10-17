@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from src.analytics.metrics import bars_per_year
-from src.research.overfitting import (
+from src.research.validation.overfitting import (
     MIN_DSR_OBSERVATIONS,
     build_overfitting_report,
     expected_max_sharpe,

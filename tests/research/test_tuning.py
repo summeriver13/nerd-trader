@@ -1,5 +1,5 @@
 """
-`src/research/tuning.py` 的用例（一）：**折的切分与打分口径**。
+`src/research/labeling/tuning.py` 的用例（一）：**折的切分与打分口径**。
 
 断言分两类：**口径不变式**（折不跨日、purge/embargo 精确挖掉哪几天、打分与 sklearn
 逐值相同）与**行为标定**（先跑探针量出再写死）。搜索部分的用例在
@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.tuning import (
+from src.research.labeling.tuning import (
     PurgedKFold,
     log_uniform,
     positive_f1,

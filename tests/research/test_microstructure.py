@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.microstructure import (
+from src.research.liquidity.microstructure import (
     MicroOptions,
     amihud_bp,
     bulk_volume_split,

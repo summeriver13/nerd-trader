@@ -12,7 +12,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.bar_factors import bar_reversal, calendar_reversal, rescaled_reversal
+from src.research.sampling.bar_factors import (
+    bar_reversal,
+    calendar_reversal,
+    rescaled_reversal,
+)
 
 
 def _bars(prices: list[float], start: str = "2024-01-01") -> pd.Series:

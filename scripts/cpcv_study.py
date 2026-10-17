@@ -39,17 +39,17 @@ import pandas as pd
 
 from src.analytics.metrics import annualized_sharpe
 from src.config.paths import RESULTS_ROOT
-from src.research.allocation import (
+from src.research.backtest.allocation import (
     DEFAULT_CLUSTERS,
     hrp_weights,
     inverse_variance_weights,
     minimum_variance_weights,
     nco_weights,
 )
-from src.research.cpcv import CombinatorialPurgedCv, CpcvSplit, path_series
 from src.research.factors.library import MAIN_POOL_KEYS
 from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
-from src.research.observations import strategy_spreads
+from src.research.study.observations import strategy_spreads
+from src.research.validation.cpcv import CombinatorialPurgedCv, CpcvSplit, path_series
 from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "breaks"

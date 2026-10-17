@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.research.data_window import bars_to_days, load_window
+from src.research.study.data_window import bars_to_days, load_window
 
 
 class _FakeLoader:

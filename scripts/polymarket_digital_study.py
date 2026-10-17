@@ -2,7 +2,7 @@
 
 回答「这批阶梯里哪些档位相对两个参照同时偏贵/偏便宜」，并给出每档的隐含波动率、
 Deribit 一侧的报价宽度、以及卖尾方向必须扣掉的成本。分析逻辑在
-`src/research/polymarket_digital.py`，本脚本只负责取数、装配与落盘。
+`src/research/polymarket/polymarket_digital.py`，本脚本只负责取数、装配与落盘。
 
 判读口径：两侧 payoff 不同源（Deribit 无 touch 合约），差额是**相对价值**不是无风险套利。
 
@@ -31,13 +31,17 @@ from src.config.paths import (
     POLYMARKET_RESULTS_ROOT,
     polymarket_dataset_dir,
 )
-from src.research.polymarket_digital import (
+from src.research.polymarket.polymarket_digital import (
     ComparisonRow,
     comparison_table,
     smile_from_chain,
 )
-from src.research.polymarket_ladder import LadderRow, load_ladders, rule_warnings
-from src.research.price_bootstrap import (
+from src.research.polymarket.polymarket_ladder import (
+    LadderRow,
+    load_ladders,
+    rule_warnings,
+)
+from src.research.polymarket.price_bootstrap import (
     BootstrapSpec,
     PathStats,
     hourly_returns,
@@ -63,14 +67,22 @@ CENTS = 100.0
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="阈值阶梯三口径对照")
     parser.add_argument("--currency", default=DEFAULT_CURRENCY, choices=sorted(SYMBOLS))
-    parser.add_argument("--ladder", default=None, help="阶梯键，如 bitcoin/reach/2025-11-24")
+    parser.add_argument(
+        "--ladder", default=None, help="阶梯键，如 bitcoin/reach/2025-11-24"
+    )
     parser.add_argument("--list", action="store_true", help="只列阶梯清单后退出")
     parser.add_argument("--offline", action="store_true", help="用最近落盘的链，不联网")
-    parser.add_argument("--lookback-days", type=int, default=365, help="bootstrap 回看天数")
-    parser.add_argument("--block-hours", type=int, default=24, help="重抽样块长（小时）")
+    parser.add_argument(
+        "--lookback-days", type=int, default=365, help="bootstrap 回看天数"
+    )
+    parser.add_argument(
+        "--block-hours", type=int, default=24, help="重抽样块长（小时）"
+    )
     parser.add_argument("--paths", type=int, default=20_000, help="模拟路径数")
     parser.add_argument("--seed", type=int, default=11)
-    parser.add_argument("--vol-target", type=float, default=None, help="按目标波动率缩放")
+    parser.add_argument(
+        "--vol-target", type=float, default=None, help="按目标波动率缩放"
+    )
     return parser.parse_args()
 
 
@@ -113,9 +125,7 @@ def pick_ladder(
     return max(scoped.values(), key=len)
 
 
-def bootstrap_pair(
-    args: argparse.Namespace, *, hours: int
-) -> dict[str, PathStats]:
+def bootstrap_pair(args: argparse.Namespace, *, hours: int) -> dict[str, PathStats]:
     """两条参照：去漂移与含历史漂移——市场价常夹在这两者之间，必须同时给。"""
     returns = hourly_returns(SYMBOLS[args.currency], lookback_days=args.lookback_days)
     common = {
@@ -195,7 +205,9 @@ def run(args: argparse.Namespace) -> int:
     )
     expiry = nearest_expiry(chain, end_at)
     smile = smile_from_chain(chain, expiry, forward.forward)
-    print(f"微笑：{expiry} 共 {smile.strikes.size} 档（{smile.strikes.min():,.0f}~{smile.strikes.max():,.0f}）")
+    print(
+        f"微笑：{expiry} 共 {smile.strikes.size} 档（{smile.strikes.min():,.0f}~{smile.strikes.max():,.0f}）"
+    )
 
     stats = bootstrap_pair(args, hours=round(horizon * 365 * HOURS_PER_DAY))
     table = comparison_table(

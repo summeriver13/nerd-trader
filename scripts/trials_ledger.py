@@ -24,7 +24,7 @@ import argparse
 import sys
 
 from src.research.factors.sweep import DEFAULT_HORIZONS, SWEEP_FAMILIES
-from src.research.trials import (
+from src.research.validation.trials import (
     ORIGIN_BACKFILL,
     ORIGIN_RUN,
     Trial,

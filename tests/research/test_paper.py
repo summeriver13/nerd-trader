@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from src.core.costs import SPOT_FEES
-from src.research.paper import (
+from src.research.trend.paper import (
     COST_RATE,
     GENESIS,
     PaperSpec,

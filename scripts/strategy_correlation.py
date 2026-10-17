@@ -33,7 +33,7 @@ from src.analytics.metrics import (
     sortino_ratio,
     total_return,
 )
-from src.research.overfitting import (
+from src.research.validation.overfitting import (
     DSR_THRESHOLD,
     PboResult,
     deflated_sharpe,
@@ -41,7 +41,7 @@ from src.research.overfitting import (
     probability_of_backtest_overfitting,
     sharpe_estimator_variance,
 )
-from src.research.registry import STRATEGY_SHORT_NAMES, resolve_symbols
+from src.research.validation.registry import STRATEGY_SHORT_NAMES, resolve_symbols
 
 INPUT_DIR = Path("data/results/strategy_suite")
 ALL_KEYS: tuple[str, ...] = ("buy-and-hold", "1", "2", "3", "4", "5")

@@ -19,8 +19,8 @@ from typing import cast
 
 import pandas as pd
 
-from src.research.maker_conditional import MAKER_FEE_BP, TAKER_FEE_BP
-from src.research.maker_spread import (
+from src.research.liquidity.maker_conditional import MAKER_FEE_BP, TAKER_FEE_BP
+from src.research.liquidity.maker_spread import (
     SpreadOptions,
     daily_frame,
     load_legs,

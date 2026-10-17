@@ -21,7 +21,7 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-from src.research import ffd
+from src.research.factors import ffd
 from src.research.factors.panel import Panel
 
 # 因子族（报告按族分组，便于看「同一族里的因子是否互相重复」）

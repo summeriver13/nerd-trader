@@ -28,17 +28,17 @@ from typing import Final, cast
 import pandas as pd
 
 from src.config.paths import RESULTS_ROOT
-from src.research.breaks import (
-    SadfOptions,
-    explosive_mask,
-    monte_carlo_critical,
-    sadf_series,
-)
 from src.research.factors.evaluation import forward_returns, rank_ic_series
 from src.research.factors.library import DIRECTION_LONG, FactorSpec, momentum
 from src.research.factors.orthogonal import double_sort_ic
 from src.research.factors.panel import Panel, load_panel, tradable_mask
 from src.research.factors.portfolio import PortfolioOptions, portfolio_stats
+from src.research.validation.breaks import (
+    SadfOptions,
+    explosive_mask,
+    monte_carlo_critical,
+    sadf_series,
+)
 from src.utils.study_cli import add_market_argument, add_timeframe_argument
 
 HORIZONS: Final[tuple[int, ...]] = (1, 2, 3, 5, 7, 15, 30)

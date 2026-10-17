@@ -1,4 +1,4 @@
-"""src/research/sizing.py 的用例（de Prado 第 10 章下注规模）。"""
+"""src/research/backtest/sizing.py 的用例（de Prado 第 10 章下注规模）。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research import sizing
+from src.research.backtest import sizing
 
 
 def _series(values: list[float]) -> pd.Series:

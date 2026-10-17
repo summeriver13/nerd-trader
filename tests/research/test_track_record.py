@@ -14,8 +14,7 @@ import pandas as pd
 import pytest
 
 from src.analytics.metrics import sharpe_ratio
-from src.research.overfitting import deflated_sharpe
-from src.research.track_record import (
+from src.research.study.track_record import (
     concentration,
     concentration_by_sign,
     drawdown_and_time_under_water,
@@ -25,6 +24,7 @@ from src.research.track_record import (
     sharpe_z_score,
     track_record,
 )
+from src.research.validation.overfitting import deflated_sharpe
 
 
 def test_concentration_is_zero_when_every_bet_is_equal() -> None:

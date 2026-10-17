@@ -30,14 +30,15 @@ import pandas as pd
 from scipy import stats
 
 from src.config.paths import RESULTS_ROOT
-from src.research import meta, observations, tuning
 from src.research.factors.panel import Panel, load_panel
-from src.research.observations import (
+from src.research.labeling import meta, tuning
+from src.research.study import observations
+from src.research.study.observations import (
     AGE_COLUMN,
     FEATURE_FACTORS,
     PRIMARY_FACTOR,
 )
-from src.research.trials import Trial, TrialLedger
+from src.research.validation.trials import Trial, TrialLedger
 from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 LABEL_SOURCE: Final[str] = observations.BARRIER_LABEL_COLUMN

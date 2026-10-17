@@ -4,7 +4,7 @@
 
 与 ``scripts/corrections_study.py --stage bed`` 的分工：那一床造的是**候选收益序列**，只量校正
 检验自己的尺寸与功效；这里造**面板**（close/volume/notional），因子构造、分位组合、成本、平台
-判据都会真的被执行，于是检验的是整条管道。四档床的定义与真值写在 ``src/research/synthetic.py``。
+判据都会真的被执行，于是检验的是整条管道。四档床的定义与真值写在 ``src/research/study/synthetic.py``。
 
 单位口径：IC 是定向后的截面秩相关（正 = 高分位跑赢），钱的口径是 bp/期、默认成本（弱信号档用
 30bp/边）。家族级检验的家族 = 七个主池因子（K=7），坐标同 anchor。
@@ -19,15 +19,15 @@ from typing import Final
 import numpy as np
 import pandas as pd
 
-from src.research.corrections import (
+from src.research.study.synthetic import BEDS, SyntheticSpec
+from src.research.study.synthetic_checks import run_bed
+from src.research.validation.corrections import (
     DEFAULT_ALPHA,
     benjamini_hochberg,
     hansen_spa,
     naive_p_values,
     reality_check,
 )
-from src.research.synthetic import BEDS, SyntheticSpec
-from src.research.synthetic_checks import run_bed
 from src.utils.study_cli import add_no_save
 
 RESULTS_DIR: Final[Path] = Path("data/results/breaks")

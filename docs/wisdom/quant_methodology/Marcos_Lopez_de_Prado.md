@@ -72,7 +72,7 @@ SSRN 最高被引作者之一，7 项算法交易国际专利。
 | 4 | **Wrong labeling**：固定时间跨度标签（a）时间棒统计性质差（b）阈值不看波动率（c）**完全忽略价格路径**。解药：三重障碍 + 元标签 | 所有研究都用固定期限前向收益（h=1/3/30 根） | **命中** |
 | 5 | **Weighting of non-IID samples**：“血样被倒进后面 9 根试管”——标签重叠时无法归因。解药：按标签唯一性加权 | `non_overlapping_t` 用 `series.iloc[::horizon]` 只取非重叠子样本：**有效但不是他的做法**——丢掉 h−1/h 的数据（h=30 时丢 97%），而唯一性加权用全部数据加权 | **部分命中** |
 | 6 | **Cross-validation leakage**：k-fold 在金融里失败是因为观测非 IID；解药 purge（剔除标签时间重叠的训练样本）+ embargo（禁运测试集后紧邻观测，h≈0.01T） | 仓库有 CSCV（`overfitting.py`，用于 `strategy_suite`/`carry_ranking`/`pairs_study`），但**分块直切、无 purge 也无 embargo**；因子路径（`factor_suite`/`factor_sweep`）**连 CSCV 都没用** | **部分命中** |
-| 7 | **Backtest overfitting**：不顾理论依据地搜索经验发现会放大问题。解药：通缩夏普比（DSR），控制多重试验膨胀 + 数据挖掘 + 非正态 + 样本长度 | 有 DSR（六策略在 BTC/ETH 上全 FAIL，最好 0.875），但 **N 从未被诚实计数**——DSR 的 N 是“独立试验数”，仓库从未统计过历史上总共试过多少次（本轮已修：`src/research/trials.py` 账本，N=6625） | **部分命中 → 已修** |
+| 7 | **Backtest overfitting**：不顾理论依据地搜索经验发现会放大问题。解药：通缩夏普比（DSR），控制多重试验膨胀 + 数据挖掘 + 非正态 + 样本长度 | 有 DSR（六策略在 BTC/ETH 上全 FAIL，最好 0.875），但 **N 从未被诚实计数**——DSR 的 N 是“独立试验数”，仓库从未统计过历史上总共试过多少次（本轮已修：`src/research/validation/trials.py` 账本，N=6625） | **部分命中 → 已修** |
 
 **5 条命中、2 条部分命中。** 这不是书评，是体检结论。
 
@@ -113,12 +113,12 @@ embargo：再禁运测试集之后紧邻的一小段（h≈0.01T），因为序�
 元标签回答的正是“给定主信号，这次该不该出手”——与条件化挂单**是同一个问题**，
 但有一套现成的建模框架，而不是手写一个挂单探针。
 
-**本仓库的落地口径（2026-10）**：`src/research/meta.py` + `scripts/meta_label_study.py`。
+**本仓库的落地口径（2026-10）**：`src/research/labeling/meta.py` + `scripts/meta_label_study.py`。
 关键修正是 **embargo 必须按天计**——旧实现传的是 200 个观测，在这个真实帧上（168,442
 观测 / 2,292 天、每日中位 68 行）只隔约 2.9 天，而 `0.01T` 在这个帧上是 8 天。改成按天
 （默认 8 天、训练集切到整天边界）后复跑，结论一条没翻、读数小幅移动：0.60 档 lift
 +153 ~ +216bp（原 +146 ~ +254bp）、命中率 0.586 ~ 0.593，账本仍 N=6653。
-与 `src/research/tuning.py` 是同一条纪律：purge/embargo 的单位在面板上只能是**天**。
+与 `src/research/labeling/tuning.py` 是同一条纪律：purge/embargo 的单位在面板上只能是**天**。
 
 **Ch 3.6 趋势扫描标签（2026-10）**：固定期限与三重障碍之外还有第三条路——标签取
 「前向窗口内 |t| 最大的趋势」的符号（`labels.trend_scan`；向量化实现：斜率 t 值等于
@@ -140,7 +140,7 @@ embargo：再禁运测试集之后紧邻的一小段（h≈0.01T），因为序�
 “多数金融研究基于 d=1 的收益率，意味着几十年来大部分金融研究建立在**过度差分（无记忆）**的序列上，
 导致虚假预测与过拟合。”
 
-**本仓库已试（2026-10）**：`src/research/ffd.py`（只做固定窗版本，展开窗是作者自己
+**本仓库已试（2026-10）**：`src/research/factors/ffd.py`（只做固定窗版本，展开窗是作者自己
 否定的形式）+ 因子库 `ffd_d0p2`/`ffd_d0p4`。工具层面作者主张成立（BTC 日线：水平不过 ADF，
 d=0.25 起通过而「与水平的记忆」仍有 0.987，d=1 塌到 0.02）。但三处原文没说：
 **默认阈值 1e-5 是分钟级口径**（日线同阈值要 1457 根历史）、**截断使权重和不再为 0
@@ -161,7 +161,7 @@ d=0.25 起通过而「与水平的记忆」仍有 0.987，d=1 塌到 0.02）。�
 核心主张是两件：**搜索的折必须 purge/embargo**，以及**选超参本身就是一条多重检验轴**
 （在 K 个配置里挑最好，与在 K 个策略里挑最好没有区别）。
 
-**本仓库已实现（2026-10）**：`src/research/tuning.py`（`PurgedKFold` 按**日期**切折、
+**本仓库已实现（2026-10）**：`src/research/labeling/tuning.py`（`PurgedKFold` 按**日期**切折、
 `search_hyperparameters` 随机/网格搜索、`log_uniform`、`scoring_for`、`positive_f1`）+
 实证脚本 `scripts/tuning_study.py`；`meta.py` 顺手拆出 `build_classifier`，让超参定义只有
 一处（调参要的是「按参数造模型」，不是「造好顺便训了」）。
@@ -185,7 +185,7 @@ CV 最优几乎从来不是样本外最优（事后最优平均再高 +0.013）�
 马科维茨的 `w ∝ Σ⁻¹μ` 在相关簇上会把估计误差放大成极端权重（「马科维茨诅咒」）；
 HRP 的对策是**把协方差变成一棵树**：先聚类，再自顶向下按簇方差分配，全程不求逆矩阵。
 
-**本仓库已实现（2026-10）**：`src/research/allocation.py`（距离 `√((1−ρ)/2)`、单链接、
+**本仓库已实现（2026-10）**：`src/research/backtest/allocation.py`（距离 `√((1−ρ)/2)`、单链接、
 准对角化、逆方差、递归二分、`hrp_weights`）+ 实证脚本 `scripts/hrp_study.py`。
 准对角化用深度优先展开替代原文的迭代插入法，**等价性由用例对着原文算法逐字比对钉死**；
 距离与聚类口径与 `importance.tools.feature_clusters` 收敛成一份实现。
@@ -203,8 +203,8 @@ DSR/PBO 回答“试了这么多次还算不算技能”；Ch 14/15 回答“**�
 PSR（夏普高于基准的概率）、MinTRL（达到 95% 置信所需的最小观测数）、回撤与水下时间、
 逐期收益的集中度（HHI），以及给定下注规则时的所需胜率 / 所需下注次数 / 失败概率。
 
-**本仓库已实现（2026-10）**：`src/research/track_record.py` 与
-`src/research/strategy_risk.py`，已接进 `scripts/factor_verify.py` 常规输出。
+**本仓库已实现（2026-10）**：`src/research/study/track_record.py` 与
+`src/research/backtest/strategy_risk.py`，已接进 `scripts/factor_verify.py` 常规输出。
 
 **实测抓出两处原文口径问题**（跑真实数据才暴露，读原文读不出来）：
 
@@ -259,7 +259,7 @@ embargo，本仓不照抄）；CPCV 的训练组含测试组**之后**的日期�
 
 ### 4.12 熵特征（Ch 18）
 
-`src/research/entropy.py` + `scripts/entropy_study.py`：香农熵（固定宽度分箱）、顺序熵、LZ76 熵率、
+`src/research/sampling/entropy.py` + `scripts/entropy_study.py`：香农熵（固定宽度分箱）、顺序熵、LZ76 熵率、
 Kontoyiannis 最长匹配熵率；两个序列类估计量一律扣**同窗置换基线**。四条钉死的口径：
 
 - **等频分箱是死的**：分位数边界强制每箱等量 → 熵恒等于 log2(箱数)（随机序列与常数序列都给 3.3219），
@@ -288,14 +288,14 @@ bootstrap 199 次）：
 - **RC / Hansen SPA 贴住名义 α**（0.03 ~ 0.14）而功效 1.00（种 0.4σ 信号）——尺寸控制不是
   靠「一律不拒」换来的。
 
-工具与口径：`src/research/corrections.py`（`reality_check` 不学生化、`hansen_spa` 学生化并
+工具与口径：`src/research/validation/corrections.py`（`reality_check` 不学生化、`hansen_spa` 学生化并
 同时给 `p_consistent`/`p_upper`、`naive_p_values` 单侧对照臂、`benjamini_hochberg` 步进），
 重采样一律 Politis-Romano 平稳 bootstrap（默认块长 T^(1/3)），零波动候选标准误取 inf 使 t
 归零。真实家族读数与「家族级检验必须钉 anchor」那条口径见 README 第二十四节。
 
 **补上端到端那一环**：上面的床造的是候选**收益序列**，因子构造、分位组合、成本、平台判据都被
 绕过——它只回答「校正工具本身对不对」。要回答「**整条管道**在真值已知时判对没有」，得造**面板**
-（`src/research/synthetic.py`：60 只 × 2000 根日线 + 四档 DGP），让真实管道跑一遍，读数在
+（`src/research/study/synthetic.py`：60 只 × 2000 根日线 + 四档 DGP），让真实管道跑一遍，读数在
 `scripts/synthetic_study.py`。四条实测：① **无信号床上七个主池因子在 10 颗种子上全部沉默**
 （IC 全距 ±0.011 内），家族级拒绝率 RC/SPA 0.10、naive 0.20——整条链的尺寸干净；② 种反转
 （ρ = −0.06）时该亮的亮（`rev_3` IC 中位 +0.0300）、镜像的反号（`mom_7` −0.0196）、四种做法
@@ -330,7 +330,7 @@ Search-Adjusted Estimation》证明：
 4. **零假设校准是真的，但它是模拟、不是识别**：两个纯噪音族 6 个组合零平台，这是真证据；
    但它依赖**我自己选的**零假设族（iid 噪音 + 滑动平均噪音），换一个带截面结构的零假设，结论可能不同。
 
-**最讽刺的一点**：仓库**早就有** PBO/CSCV 与 DSR（`src/research/overfitting.py`，实现与
+**最讽刺的一点**：仓库**早就有** PBO/CSCV 与 DSR（`src/research/validation/overfitting.py`，实现与
 §4.1 一致，且 `print_overfitting` 里已经写了诚实提示“若历史上还试过其他参数/窗口，
 请用 `--trials` 声明真实试验次数”），`strategy_suite`、`carry_ranking`、`pairs_study` 都在用。
 **我的扫描器把整套现成机制绕过去了，自己造了一个没有理论保证的门槛。**
@@ -378,24 +378,24 @@ Search-Adjusted Estimation》证明：
 
 1. **PBO/CSCV**（§4.1）——已接进因子路径（`src/research/factors/verification.py`），
    并且区分了「平台代表窗口池」与「全候选池」两个问题。
-2. **Dollar Bars**（§4.3）——已建（`src/research/bars.py`，30 只 / 42,421 根），
+2. **Dollar Bars**（§4.3）——已建（`src/research/sampling/bars.py`，30 只 / 42,421 根），
    尺度之争已答：**反转是日历尺度的现象，不是信息尺度的**
    （同池日历 IC 0.0354 → 同池信息 0.0048，见 `docs/factors/README.md` 第九节）。
-3. **purge / embargo**（§4.2）——已进 CSCV（`src/research/overlap.py`）。
+3. **purge / embargo**（§4.2）——已进 CSCV（`src/research/validation/overlap.py`）。
    实测：非重叠采样下 purge 恒为空操作（标签首尾相接），但 **embargo 真的改数字**
    （现货 h=1 从 23.8% → 31.0%、h=2 从 15.9% → 20.2%），且方向正确——原值偏乐观。
    全候选池已用新口径重算：**裁决零翻转**。
-4. **SADF 结构突变**（§4.7，Ch 17）——已建（`src/research/breaks.py`，
+4. **SADF 结构突变**（§4.7，Ch 17）——已建（`src/research/validation/breaks.py`，
    与 `statsmodels.adfuller` 逐位对拍，前缀和把每个窗口降到 O(1)、快 79 倍）。
    信号层三重控制全过、参数平台漂亮、组合层年化 45~53%——
    但 **PBO 52.4/60.3/85.0% 全不过、DSR 全 0，不采信**。详见
    `docs/factors/README.md` 第十节。这是「看上去很好、验证层不过」的完整演示。
-5. **三重障碍**（§4.4，Ch 3）——已建（`src/research/labels.py`）。障碍按波动率标度、
+5. **三重障碍**（§4.4，Ch 3）——已建（`src/research/labeling/labels.py`）。障碍按波动率标度、
    首次触及定 `t1`、标签是触及时刻收益的符号；与朴素逐事件循环逐位对拍。
 6. **唯一性权重**（§4.5，Ch 4）——已建（`overlap.uniqueness_from_ends`，
    可变长度版）。**已接线并实测**，但结论是它 **不能当结论**：
    20 棵树冒烟跑里 C 胜 B、200 棵树全量跑里 B 胜 C，差异在噪声量级。
-7. **诚实计数 N**（§3 第 7 条）——已建（`src/research/trials.py`，append-only 账本
+7. **诚实计数 N**（§3 第 7 条）——已建（`src/research/validation/trials.py`，append-only 账本
    + `scripts/trials_ledger.py`）。接线后 `verify()` 的 N 默认取账本累计数，
    scope 为空且未声明 `--trials` 时**打印警告**（低估从此是可见的）。
    当前账本 **N = 7808**（2026-10-16 两市场整池 `factor_verify --pool all` 复跑后；分项口径见 README 第十九节，实时数以 `scripts/trials_ledger.py` 为准）。
@@ -405,7 +405,7 @@ Search-Adjusted Estimation》证明：
    诚实说清的弱点：`data/` 整个被 `.gitignore` 忽略，账本**不防篡改**，
    靠「代码自动记录 + 每次打印 N」保证看得见，而不是靠改不动。
 
-7. **Bet Sizing**（§4.5，Ch 10）——已建（`src/research/sizing.py`）。**结论是负的**：
+7. **Bet Sizing**（§4.5，Ch 10）——已建（`src/research/backtest/sizing.py`）。**结论是负的**：
    连续定仓在三个变体上一致输给硬阈值（净夏普 0.135~0.312 对 0.469~0.627）——
    概率**在阈值上有信息、阈值内部没有排序信息**。唯一站得住的细化是网格量化（降换手）。
    顺带抓到一个单位陷阱：把 h 日前向收益当每期收益会让夏普被重叠抬高（927→429bp/期）。
@@ -421,7 +421,7 @@ Search-Adjusted Estimation》证明：
    **确认性检验不通过**——数据的主变异方向（`dth_60`、`sadf`，恰好是 MDA 判负的两个）正是
    模型说没用的方向。Ch 8 的工具到此齐了（MDI / MDA / 聚类 MDA / SFI / PCA 正交）。
 
-9. **顺序 bootstrap**（Ch 4.5）——已建（`src/research/bootstrap.py`）。**已实测并给出
+9. **顺序 bootstrap**（Ch 4.5）——已建（`src/research/validation/bootstrap.py`）。**已实测并给出
    适用条件**：袋的平均唯一性几乎完全补回（三重障碍 0.2930 → 0.3267、全样本 0.3292，
    补回 93.0%；固定期限 0.1989 → 0.2006，等于全样本；148/148 只标的都赢），袋估计量的
    离散度降 25~32%（偏差方向不稳，不解读）。但它修的是**袋内重复**而不是**标签重叠**：
@@ -431,7 +431,7 @@ Search-Adjusted Estimation》证明：
    恒 1.0000，但只留 20.1% 的标签。详见 `docs/factors/README.md` 第十一节第 7 小节。
    接进 bagging 集成（Ch 6）才是作者原意——**已交付，见第 10 条**。
 
-10. **袋化集成**（Ch 6）——已建（`src/research/bagging.py` 手写袋化集成 + `src/research/ensembles.py`
+10. **袋化集成**（Ch 6）——已建（`src/research/labeling/bagging.py` 手写袋化集成 + `src/research/backtest/ensembles.py`
    五臂族）。**已实测**：同骨架、只换袋子（顺序 vs 均匀）时，固定预算口径下顺序袋全胜
    （2% 预算每注 +164.3bp 对 +148.6bp、夏普 7.62 对 7.06；种子间标准差 2.9bp 对 34.3bp），
    而且手写均匀袋也赢 sklearn 的随机森林（+148.6 对 +119.8）——**手写实现与库实现的差不能当

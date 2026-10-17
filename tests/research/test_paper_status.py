@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.paper_status import (
+from src.research.trend.paper_status import (
     BARS_PER_YEAR,
     DD_KILL,
     DD_WATCH,
@@ -135,6 +135,6 @@ def test_status_report_contains_thresholds_context() -> None:
 
 @pytest.mark.parametrize("verdict,expected", [(VERDICT_HEALTHY, 0), (VERDICT_WATCH, 1), (VERDICT_KILL, 2)])
 def test_exit_codes(verdict: str, expected: int) -> None:
-    from src.research.paper_status import RetireStatus
+    from src.research.trend.paper_status import RetireStatus
 
     assert RetireStatus(400, verdict, 1.0, -0.01, 0.10, ()).exit_code == expected

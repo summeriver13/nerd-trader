@@ -6,14 +6,14 @@
     uv run python scripts/listing_study.py --horizon 180  # 换入场扫描的持有期
 
 数据来源：OKX 现货上市时刻（`public/instruments`，每次实时拉取，约 2 秒）+ 本地日线缓存。
-可信样本从 2022-01-01 起（更早的 listTime 被 OKX 批量重置），详见 src/research/listing.py。
+可信样本从 2022-01-01 起（更早的 listTime 被 OKX 批量重置），详见 src/research/listings/listing.py。
 """
 
 import argparse
 
 from src.config.settings import create_data_exchange
-from src.research.listing import fetch_listing_times, load_events
-from src.research.listing_report import (
+from src.research.listings.listing import fetch_listing_times, load_events
+from src.research.listings.listing_report import (
     DEFAULT_HORIZON,
     build_report,
     print_report,

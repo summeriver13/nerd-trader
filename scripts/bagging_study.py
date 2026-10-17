@@ -32,15 +32,17 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.research import bagging, ensembles, meta, observations
+from src.research.backtest import ensembles
 from src.research.factors.panel import load_panel
-from src.research.observations import (
+from src.research.labeling import bagging, meta
+from src.research.study import observations
+from src.research.study.observations import (
     AGE_COLUMN,
     FEATURE_FACTORS,
     PRIMARY_FACTOR,
     SADF_COLUMN,
 )
-from src.research.trials import Trial, TrialLedger
+from src.research.validation.trials import Trial, TrialLedger
 from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 THRESHOLDS = (0.0, 0.55, 0.6, 0.7)

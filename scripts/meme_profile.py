@@ -5,13 +5,13 @@
     uv run python scripts/meme_profile.py --no-save   # 只打印
 
 数据来源：本地 OKX 现货日线缓存（12 只 meme + BTC 基准），只读，不触发采集。
-口径与读表规则见 src/research/meme_profile.py 的模块 docstring。
+口径与读表规则见 src/research/meme/meme_profile.py 的模块 docstring。
 """
 
 import argparse
 
-from src.research.meme_bars import load_universe
-from src.research.meme_report import (
+from src.research.meme.meme_bars import load_universe
+from src.research.meme.meme_report import (
     OUTPUT_DIR,
     build_report,
     print_report,

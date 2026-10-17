@@ -26,21 +26,21 @@ import pandas as pd
 
 from src.analytics.metrics import sharpe_ratio
 from src.config.paths import crypto_bar_path, symbol_stem
+from src.research.backtest.engine import BacktestEngine
 from src.research.domains.crypto import CryptoDomain
-from src.research.engine import BacktestEngine
-from src.research.overfitting import (
+from src.research.strategies.base import BaseStrategy
+from src.research.strategies.buy_and_hold import BuyAndHoldStrategy
+from src.research.validation.overfitting import (
     deflated_sharpe,
     expected_max_sharpe,
     probability_of_backtest_overfitting,
     sharpe_estimator_variance,
 )
-from src.research.registry import (
+from src.research.validation.registry import (
     STRATEGY_MAP,
     STRATEGY_SHORT_NAMES,
     resolve_symbols,
 )
-from src.research.strategies.base import BaseStrategy
-from src.research.strategies.buy_and_hold import BuyAndHoldStrategy
 
 EXCHANGE = "okx"
 TIMEFRAME = "1d"

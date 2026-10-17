@@ -27,7 +27,7 @@ from src.research.importance.tools import (
     single_feature_importance,
     summarise_folds,
 )
-from src.research.meta import FoldFit
+from src.research.labeling.meta import FoldFit
 
 __all__ = [
     "DEFAULT_CLUSTER_DISTANCE",

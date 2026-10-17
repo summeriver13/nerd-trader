@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.research import overlap
+from src.research.validation import overlap
 
 
 def test_concurrency_ramps_up_when_labels_overlap() -> None:

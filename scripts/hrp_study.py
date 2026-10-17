@@ -31,11 +31,11 @@ import numpy as np
 import pandas as pd
 
 from src.config.paths import RESULTS_ROOT
-from src.research.allocation import hrp_weights, inverse_variance_weights
+from src.research.backtest.allocation import hrp_weights, inverse_variance_weights
 from src.research.factors.library import MAIN_POOL_KEYS
 from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
-from src.research.observations import strategy_spreads
-from src.research.track_record import TrackRecord, track_record
+from src.research.study.observations import strategy_spreads
+from src.research.study.track_record import TrackRecord, track_record
 from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "breaks"

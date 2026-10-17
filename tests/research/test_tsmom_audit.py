@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.tsmom_audit import (
+from src.research.trend.tsmom_audit import (
     ALIVE_WINDOW_DAYS,
     alive_at_end,
     bootstrap_sharpe,

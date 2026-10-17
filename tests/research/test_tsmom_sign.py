@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.tsmom import (
+from src.research.trend.tsmom import (
     SIGNAL_BREAKOUT,
     SIGNAL_SIGN,
     TsmomOptions,

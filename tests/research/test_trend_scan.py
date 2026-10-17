@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research import labels
+from src.research.labeling import labels
 
 
 def _series(values: list[float]) -> pd.Series:

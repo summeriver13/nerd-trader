@@ -31,7 +31,7 @@ from src.research.importance.tools import (
     mean_decrease_accuracy,
     single_feature_importance,
 )
-from src.research.meta import FoldFit, MetaLabelOptions
+from src.research.labeling.meta import FoldFit, MetaLabelOptions
 
 
 def importance_table(

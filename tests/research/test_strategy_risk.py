@@ -11,7 +11,7 @@ import math
 import numpy as np
 import pytest
 
-from src.research.strategy_risk import (
+from src.research.backtest.strategy_risk import (
     required_bets_per_year,
     required_precision,
     strategy_failure_probability,

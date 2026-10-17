@@ -15,7 +15,7 @@
     uv run python scripts/tsmom_overlay_study.py --min-bars 365
 
 口径：现货 taker + 滑点 15bp/边（`SPOT_FEES.taker_net()`），等权 1/N_t 与持仓滞后
-一根都与 `src/research/paper.py` 同源（复用其 `signal_panel`），只多一层权重混合。
+一根都与 `src/research/trend/paper.py` 同源（复用其 `signal_panel`），只多一层权重混合。
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ import pandas as pd
 
 from src.config.paths import crypto_dataset_dir
 from src.core.costs import SPOT_FEES
-from src.research.paper import PaperSpec, signal_panel
-from src.research.universe import load_bars_dir
+from src.research.study.universe import load_bars_dir
+from src.research.trend.paper import PaperSpec, signal_panel
 
 BARS_PER_YEAR = 365
 SPOT_DIR = crypto_dataset_dir("okx", "spot", "1d")
@@ -93,7 +93,9 @@ def print_execution(data: dict[str, Any], cost: float) -> pd.Series:
     baseline: pd.Series | None = None
     for multiple in COST_MULTIPLES:
         net, nav, expo = run(close_returns, data["held"], cost * multiple)
-        label = f"现金成本 {cost * multiple * 1e4:.0f}bp/边" + ("（基准）" if multiple == 1 else "")
+        label = f"现金成本 {cost * multiple * 1e4:.0f}bp/边" + (
+            "（基准）" if multiple == 1 else ""
+        )
         rows[label] = stats(net, nav, expo)
         if multiple == 1.0:
             baseline = net
@@ -104,7 +106,9 @@ def print_execution(data: dict[str, Any], cost: float) -> pd.Series:
     rows["信号再滞一根"] = stats(net, nav, expo)
 
     print("\n=== A. 执行敏感性（收益恒为 close-to-close，只换成本与成交时点）===")
-    print(f"{'口径':<26}{'总收益':>10}{'年化':>9}{'波动':>9}{'夏普':>8}{'最大回撤':>10}{'暴露':>8}")
+    print(
+        f"{'口径':<26}{'总收益':>10}{'年化':>9}{'波动':>9}{'夏普':>8}{'最大回撤':>10}{'暴露':>8}"
+    )
     for label, row in rows.items():
         print(
             f"{label:<26}{row['total']:>9.1%}{row['annual']:>9.2%}{row['vol']:>9.1%}"
@@ -126,7 +130,9 @@ def print_overlay(data: dict[str, Any], strategy: pd.Series) -> None:
         f" vs BTC {float(btc_ret.std()) * np.sqrt(BARS_PER_YEAR):.1%}，"
         f"等风险预算权重 w_策略 = {inverse_vol:.0%} 属事后口径，只作对照）\n"
     )
-    print(f"{'权重 策略/BTC':<18}{'总收益':>10}{'年化':>9}{'波动':>9}{'夏普':>8}{'最大回撤':>10}")
+    print(
+        f"{'权重 策略/BTC':<18}{'总收益':>10}{'年化':>9}{'波动':>9}{'夏普':>8}{'最大回撤':>10}"
+    )
     grid = sorted(set(WEIGHTS + (round(inverse_vol, 2),)))
     for weight in grid:
         blend = cast(pd.Series, weight * strategy + (1.0 - weight) * btc_ret)
@@ -140,13 +146,17 @@ def print_overlay(data: dict[str, Any], strategy: pd.Series) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="执行敏感性与组合层 overlay 扫描")
-    parser.add_argument("--min-bars", type=int, default=365, help="标的入池的最少 K 线根数")
+    parser.add_argument(
+        "--min-bars", type=int, default=365, help="标的入池的最少 K 线根数"
+    )
     args = parser.parse_args()
 
     data = build(args.min_bars)
-    print(f"标的池 {len(data['bars_map'])} 只（≥{args.min_bars} 根）"
-          f" ｜ 单边成本 {SPOT_FEES.taker_net() * 1e4:.1f}bp"
-          f"（现货 taker {SPOT_FEES.taker * 1e4:.0f}bp + 滑点 {SPOT_FEES.slippage * 1e4:.0f}bp）")
+    print(
+        f"标的池 {len(data['bars_map'])} 只（≥{args.min_bars} 根）"
+        f" ｜ 单边成本 {SPOT_FEES.taker_net() * 1e4:.1f}bp"
+        f"（现货 taker {SPOT_FEES.taker * 1e4:.0f}bp + 滑点 {SPOT_FEES.slippage * 1e4:.0f}bp）"
+    )
     strategy = print_execution(data, SPOT_FEES.taker_net())
     print_overlay(data, strategy)
     return 0

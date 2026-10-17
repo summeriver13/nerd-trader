@@ -167,7 +167,7 @@ bash scripts/register_tasks.sh --remove # 移除
 > <https://www.binance.com/en/trade/BTC_USDT>, with the chart settings on "1m" for one-minute candles…
 
 → 判定用 **1 分钟 K 线的 High/Low**（不是收盘价、不是其他交易所）；`immediately resolve` 确认
-**触碰即结算**，即 `src/research/digital_pricing.py` 的 `one_touch()` 口径，而不是末次结算 `N(d2)`。
+**触碰即结算**，即 `src/research/polymarket/digital_pricing.py` 的 `one_touch()` 口径，而不是末次结算 `N(d2)`。
 
 **2. 离散监控的连续性修正可忽略**（Broadie-Glasserman-Kou 1997：把障碍位移 `β·σ·√Δt`，β = 0.5826）：
 
@@ -213,8 +213,8 @@ reach 1 只**，其余 14 只是数值盘（FDV/法案等），不属阈值数�
 ## 八、三口径对照面板（2026-10-15 固化）
 
 把会话里 heredoc 跑的分析固化成可复现链路：`src/utils/data_sources/deribit.py`（链与远期）、
-`src/research/polymarket_ladder.py`（阶梯装载与口径自检）、`src/research/polymarket_digital.py`
-（定价与对照）、`src/research/price_bootstrap.py`（路径 bootstrap），
+`src/research/polymarket/polymarket_ladder.py`（阶梯装载与口径自检）、`src/research/polymarket/polymarket_digital.py`
+（定价与对照）、`src/research/polymarket/price_bootstrap.py`（路径 bootstrap），
 `scripts/polymarket_digital_study.py` 只做取数与落盘。
 
 ```bash

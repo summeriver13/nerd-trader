@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research import ffd
+from src.research.factors import ffd
 from src.research.factors.library import FACTOR_LIBRARY, resolve_factors
 from src.research.factors.panel import Panel
 

@@ -29,7 +29,7 @@ import pandas as pd
 
 from src.config.paths import crypto_dataset_dir
 from src.core.costs import PERP_FEES, FeeSchedule
-from src.research.leverage_cap import (
+from src.research.backtest.leverage_cap import (
     DEFAULT_NOTIONALS,
     MAX_MULTIPLIER,
     PARTICIPATION,
@@ -38,7 +38,8 @@ from src.research.leverage_cap import (
     capacity_frame,
     run_capacity,
 )
-from src.research.tsmom import (
+from src.research.study.universe import load_bars_dir
+from src.research.trend.tsmom import (
     SymbolRun,
     TsmomOptions,
     active_counts,
@@ -48,8 +49,7 @@ from src.research.tsmom import (
     run_symbol,
     trailing_volatility,
 )
-from src.research.tsmom_report import ArmRun, summarize
-from src.research.universe import load_bars_dir
+from src.research.trend.tsmom_report import ArmRun, summarize
 
 SPOT_DIR = crypto_dataset_dir("okx", "spot", "1d")
 OUTPUT = Path("data/results/breaks/tsmom_capacity_spot_1d.parquet")

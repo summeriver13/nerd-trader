@@ -30,12 +30,6 @@ import numpy as np
 import pandas as pd
 
 from src.core.costs import PERP_FEES
-from src.research.entropy import (
-    EntropyOptions,
-    entropy_panel,
-    entropy_panel_name,
-    load_panel_returns,
-)
 from src.research.factors.evaluation import MIN_NAMES_PER_PERIOD, ic_stats
 from src.research.factors.library import DIRECTION_LONG, FACTOR_LIBRARY, FactorSpec
 from src.research.factors.panel import Panel, load_panel, tradable_mask
@@ -43,6 +37,12 @@ from src.research.factors.portfolio import (
     PortfolioOptions,
     break_even_cost,
     portfolio_stats,
+)
+from src.research.sampling.entropy import (
+    EntropyOptions,
+    entropy_panel,
+    entropy_panel_name,
+    load_panel_returns,
 )
 from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 

@@ -9,16 +9,21 @@ from typing import Any, cast
 
 from src.cli.args import parse_args
 from src.cli.menu import interactive_menu
-from src.research.carry import (
+from src.research.backtest.execution import MakerPolicy
+from src.research.backtest.position_sizing import VolatilityTarget
+from src.research.backtest.runners import (
+    RobustnessOptions,
+    run_backtest,
+    run_robustness,
+)
+from src.research.funding.carry import (
     CAPITAL_MULTIPLE,
     ROLLING_DAYS,
     TURNOVER_SHARE,
     run_carry,
 )
-from src.research.execution import MakerPolicy
-from src.research.position_sizing import VolatilityTarget
-from src.research.provenance import record_run
-from src.research.registry import (
+from src.research.validation.provenance import record_run
+from src.research.validation.registry import (
     DEFAULT_BARS,
     ROBUST_DEFAULT_BARS,
     STRATEGY_ALIASES,
@@ -27,7 +32,6 @@ from src.research.registry import (
     resolve_symbol,
     resolve_symbols,
 )
-from src.research.runners import RobustnessOptions, run_backtest, run_robustness
 from src.utils.console import force_utf8_stdout, setup_logging
 from src.utils.data_loader import TimeFrameStr
 

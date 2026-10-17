@@ -43,15 +43,15 @@ from scipy.cluster.hierarchy import fcluster
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import log_loss
 
-from src.research.allocation import single_linkage
-from src.research.meta import (
+from src.research.backtest.allocation import single_linkage
+from src.research.labeling.meta import (
     LABEL_COLUMN,
     WEIGHT_COLUMN,
     FoldFit,
     MetaLabelOptions,
     fit_classifier,
 )
-from src.research.tuning import Classifier
+from src.research.labeling.tuning import Classifier
 
 DEFAULT_CLUSTER_DISTANCE = 0.5
 IMPORTANCE_COLUMNS = ("mean", "std", "t", "folds", "members")

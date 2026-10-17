@@ -3,8 +3,8 @@
 import numpy as np
 import pandas as pd
 
-from src.research.carry import CAPITAL_MULTIPLE, ROUND_TRIP_COST
-from src.research.carry_risk import (
+from src.research.funding.carry import CAPITAL_MULTIPLE, ROUND_TRIP_COST
+from src.research.funding.carry_risk import (
     MAINTENANCE_MARGIN,
     PERP_MARGIN_RATIO,
     apply_rule,

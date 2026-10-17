@@ -67,7 +67,9 @@ def check_rows(dataset: str, path: Path, findings: Findings) -> tuple[int, int |
     return rows, newest
 
 
-def _check_quote(dataset: str, path: Path, record: dict[str, Any], findings: Findings) -> None:
+def _check_quote(
+    dataset: str, path: Path, record: dict[str, Any], findings: Findings
+) -> None:
     """单行字段检查：价格、IV、行权价、买卖价。"""
     label = f"{path.name}:{record.get('instrument')}"
     mark = record.get("mark_price")
@@ -99,7 +101,9 @@ def check_manifest(dataset: str, findings: Findings) -> None:
         findings.fatal.append(f"{dataset}: manifest rows 与 entries 行数和不符")
     on_disk = sum(
         sum(1 for _ in read_jsonl(path))
-        for path in sorted(deribit_dataset_dir(dataset, root=DERIBIT_RAW_ROOT).glob("*.jsonl"))
+        for path in sorted(
+            deribit_dataset_dir(dataset, root=DERIBIT_RAW_ROOT).glob("*.jsonl")
+        )
     )
     if on_disk != rows:
         findings.fatal.append(

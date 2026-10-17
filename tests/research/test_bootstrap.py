@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.research import bootstrap
+from src.research.validation import bootstrap
 
 
 def _spans() -> tuple[np.ndarray, np.ndarray]:

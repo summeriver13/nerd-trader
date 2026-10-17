@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.research import imbalance_bars as ib
+from src.research.sampling import imbalance_bars as ib
 
 BARS = 80
 

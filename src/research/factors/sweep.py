@@ -26,7 +26,7 @@ from typing import Final, cast
 import numpy as np
 import pandas as pd
 
-from src.research import ffd
+from src.research.factors import ffd
 from src.research.factors.evaluation import (
     forward_returns,
     non_overlapping_t,
@@ -130,7 +130,7 @@ def effective_tests(series: pd.DataFrame) -> float:
     Failure and Search-Adjusted Estimation》证明，当结果来自搜索-选择过程时，FDR
     无法仅从样本内统计量识别，且这类推断会**低估**真实假发现率。本函数给出的门槛
     低于名义 Bonferroni，正属于低估方向；它也只数了本次扫描**内部**的冗余，没数
-    历史上试过的所有东西。**决策请用 `src/research/overfitting.py` 的 PBO/DSR。**
+    历史上试过的所有东西。**决策请用 `src/research/validation/overfitting.py` 的 PBO/DSR。**
 
     两两不相交的候选（从无重叠期次）视为不相关，取 0。
     """

@@ -116,7 +116,7 @@ OKX_PROXY_PORT=7890
 | 多重检验校正 | 在试过 N 个候选后夏普是否还算技能：DSR ≥ 0.95 且 PBO < 50% 才算过关 |
 | 资金费率 carry | carry 扣掉保证金占用与换手成本后还剩多少 |
 
-DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitting.py`；波动率目标仓位见 `src/research/position_sizing.py`，其实测口径与证伪见 `src/research/vol_target.py`。
+DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/validation/overfitting.py`；波动率目标仓位见 `src/research/backtest/position_sizing.py`，其实测口径与证伪见 `src/research/trend/vol_target.py`。
 
 ## 执行成本
 
@@ -125,7 +125,7 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 （买单 ≥ 卖一）都算吃价，按 taker + 滑点计；只有挂到市价之外、被 `low`/`high` 触及的
 挂单才算被动成交，按 maker 计。
 
-`--maker` 把下单从市价单换成挂单，实现在 `src/research/execution.py`。默认挂在市价外
+`--maker` 把下单从市价单换成挂单，实现在 `src/research/backtest/execution.py`。默认挂在市价外
 1bp（`offset=1bp`、耐心 1 根）——**挂在市价（`offset=0`）当根就以市价成交，本质是吃价、
 必须按 taker 计费**，拿 maker 费率是错误口径。
 
@@ -161,7 +161,7 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 
 ## 绩效指标
 
-回测摘要与图表标题统一输出下列指标（均由 `src/research/engine.py` 计算）：
+回测摘要与图表标题统一输出下列指标（均由 `src/research/backtest/engine.py` 计算）：
 
 | 指标 | 定义 |
 | --- | --- |
@@ -178,7 +178,7 @@ DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/overfitti
 
 - 缓存路径：`data/storage/crypto/<exchange_id>/<market>/<timeframe>/<SYMBOL>.parquet`（`market` = `spot` | `swap`），`data/` 不入版本库。
 - 研究/回测产物：数值表格一律落 parquet（`compression="snappy"`），不写 CSV；唯一例外是 `data/results/<策略>_equity.csv`，它是 pi 扩展字符曲线的数据源（零依赖 TS 解析）。
-- 复现指纹：每次成功运行写 `data/results/provenance/<run_id>.json`，`repro_hash` = sha256(配置快照 + 数据指纹 + git HEAD/脏标记)，同一命令必得同一 hash（`src/research/provenance.py`）。
+- 复现指纹：每次成功运行写 `data/results/provenance/<run_id>.json`，`repro_hash` = sha256(配置快照 + 数据指纹 + git HEAD/脏标记)，同一命令必得同一 hash（`src/research/validation/provenance.py`）。
 - 资金费率缓存：`data/storage/crypto/binance/funding/8h/<SYMBOL>.parquet`（OKX 只保留约 100 天，长历史取 Binance，回溯至 2019-09）。
 - 数据源：ccxt，交易所实例由调用方注入（行情为 OKX，资金费率为 Binance 公共接口）。
 - 定时采集：五个数据集/任务已接 Windows 计划任务（`nerd-trader-polymarket-hourly` 每小时第 7 分、`nerd-trader-deribit-daily` 每日 16:05、`nerd-trader-bars-daily` 每日 16:20 刷新 OKX 现货日线 + 重建 manifest + 验收、`nerd-trader-paper-daily` 每日 16:45 追加趋势线纸面前向账、`nerd-trader-copy-daily` 每日 23:40 抓 OKX 跟单榜单快照 + 验收），任务只调 `scripts/scheduled_run.sh <数据集>`，注册/查询/移除用 `scripts/register_tasks.sh`，日志按天落 `logs/scheduled/<数据集>-<日期>.log`。

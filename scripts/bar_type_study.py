@@ -13,7 +13,7 @@ de Prado 的原命题是「等量棒比时间棒更接近正态、自相关更�
   「失衡棒自相关更低」很可能只是「棒更长」。
 
 读数两类：诊断（棒数、跨度、对数收益的偏度/超额峰度/自相关）与反转 IC（同前向收益、
-同掩码、同窗口号，只换尺度，复用 `src/research/bar_factors.py`）。
+同掩码、同窗口号，只换尺度，复用 `src/research/sampling/bar_factors.py`）。
 
 用法：
     uv run python scripts/bar_type_study.py [--market swap] [--horizon 1] [--no-save]
@@ -33,23 +33,23 @@ import numpy as np
 import pandas as pd
 
 from src.config.paths import CRYPTO_ROOT, RESULTS_ROOT, crypto_dataset_dir
-from src.research.bar_factors import (
+from src.research.factors.evaluation import forward_returns
+from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
+from src.research.sampling.bar_factors import (
     calendar_reversal,
     ic_row,
     keep_symbols,
     load_bar_closes,
     rescaled_reversal,
 )
-from src.research.bars import (
+from src.research.sampling.bars import (
     BarOptions,
     aggregate_groups,
     group_bounds,
     threshold_for_bars,
     tick_bars,
 )
-from src.research.factors.evaluation import forward_returns
-from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
-from src.research.imbalance_bars import (
+from src.research.sampling.imbalance_bars import (
     SIGN_NOTIONAL,
     FlowBarOptions,
     imbalance_bars,

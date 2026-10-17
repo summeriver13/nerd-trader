@@ -1,6 +1,6 @@
 """
 第 9 章遗留 + 第 12 章：**CV 抬高的那点分数，能变成钱吗？**——把单次切分的「一个数」换成
-组合式 purged 交叉验证（CPCV）的**路径分布**（机制见 `src/research/cpcv.py`）与三臂对照：
+组合式 purged 交叉验证（CPCV）的**路径分布**（机制见 `src/research/validation/cpcv.py`）与三臂对照：
 `全下（等权）`（无元标签过滤）／`默认参数`／`CV 选中参数`（训练窗内 purged K 折选出）。
 
 口径：每条路径的每个组恰好被测试一次，故**一条路径覆盖全时段**，池化在路径内部合法（第十七节
@@ -22,13 +22,16 @@ import numpy as np
 import pandas as pd
 
 from src.config.paths import RESULTS_ROOT
-from src.research import cpcv, meta, observations, sizing, tuning
+from src.research.backtest import sizing
 from src.research.factors.panel import Panel, load_panel
-from src.research.observations import (
+from src.research.labeling import meta, tuning
+from src.research.study import observations
+from src.research.study.observations import (
     FEATURE_FACTORS,
     PRIMARY_FACTOR,
 )
-from src.research.trials import Trial, TrialLedger
+from src.research.validation import cpcv
+from src.research.validation.trials import Trial, TrialLedger
 from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 LABEL_SOURCE: Final[str] = observations.BARRIER_LABEL_COLUMN

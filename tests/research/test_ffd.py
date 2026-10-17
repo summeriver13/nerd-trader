@@ -1,4 +1,4 @@
-"""src/research/ffd.py 的用例。
+"""src/research/factors/ffd.py 的用例。
 
 标定口径：随机游走的 ADF 读数随种子浮动（实测 min d 在 0.25~0.55 之间），
 所以断言写区间不写定值；这些数字是先跑探针量出来、再写成断言的。
@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research import ffd
+from src.research.factors import ffd
 
 WALK_LENGTH = 2400
 WALK_LEVEL = 100.0

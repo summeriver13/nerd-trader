@@ -4,7 +4,7 @@
 1. 费率转负就退出，值不值——每次切换要赚回双腿往返成本才划算；
 2. 永续空头会不会被强平——1.5x 资本 = 永续 2x 杠杆，涨约 49% 触发。
 
-分析逻辑在 src/research/carry_risk.py，本脚本只负责打印与落盘。
+分析逻辑在 src/research/funding/carry_risk.py，本脚本只负责打印与落盘。
 输出：data/results/carry/carry_risk.parquet（爆仓情景表）
 
 用法：
@@ -21,9 +21,9 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from src.research.carry import CAPITAL_MULTIPLE, ROUND_TRIP_COST
-from src.research.carry_ranking import OUTPUT_DIR, list_stems
-from src.research.carry_risk import (
+from src.research.funding.carry import CAPITAL_MULTIPLE, ROUND_TRIP_COST
+from src.research.funding.carry_ranking import OUTPUT_DIR, list_stems
+from src.research.funding.carry_risk import (
     LIQUIDATION_HORIZONS,
     RULE_WINDOWS,
     LiquidationRow,

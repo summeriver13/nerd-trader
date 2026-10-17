@@ -3,8 +3,8 @@
 import numpy as np
 import pandas as pd
 
-from src.research.carry import cost_drag
-from src.research.carry_ranking import (
+from src.research.funding.carry import cost_drag
+from src.research.funding.carry_ranking import (
     MIN_PORTFOLIO_MEMBERS,
     net_recent_daily,
     portfolio_daily,

@@ -1,4 +1,4 @@
-"""`src/research/corrections.py` 的不变量：重采样结构、检验的尺寸与功效、BH 步进规则。"""
+"""`src/research/validation/corrections.py` 的不变量：重采样结构、检验的尺寸与功效、BH 步进规则。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.corrections import (
+from src.research.validation.corrections import (
     DEFAULT_ALPHA,
     MIN_OBSERVATIONS,
     benjamini_hochberg,

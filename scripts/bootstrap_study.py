@@ -9,7 +9,7 @@ de Prado 的动因是「标签重叠时，均匀 bootstrap 反复抽到重叠观
 口径：
 
 - 每只标的**在自己的坐标里**算（唯一性必须在标的内部算——长表行号是另一套坐标，
-  混用会静默错位，见 `src/research/observations.py` 的踩坑记录）。
+  混用会静默错位，见 `src/research/study/observations.py` 的踩坑记录）。
 - 两套标签对照：三重障碍（跨度可变，Ch 3——唯一性只有在这里才有内容）与固定期限
   （跨度恒为 h，唯一性退化成 1/h）。
 - 袋子长度 = 标签数（有放回），每套口径跑 `--seeds` 颗种子取中位。
@@ -30,8 +30,9 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-from src.research import bootstrap, labels
 from src.research.factors.panel import Panel, load_panel
+from src.research.labeling import labels
+from src.research.validation import bootstrap
 from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 OUTPUT_DIR = Path("data/results/breaks")

@@ -18,7 +18,7 @@ from typing import cast
 
 import pandas as pd
 
-from src.research.maker_conditional import (
+from src.research.liquidity.maker_conditional import (
     GROUP_LOSER,
     MAKER_FEE_BP,
     TAKER_FEE_BP,

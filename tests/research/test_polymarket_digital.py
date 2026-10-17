@@ -13,15 +13,19 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.polymarket_digital import (
+from src.research.polymarket.polymarket_digital import (
     Smile,
     comparison_table,
     deribit_touch,
     implied_touch_sigma,
     smile_from_chain,
 )
-from src.research.polymarket_ladder import ladder_row
-from src.research.price_bootstrap import BootstrapSpec, PathStats, simulate_paths
+from src.research.polymarket.polymarket_ladder import ladder_row
+from src.research.polymarket.price_bootstrap import (
+    BootstrapSpec,
+    PathStats,
+    simulate_paths,
+)
 from src.utils.data_sources.base import parse_instant
 from src.utils.data_sources.deribit import (
     DeribitChain,

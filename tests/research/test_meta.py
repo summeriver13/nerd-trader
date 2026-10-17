@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research import meta
+from src.research.labeling import meta
 
 
 def _frame(periods: int = 60, symbols: int = 5, seed: int = 0) -> pd.DataFrame:

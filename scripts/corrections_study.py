@@ -27,13 +27,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.research.corrections import (
-    DEFAULT_ALPHA,
-    benjamini_hochberg,
-    hansen_spa,
-    naive_p_values,
-    reality_check,
-)
 from src.research.factors.library import FACTOR_LIBRARY, MAIN_POOL_KEYS
 from src.research.factors.panel import Panel, load_panel, tradable_mask
 from src.research.factors.portfolio import PortfolioOptions, portfolio_stats
@@ -41,6 +34,13 @@ from src.research.factors.sweep import (
     DEFAULT_HORIZONS,
     resolve_families,
     sweep_ic_table,
+)
+from src.research.validation.corrections import (
+    DEFAULT_ALPHA,
+    benjamini_hochberg,
+    hansen_spa,
+    naive_p_values,
+    reality_check,
 )
 from src.utils.study_cli import add_no_save, add_timeframe_argument
 

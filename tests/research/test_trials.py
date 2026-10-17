@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.research.trials import (
+from src.research.validation.trials import (
     ORIGIN_BACKFILL,
     ORIGIN_RUN,
     Trial,

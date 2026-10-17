@@ -24,7 +24,10 @@ import pandas as pd
 
 from src.config.paths import CRYPTO_ROOT
 from src.core.costs import PERP_FEES
-from src.research.microstructure import corwin_schultz_spread_bp, roll_spread_bp
+from src.research.liquidity.microstructure import (
+    corwin_schultz_spread_bp,
+    roll_spread_bp,
+)
 from src.utils.study_cli import add_no_save
 
 RESULTS_DIR: Path = Path("data/results/breaks")

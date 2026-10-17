@@ -25,17 +25,17 @@ import pandas as pd
 
 from src.analytics.metrics import bars_per_year, sharpe_ratio
 from src.config.paths import RESULTS_ROOT
-from src.research.carry_ranking import load_daily
 from src.research.factors.panel import Panel, UniverseRule, load_panel, tradable_mask
 from src.research.factors.portfolio import leg_stats
-from src.research.overfitting import (
+from src.research.funding.carry_ranking import load_daily
+from src.research.pairs.backtest import PairsOptions, PairsRun, run_pairs
+from src.research.pairs.output import print_report, save_outputs
+from src.research.pairs.report import build_report
+from src.research.validation.overfitting import (
     deflated_sharpe,
     expected_max_sharpe,
     sharpe_estimator_variance,
 )
-from src.research.pairs.backtest import PairsOptions, PairsRun, run_pairs
-from src.research.pairs.output import print_report, save_outputs
-from src.research.pairs.report import build_report
 from src.utils.console import pad
 from src.utils.study_cli import add_no_save
 

@@ -11,7 +11,7 @@ import math
 
 import pytest
 
-from src.research.digital_pricing import (
+from src.research.polymarket.digital_pricing import (
     GbmContext,
     implied_sigma,
     normal_cdf,

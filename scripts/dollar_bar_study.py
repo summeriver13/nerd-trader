@@ -25,15 +25,15 @@ from typing import cast
 import pandas as pd
 
 from src.config.paths import CRYPTO_ROOT, RESULTS_ROOT
-from src.research.bar_factors import (
+from src.research.factors.evaluation import forward_returns
+from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
+from src.research.sampling.bar_factors import (
     calendar_reversal,
     ic_row,
     keep_symbols,
     load_bar_closes,
     rescaled_reversal,
 )
-from src.research.factors.evaluation import forward_returns
-from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
 from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 DEFAULT_WINDOWS = (1, 2, 3, 5, 10, 20, 30)

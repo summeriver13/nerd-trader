@@ -8,7 +8,8 @@ from __future__ import annotations
 import traceback
 from typing import Any, cast
 
-from src.research.registry import (
+from src.research.backtest.runners import run_backtest
+from src.research.validation.registry import (
     DEFAULT_BARS,
     DEFAULT_LEVERAGE,
     DEFAULT_STRATEGY,
@@ -18,7 +19,6 @@ from src.research.registry import (
     SYMBOL_PRESETS,
     resolve_strategy,
 )
-from src.research.runners import run_backtest
 from src.utils.data_loader import TimeFrameStr
 
 

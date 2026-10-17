@@ -88,7 +88,7 @@ def print_thresholds(result: SweepResult) -> None:
 
     有效试验数由样本内 IC 相关矩阵导出，而 de Prado & Fabozzi (2026) 证明搜索-选择
     过程下的 FDR 无法从样本内统计量识别；它的作用方向是放松门槛，即低估假发现率。
-    决策用 `src/research/overfitting.py` 的 PBO/DSR。
+    决策用 `src/research/validation/overfitting.py` 的 PBO/DSR。
     """
     print("\n=== 门槛（名义 Bonferroni 为基线；有效门槛仅供参考，无理论保证）===")
     print(

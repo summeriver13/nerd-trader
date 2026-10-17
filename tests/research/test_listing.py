@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.listing import (
+from src.research.listings.listing import (
     SEGMENT_EDGES,
     SEGMENT_LABELS,
     ListingEvent,
@@ -28,7 +28,7 @@ from src.research.listing import (
     horizon_table,
     lifecycle_table,
 )
-from src.research.listing_portfolio import (
+from src.research.listings.listing_portfolio import (
     _daily_turnover,
     holding_windows,
     short_backtest,

@@ -91,7 +91,9 @@ def _check_history(record: dict[str, Any], counts: dict[str, int]) -> None:
         counts["history_unsorted"] += 1
 
 
-def check_file(path: Path, findings: Findings) -> tuple[int, int | None, dict[str, int]]:
+def check_file(
+    path: Path, findings: Findings
+) -> tuple[int, int | None, dict[str, int]]:
     """逐行检查，返回 (行数, 最新快照 epoch, 计数)。解析失败由调用方兜住。"""
     seen: set[tuple[str, ...]] = set()
     counts = {"no_stats": 0, "identity_bad": 0, "history_unsorted": 0}
@@ -117,14 +119,18 @@ def report_counts(path: Path, counts: dict[str, int], rows: int) -> list[str]:
     """把逐行计数压成按文件一行的告警。"""
     messages: list[str] = []
     if counts["no_stats"]:
-        messages.append(f"{path.name}: {counts['no_stats']}/{rows} 行缺跟单统计（investAmt）")
+        messages.append(
+            f"{path.name}: {counts['no_stats']}/{rows} 行缺跟单统计（investAmt）"
+        )
     if counts["identity_bad"]:
         messages.append(
             f"{path.name}: {counts['identity_bad']}/{rows} 行 pnlRatio ≠ pnl/investAmt"
             f"（容差 {IDENTITY_TOLERANCE:.0%}），上游口径可能改了"
         )
     if counts["history_unsorted"]:
-        messages.append(f"{path.name}: {counts['history_unsorted']} 行 history 时间未递增")
+        messages.append(
+            f"{path.name}: {counts['history_unsorted']} 行 history 时间未递增"
+        )
     return messages
 
 

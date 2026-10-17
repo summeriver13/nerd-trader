@@ -9,14 +9,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.leverage_cap import (
+from src.research.backtest.leverage_cap import (
     CapacitySpec,
     average_dollar_volume,
     capacity_frame,
     dollar_volume,
     run_capacity,
 )
-from src.research.tsmom import TsmomOptions
+from src.research.trend.tsmom import TsmomOptions
 
 
 def make_bars(closes: np.ndarray, volume: float = 1.0) -> pd.DataFrame:

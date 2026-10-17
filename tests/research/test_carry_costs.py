@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.carry import (
+from src.research.funding.carry import (
     ANNUAL_DAYS,
     CAPITAL_MULTIPLE,
     ROUND_TRIP_COST,

@@ -7,7 +7,7 @@
 4. 等权组合与分段——分散能不能把「单标的费率转负」摊掉，各时期是否都成立；
 5. 基差——真实损益 = 资金费 − Δbasis，这一项到底占多少。
 
-分析逻辑在 src/research/carry_ranking.py 与 src/research/carry_basis.py，
+分析逻辑在 src/research/funding/carry_ranking.py 与 src/research/funding/carry_basis.py，
 本脚本只负责打印与落盘。
 输出：data/results/carry/{carry_daily,carry_ranking,carry_cross_check,carry_basis}.parquet
 
@@ -32,8 +32,8 @@ from src.analytics.metrics import (
     max_drawdown,
     total_return,
 )
-from src.research.carry_basis import BasisRow, basis_rows
-from src.research.carry_ranking import (
+from src.research.funding.carry_basis import BasisRow, basis_rows
+from src.research.funding.carry_ranking import (
     COMPARISON_EXCHANGE,
     LONG_HISTORY_EXCHANGE,
     OUTPUT_DIR,

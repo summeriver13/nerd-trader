@@ -27,7 +27,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.config.paths import CRYPTO_ROOT, crypto_dataset_dir
-from src.research.bars import (
+from src.research.sampling.bars import (
     ACCUMULATION_NOTIONAL,
     ACCUMULATION_VOLUME,
     BAR_COLUMNS,

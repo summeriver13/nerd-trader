@@ -22,8 +22,8 @@ import numpy as np
 import pandas as pd
 
 from src.config.paths import crypto_bar_path
+from src.research.backtest.engine import BacktestEngine
 from src.research.domains.crypto import CryptoDomain
-from src.research.engine import BacktestEngine
 from src.research.strategies.base import BaseStrategy
 from src.research.strategies.buy_and_hold import BuyAndHoldStrategy
 from src.research.strategies.donchian_trend import DonchianTrendStrategy

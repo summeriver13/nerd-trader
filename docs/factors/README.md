@@ -177,7 +177,7 @@ and Search-Adjusted Estimation》证明：
 没数历史上试过的所有东西（六个因子 × 2 市场 × 多期限、carry、配对、meme、上新币、
 maker……）。能信的是**零假设校准**（下节）——它是真证据，但依赖**我自己选的**零假设族。
 
-**该用的决策量仓库早就有**：`src/research/overfitting.py` 的 PBO（CSCV，与 de Prado 原文
+**该用的决策量仓库早就有**：`src/research/validation/overfitting.py` 的 PBO（CSCV，与 de Prado 原文
 算法一致）与 DSR，`strategy_suite` / `carry_ranking` / `pairs_study` 都在用，且
 `print_overfitting` 里已经写了诚实提示「若历史上还试过其他参数/窗口，请用 `--trials`
 声明真实试验次数」。**扫描器当时绕过了这套现成机制**——现已接上，见下节。
@@ -246,7 +246,7 @@ uv run python scripts/factor_verify.py --pool all --trials 3276   # 全候选池
 | 分位网格相位不齐 | PBO **静默**报「不可算」 | 网格锚在 `spec.warmup` 上，h=2 时奇偶窗口的网格**完全不相交**，`dropna(how="any")` 把整个矩阵清空 |
 | CSCV 分块直切无 purge/embargo | PBO 偏乐观 | purge 只在标签重叠时需要（本仓库的分位网格是 `index[start::horizon]`，观测非重叠、标签首尾相接，**purge 恒为空操作**）；但 **embargo 防的是序列相关**，与重叠无关，必须加 |
 
-第三个是 de Prado Ch 7 的缺口，已补进 `src/research/overlap.py` 并接进 CSCV。
+第三个是 de Prado Ch 7 的缺口，已补进 `src/research/validation/overlap.py` 并接进 CSCV。
 **实测：purge 确实恒为空操作**（这本身是个结论——说明现有的非重叠采样没有被标签
 重叠污染），而 **embargo 真的改数字**，方向也对（原值偏乐观）：
 
@@ -679,7 +679,7 @@ uv run python scripts/build_crypto_manifests.py
 uv run python scripts/dollar_bar_study.py           # 尺度对比
 ```
 
-口径实现 `src/research/bars.py`（用例在 `tests/research/test_bars.py`），
+口径实现 `src/research/sampling/bars.py`（用例在 `tests/research/test_bars.py`），
 产物 `data/results/bars/dollar_vs_time.parquet`。
 
 **踩坑记录**：`pd.DataFrame(dict_of_series)` 按**并集时戳**对齐。各标的的美元棒
@@ -691,9 +691,9 @@ uv run python scripts/dollar_bar_study.py           # 尺度对比
 
 de Prado 第 2 章给的是一族采样法，而不只是美元棒。上文已证「信息尺度」不是反转信号
 的家；这里再把**棒种本身**当变量，看两类读数——收益分布（偏度/超额峰度）与自相关、
-以及反转 IC——在换棒种时怎么动。实现：等量棒在 `src/research/bars.py`（美元/量/tick
-共用一套分组逻辑，只换累积变量），失衡与 run 棒在 `src/research/imbalance_bars.py`，
-尺度测量复用 `src/research/bar_factors.py`，入口 `scripts/bar_type_study.py`。
+以及反转 IC——在换棒种时怎么动。实现：等量棒在 `src/research/sampling/bars.py`（美元/量/tick
+共用一套分组逻辑，只换累积变量），失衡与 run 棒在 `src/research/sampling/imbalance_bars.py`，
+尺度测量复用 `src/research/sampling/bar_factors.py`，入口 `scripts/bar_type_study.py`。
 
 **A 组（OKX 永续 1m 源，29 只）：换累积变量。** 三种棒都按「每天一根」折算，平均跨度
 天然可比（24.0 小时），所以差异只来自「按什么累计」：
@@ -767,7 +767,7 @@ de Prado 第 17 章。**动机**：反转与动量都只看「过去涨了多少
 Phillips-Shi-Yu 2015）是统计意义上的爆炸性：在每个时点对所有可能的起点取 ADF
 统计量的**上确界**，用右尾——值越大越偏离随机游走向上发散。
 
-代码 `src/research/breaks.py`（用例在 `tests/research/test_breaks.py`），入口
+代码 `src/research/validation/breaks.py`（用例在 `tests/research/test_breaks.py`），入口
 `scripts/sadf_study.py`。SADF 包成 `FactorSpec` 之后直接复用现成的双重排序、
 分位组合与换手/成本口径。
 
@@ -858,7 +858,7 @@ de Prado Ch 3 + Ch 4。**动机**：仓库此前所有策略都是**一个**模�
 固定期限标签（「h 天后的收益符号」）有两个问题：它假设你**只**在 h 天后平仓；
 而且它的长度恒为 h，使唯一性权重退化成 `1/h`。
 
-`src/research/labels.py` 实现三重障碍：障碍宽度**按波动率标度**（同一个 1% 对 BTC 和
+`src/research/labeling/labels.py` 实现三重障碍：障碍宽度**按波动率标度**（同一个 1% 对 BTC 和
 PEPE 是完全不同的事件），首次触及决定 `t1`，标签是**触及时刻收益的符号**（作者的
 `getBins` 口径，所以碰到垂直障碍时可能是 0）。
 
@@ -881,7 +881,7 @@ PEPE 是完全不同的事件），首次触及决定 `t1`，标签是**触及�
 
 ### 2. 元模型
 
-滚动训练 + 样本外预测（`src/research/meta.py`）。两条口径：
+滚动训练 + 样本外预测（`src/research/labeling/meta.py`）。两条口径：
 
 - **切分按日期，不按行。** 同一天有 200 只标的，按行切会让同一天的观测同时出现在
   训练与测试里——embargo 完全挡不住这种泄漏，因为泄漏不是「相邻」，是「同日」。
@@ -1003,7 +1003,7 @@ PEPE 是完全不同的事件），首次触及决定 `t1`，标签是**触及�
 ### 7. 顺序 bootstrap：它修的是「袋内重复」，不是「标签重叠」（Ch 4.5）
 
 第 1 小节的唯一性权重改的是**拟合时每一行的分量**，Ch 4.5 的顺序 bootstrap 改的是
-**袋里抽到哪些行**——两者不是同一件事。实现 `src/research/bootstrap.py`：抽签权重按
+**袋里抽到哪些行**——两者不是同一件事。实现 `src/research/validation/bootstrap.py`：抽签权重按
 「把候选加进当前袋后，它**自己**的平均唯一性」取，用前缀和 O(1) 算出来（原书伪码为每个
 候选重建一次袋矩阵，是 O(length·N·T)）；候选权重与袋唯一性都有测试与朴素重建法**逐位
 对拍**。
@@ -1014,7 +1014,7 @@ PEPE 是完全不同的事件），首次触及决定 `t1`，标签是**触及�
 | 固定期限（跨度恒为 h） | 0.1989 | **0.2006** | 0.2006 | 148/148 |
 
 口径：OKX 永续 196 只、`--vertical 5`、袋长 = 标签数、8 颗种子取中位、每只标的在自己的
-坐标里算（跨标的长表坐标混用会静默错位，见 `src/research/observations.py`）。
+坐标里算（跨标的长表坐标混用会静默错位，见 `src/research/study/observations.py`）。
 
 **结论一：袋的唯一性几乎完全补回。** 三重障碍补回 93.0%（0.2930 → 0.3267，全样本
 0.3292），固定期限补回 100%，148 只标的**无一例外**——即使在固定期限这种「唯一性退化成
@@ -1046,7 +1046,7 @@ PEPE 是完全不同的事件），首次触及决定 `t1`，标签是**触及�
 §11 回答了「下不下」，但把它当**开关**用（过阈值就下一注）。Ch 10 问的是另一半：
 「下多少」——把概率映射成**连续仓位**。这正是 Pitfall #6 剩下的那半边。
 
-`src/research/sizing.py` 用作者 `getSignal` 的原式：
+`src/research/backtest/sizing.py` 用作者 `getSignal` 的原式：
 
 ```
 z      = (p - 1/numClasses) / sqrt(p * (1 - p))     # 零假设是「纯运气」
@@ -1218,7 +1218,7 @@ signal = side * (2 * Z[z] - 1)                       # Z 是标准正态 CDF
 
 Ch 5 的主张是：收益率（d=1）平稳但无记忆，价格（d=0）有记忆但不平稳，取分数阶
 `0<d<1` 能同时拿到两样。本仓把固定窗版本（原文 Snippet 5.2/5.4）做成
-`src/research/ffd.py`，并接进因子库（`ffd_d0p2` / `ffd_d0p4`）。
+`src/research/factors/ffd.py`，并接进因子库（`ffd_d0p2` / `ffd_d0p4`）。
 
 ### 1. 工具层面：主张成立，但阈值要换口径
 
@@ -1306,7 +1306,7 @@ scripts/factor_verify.py --market swap`（24 秒），现货同样两条（470 �
 DSR/PBO 问的是「试了这么多次，这个夏普还能算技能吗」；第 14/15 章问的是**这条记录
 本身厚不厚**：夏普的概率显著性（PSR）、达到 95% 置信所需的最小观测数（MinTRL）、
 回撤与水下时间、逐期收益的集中度，以及给定下注规则时的失败概率。工具落在
-`src/research/track_record.py`（Ch 14）与 `src/research/strategy_risk.py`（Ch 15），
+`src/research/study/track_record.py`（Ch 14）与 `src/research/backtest/strategy_risk.py`（Ch 15），
 已接进 `scripts/factor_verify.py`，每次都打印。
 
 ### 1. 两个原文口径的坑（实测抓出来的，不是读出来的）
@@ -1393,7 +1393,7 @@ swap `vol_62@h30` 是 **0.69**。整体在 0.41 ~ 0.69 之间——多数候选�
 换问题：**把七个已知很弱的策略合成一个组合，记录会不会反而够厚**？顺带检验第 16 章的
 HRP（分层风险平价）与两个基线（等权、逆方差）谁更好。
 
-工具：`src/research/allocation.py`（`correlation_distance` / `single_linkage` /
+工具：`src/research/backtest/allocation.py`（`correlation_distance` / `single_linkage` /
 `quasi_diagonal` / `inverse_variance_weights` / `cluster_variance` / `recursive_bisection` /
 `hrp_weights`），实证脚本 `scripts/hrp_study.py`。
 
@@ -1461,7 +1461,7 @@ HRP（分层风险平价）与两个基线（等权、逆方差）谁更好。
 树数，结论是「树数砍 13 倍结论不变」。这一节补上第 9 章该做的事：**在训练窗内部用 purged K
 折选参**，然后问一个比「调参有没有用」更硬的问题——**CV 的排序能不能预测样本外的排序**。
 
-工具：`src/research/tuning.py`（`PurgedKFold` / `search_hyperparameters` / `log_uniform` /
+工具：`src/research/labeling/tuning.py`（`PurgedKFold` / `search_hyperparameters` / `log_uniform` /
 `positive_f1` / `scoring_for`），实证脚本 `scripts/tuning_study.py`（分数）与
 `scripts/tuning_money_study.py`（钱）。
 
@@ -1525,7 +1525,7 @@ swap 新增 7 条、spot 新增 8 条（跨折与跨次重复的配置由账本�
 ### 5. 把钱接上：分数优势在净夏普上也是零
 
 分数改善不值钱，除非它在真实成本与持仓路径下变成钱。`scripts/tuning_money_study.py` 把**同一
-套切分**的样本外概率喂进第 10 章的下注管线（`src/research/sizing.py`），三臂对照：`全下（等权）`
+套切分**的样本外概率喂进第 10 章的下注管线（`src/research/backtest/sizing.py`），三臂对照：`全下（等权）`
 （无元标签过滤）／`默认参数`／`CV 选中参数`。两臂的差别只来自超参——同一批观测、同一个 `side`、
 同一套持仓与成本口径；调参只发生在训练窗内部。
 
@@ -1587,7 +1587,7 @@ tests/research/test_observations.py -q`。
 这一节补上第 12 章该做的事：把那个数换成**分布**，于是「差别本来就小」和「噪声太大」第一次
 分得开。
 
-工具：`src/research/cpcv.py`（`CombinatorialPurgedCv` / `CpcvSplit` / `path_series`），实证
+工具：`src/research/validation/cpcv.py`（`CombinatorialPurgedCv` / `CpcvSplit` / `path_series`），实证
 脚本 `scripts/cpcv_study.py`。
 
 ### 1. 设计
@@ -1655,7 +1655,7 @@ tests/research/test_observations.py -q`。
 
 ### 4. 把 Ch 16 的 NCO 也放进来（五臂 + 簇数扫描）
 
-NCO（嵌套聚类优化，`src/research/allocation.py` 的 `nco_weights`）与 HRP 共用同一棵树，
+NCO（嵌套聚类优化，`src/research/backtest/allocation.py` 的 `nco_weights`）与 HRP 共用同一棵树，
 但**两个层次都解最小方差**：先在各簇内解 `w ∝ Σ⁻¹1`，再用簇内组合把协方差收缩成簇级矩阵
 `Σ̃(i,j) = wᵢ'Σ(i,j)wⱼ`，对 `Σ̃` 再解一次。它**只在簇内小块上求逆**——这正是对「马科维茨
 诅咒」的对策，所以五臂里加了**全局最小方差**（直接对全矩阵求逆）当靶子：诅咒若是真的，
@@ -1742,7 +1742,7 @@ de Prado 的第 7 条 pitfall 是「N 从未被诚实计数」——而 DSR 的�
 | 换期限不算一次试验 | 它算——`mom w=30 @h=1` 与 `@h=3` 是两个策略 |
 | 事后重建 | 失败的、放弃的、跑完没写下来的试验不留文件 |
 
-所以唯一可靠的做法是**在试验发生的时刻追加记录**：`src/research/trials.py`。
+所以唯一可靠的做法是**在试验发生的时刻追加记录**：`src/research/validation/trials.py`。
 
 ### 口径
 
@@ -1953,7 +1953,7 @@ uv run pytest tests/research/test_factor_*.py -q
 覆盖限制先讲清楚：仓里只有 **30 个标的**有 1m 缓存（日频池 196 个），且都是流动性靠前的
 （日成交额中位 $41M，池子全体 $2.9M）——所以本节测的是**最流动的一批**，不能外推到全池。
 
-工具：`src/research/microstructure.py`（CS/Roll 有效价差、Kyle λ、Amihud、VPIN 的日频
+工具：`src/research/liquidity/microstructure.py`（CS/Roll 有效价差、Kyle λ、Amihud、VPIN 的日频
 聚合），实证脚本 `scripts/microstructure_study.py`，14 条不变量用例。
 
 ### 1. 设计
@@ -2118,7 +2118,7 @@ uv run pytest tests/research/test_factor_*.py -q
 已经把量价面板吃完了吗？本节是**证伪设计**：若熵因子与既有因子高度相关，说明没带来新信息；
 相关低才值得看 IC 与分位组合能不能挣钱。
 
-### 1. 口径（`src/research/entropy.py` + `scripts/entropy_study.py`）
+### 1. 口径（`src/research/sampling/entropy.py` + `scripts/entropy_study.py`）
 
 - 四个估计量（单位 bit/根）：`shannon_bits`（固定宽度分箱，当**分散度对照组**）、
   `ordinal_bits`（长度 3 的排序模式，对单调变换不变）、`lempel_ziv_bits`（LZ76 短语数归一成熵率）、
@@ -2249,7 +2249,7 @@ uv run pytest tests/research/test_factor_*.py -q
 
 本仓的校正工具此前只有 DSR + Bonferroni + PBO（第十九节）。这一节补上第三族：bootstrap
 型的 **White 真实性检验（RC）** 与 **Hansen SPA**，外加 BH 作对照臂。工具与 13 条不变量在
-`src/research/corrections.py` 与 `tests/research/test_corrections.py`，实证在
+`src/research/validation/corrections.py` 与 `tests/research/test_corrections.py`，实证在
 `scripts/corrections_study.py`。
 
 **为什么 BH 只当对照臂**：第三节已记 de Prado & Fabozzi (2026) 的结论——搜索-选择过程下
@@ -2335,7 +2335,7 @@ IC 矩阵缓存在 `data/results/breaks/corrections_cache/`。
 读数（袋平均唯一性 0.2930 → 0.3267，补回 93.0%），没接到集成上。本节把那一步补完：
 **同骨架、只换袋子**。
 
-### 1. 口径（`src/research/bagging.py` + `src/research/ensembles.py` + `scripts/bagging_study.py`）
+### 1. 口径（`src/research/labeling/bagging.py` + `src/research/backtest/ensembles.py` + `scripts/bagging_study.py`）
 
 五个臂，每个只差一件事（超参全部从 `MetaLabelOptions` 派生）：
 
@@ -2427,7 +2427,7 @@ IC 矩阵缓存在 `data/results/breaks/corrections_cache/`。
 成本、平台判据全被绕过。这一节补上缺的那一环：造**面板**（`close/volume/notional`），让整条
 管道真的跑一遍，真值写在 DGP 里。
 
-工具：`src/research/synthetic.py`（DGP + 真值 + 逐条核对）、`scripts/synthetic_study.py`（读数），
+工具：`src/research/study/synthetic.py`（DGP + 真值 + 逐条核对）、`scripts/synthetic_study.py`（读数），
 7 条不变量在 `tests/research/test_synthetic.py`。口径：60 只标的 × 2000 根日线、5 分位、h=1、
 家族 = 七个主池因子（K=7）、每档 10 颗种子、bootstrap 199 次、同 anchor。
 
@@ -2499,7 +2499,7 @@ IC 矩阵缓存在 `data/results/breaks/corrections_cache/`。
    +0.9%），九组变体在 19 次试验的 DSR 校正下全部未通过。
 4. **换成永续数据重跑** → **已做**：`--market swap` 直接切永续面板（196 只），反转与
    正交化都在两个市场各跑一遍，结论一致。剩下的差异是资金费还没进组合成本。
-5. **反转的 maker 路径**（第四节第二个机制指向的唯一出路）→ **已做**：条件化挂单在日频尺度上每笔多赚 +8.4 ~ +21.9bp（`src/research/maker_conditional.py`），并**已接回组合层**——`docs/execution/README.md`「两腿被动挂单」把成交率（43~84%）、空仓期拖累与两腿联动一起算进组合收益。
+5. **反转的 maker 路径**（第四节第二个机制指向的唯一出路）→ **已做**：条件化挂单在日频尺度上每笔多赚 +8.4 ~ +21.9bp（`src/research/liquidity/maker_conditional.py`），并**已接回组合层**——`docs/execution/README.md`「两腿被动挂单」把成交率（43~84%）、空仓期拖累与两腿联动一起算进组合收益。
 6. **meme 币截面**：`docs/meme/` 体检的 12 只单独成池，看低波动异象是否更极端。
    （12 只做不了 5 分位×3 只的截面，要降档或只做只多腿。）
 7. **退市补集的覆盖率**：43 个退市标的只补回 15 个（Binance 侧），剩下 28 个需要
@@ -2525,13 +2525,13 @@ IC 矩阵缓存在 `data/results/breaks/corrections_cache/`。
 13. **下注规模（Ch 10）**（第十二节）→ **已做，结论是负的**：连续定仓在三个变体上一致
     输给硬阈值（净夏普 0.208 ~ 0.358 对 0.435 ~ 0.587）。概率**在阈值上有信息、阈值
     内部没有排序信息**。唯一站得住的细化是网格量化（降换手，3/3 变体净夏普上升）。
-14. **试验账本**（**第十九节**）→ **已做**：`src/research/trials.py`，`verify()` 的 DSR 默认取账本累计数，**账本 N = 7808**（2026-10-16 两市场整池 `factor_verify --pool all` 复跑后；该批新增 1125 条，因为枚举里多了 A101 派生出的量价交互族）。原先进度是「只有 `factor_verify` 接了、元标签这条线还是回填的」，现在 `factor_suite` / `strategy_suite` / `pairs_study` / `meta_label_study` / `measure_maker_fill` / `tuning_study` / `tuning_money_study` 都已接上（元标签线不再是回填）。
+14. **试验账本**（**第十九节**）→ **已做**：`src/research/validation/trials.py`，`verify()` 的 DSR 默认取账本累计数，**账本 N = 7808**（2026-10-16 两市场整池 `factor_verify --pool all` 复跑后；该批新增 1125 条，因为枚举里多了 A101 派生出的量价交互族）。原先进度是「只有 `factor_verify` 接了、元标签这条线还是回填的」，现在 `factor_suite` / `strategy_suite` / `pairs_study` / `meta_label_study` / `measure_maker_fill` / `tuning_study` / `tuning_money_study` 都已接上（元标签线不再是回填）。
 15. **Ch 8 特征重要性** → **已做（第十三节）**：`src/research/importance/` 包实现五种工具
     （MDI / MDA / 聚类 MDA / SFI / PCA 正交），跑在同一批折同一批模型上。结论是
     **没有一个特征能单独工作**（SFI 21 个读数全负）、`sadf` 与 `dth_60` 三个变体一致为负
     而 MDI 给所有特征都分重要性、并且 **PCA 确认性检验不通过**（τ −0.34 ~ −0.68）。
 
-16. **Ch 5 分数阶差分** → **已做（第十四节）**：`src/research/ffd.py`（固定窗版本）已进
+16. **Ch 5 分数阶差分** → **已做（第十四节）**：`src/research/factors/ffd.py`（固定窗版本）已进
     因子库（`ffd_d0p2`/`ffd_d0p4`）。作者主张成立（BTC 日线：水平不过 ADF，d=0.25 起
     通过而记忆仍有 0.987），但两处原文没说的坑被实测抓出——**默认阈值 1e-5 是分钟级
     口径**（日线同阈值要 1457 根）、**截断让价格水平泄漏进特征**（原始变换与水平的
@@ -2541,14 +2541,14 @@ IC 矩阵缓存在 `data/results/breaks/corrections_cache/`。
     **收益层为负、DSR 两市场都不通过**，PBO 短期限 38%~59%。机制是中位数排序拿不到
     均值口径的价差（第十四节第 4 小节）。账本已计入：N 6625 → 6634。
 
-17. **Ch 14/15 记录体检** → **已做（第十五节）**：`src/research/track_record.py`（PSR /
-    MinTRL / 回撤与水下时间 / 收益集中度）与 `src/research/strategy_risk.py`（所需胜率 /
+17. **Ch 14/15 记录体检** → **已做（第十五节）**：`src/research/study/track_record.py`（PSR /
+    MinTRL / 回撤与水下时间 / 收益集中度）与 `src/research/backtest/strategy_risk.py`（所需胜率 /
     所需下注次数 / 失败概率），已接进 `factor_verify` 常规输出。实测抓出两处原文口径问题
     （集中度只在同号收益上有意义、`binFreq` 的增根检验量纲错了）。结论是**没有一个截面
     组合的记录够长**：swap 上 vol 六个期限的 PSR 只有 0.52~0.71，唯一够长的是现货
     `dth@h7`（PSR 1.000），而市场等权买入持有的 PSR 反而有 0.95/0.91。
 
-18. **Ch 16 HRP / 分层风险平价** → **已做（第十六节）**：`src/research/allocation.py`+
+18. **Ch 16 HRP / 分层风险平价** → **已做（第十六节）**：`src/research/backtest/allocation.py`+
     `scripts/hrp_study.py`。七因子等权组合拿到本仓库最好的记录（PSR 0.930 / 0.951，
     MinTRL 1339 / 1135 对可用 1080 / 1147——**仍差一点**），但三种配权方法（等权 /
     逆方差 / HRP）差异在噪声内；原文「HRP 样本外方差更低」只在 swap 成立（spot 反而
@@ -2559,7 +2559,7 @@ IC 矩阵缓存在 `data/results/breaks/corrections_cache/`。
     实测成立；但 NCO 自己没赢过逆方差（9/9，swap 差 +0.033、spot 差 +0.269），且簇数 K
     不是平台（换 K 中位夏普 0.69~0.95 / 0.86~1.04）。
 
-19. **Ch 9 超参调优** → **已做（第十七节）**：`src/research/tuning.py` + `scripts/tuning_study.py`。
+19. **Ch 9 超参调优** → **已做（第十七节）**：`src/research/labeling/tuning.py` + `scripts/tuning_study.py`。
     结论是**CV 抬高不能按面值兑现**——CV 稳定 +0.033，样本外只 +0.011 ~ +0.016 且逐折符号会翻，
     CV 最优几乎从来不是样本外最优（事后最优平均再高 +0.013）；τ 在两市场不一致（spot +0.66、
     swap +0.39）。副产物两条坑：折内无正类时 f1 恒为 0（死折）、purge/embargo 在本仓必须以
@@ -2569,12 +2569,12 @@ IC 矩阵缓存在 `data/results/breaks/corrections_cache/`。
     （各折拼成一条再算夏普会被平盘日稀释，符号都会翻）。
 
 
-21. **Ch 12 CPCV（组合式 purged 交叉验证 + 多条回测路径）** → **已做（第十八节）**：`src/research/cpcv.py` + `scripts/cpcv_study.py`。复检第十六节的三种配权——单次切分在现货上说 HRP 最好、逆方差最差，9 条路径说**正好反过来**；换 N=8/12 后「等权 vs 逆方差」随市场反向（swap 上等权赢 6/7~10/11、spot 上等权只赢 1/7~0/11）、「逆方差 > HRP」两市场都稳。
-22. **Ch 19 微观结构特征** → **已做（第二十二节）**：`src/research/microstructure.py` + `scripts/microstructure_study.py`。实测单边成本 5.0~5.4bp（价差只占 0.2~0.4bp，其余是 §手续费），**约为假设的 10bp 的一半**；但 1m 只覆盖 30 个最流动的标的、小档 61.8% 的交易日 CS 失效，且四个微观结构因子的毛收益（−2.8~+6.8bp）全弱于既有 liq_30（+16.9bp）——没找到新 alpha。
-23. **Ch 18 熵特征** → **已做（第二十三节）**：四个估计量加置换基线（`src/research/entropy.py`）。证伪结果是**两头都出乎意料**：熵与既有因子的 |ρ| ≤ 0.03，说明面板信息**没有**被七个因子吃完（新信息维度确实存在）；但时序结构组 IC ≤ 0.006、组合毛收益 ≤ +3.9bp/期而平衡成本 ≤ 1.8bp、净@5.4bp 全负，说明**新维度不在收益上**。唯一显著的是分散度对照组（IC −0.051、t = −10.9），那是既有低波动结论的另一面。**仍未做**：窗口 60/500 的粒度扫描、spot 市场、LZ 粒度问题的替代归一（如短语数/窗口长度的对数比）。
+21. **Ch 12 CPCV（组合式 purged 交叉验证 + 多条回测路径）** → **已做（第十八节）**：`src/research/validation/cpcv.py` + `scripts/cpcv_study.py`。复检第十六节的三种配权——单次切分在现货上说 HRP 最好、逆方差最差，9 条路径说**正好反过来**；换 N=8/12 后「等权 vs 逆方差」随市场反向（swap 上等权赢 6/7~10/11、spot 上等权只赢 1/7~0/11）、「逆方差 > HRP」两市场都稳。
+22. **Ch 19 微观结构特征** → **已做（第二十二节）**：`src/research/liquidity/microstructure.py` + `scripts/microstructure_study.py`。实测单边成本 5.0~5.4bp（价差只占 0.2~0.4bp，其余是 §手续费），**约为假设的 10bp 的一半**；但 1m 只覆盖 30 个最流动的标的、小档 61.8% 的交易日 CS 失效，且四个微观结构因子的毛收益（−2.8~+6.8bp）全弱于既有 liq_30（+16.9bp）——没找到新 alpha。
+23. **Ch 18 熵特征** → **已做（第二十三节）**：四个估计量加置换基线（`src/research/sampling/entropy.py`）。证伪结果是**两头都出乎意料**：熵与既有因子的 |ρ| ≤ 0.03，说明面板信息**没有**被七个因子吃完（新信息维度确实存在）；但时序结构组 IC ≤ 0.006、组合毛收益 ≤ +3.9bp/期而平衡成本 ≤ 1.8bp、净@5.4bp 全负，说明**新维度不在收益上**。唯一显著的是分散度对照组（IC −0.051、t = −10.9），那是既有低波动结论的另一面。**仍未做**：窗口 60/500 的粒度扫描、spot 市场、LZ 粒度问题的替代归一（如短语数/窗口长度的对数比）。
 24. **Ch 13 合成数据回测**（未做，**建议排最后**）：合成数据容易把结论造得好看，而本仓的病是「记录不够长 + 成本不允许」，造数据不治这两个病。
 25. **多重检验校正的另一条路**（AFML 之外）→ **已做（第二十四节）**：
-    `src/research/corrections.py`（White RC + Hansen SPA + BH 对照臂 + 13 条不变量）与
+    `src/research/validation/corrections.py`（White RC + Hansen SPA + BH 对照臂 + 13 条不变量）与
     `scripts/corrections_study.py`。合成床：不校正拒绝率 0.59 ~ 1.00（K ≥ 100 必然误报）、
     BH 在相关候选下家族级拒绝率 0.27 ~ 0.33、RC/SPA 贴名义 α（0.03 ~ 0.14）且功效 1.00。
     真实家族：四个主池家族里只有 spot h=1 被校正打掉（naive 0.024 → RC 0.19），扫参空间

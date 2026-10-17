@@ -8,12 +8,12 @@ from __future__ import annotations
 import argparse
 from typing import get_args
 
-from src.research.position_sizing import (
+from src.research.backtest.position_sizing import (
     DEFAULT_REBALANCE_BARS,
     DEFAULT_VOL_LOOKBACK,
     DEFAULT_VOL_TARGET,
 )
-from src.research.registry import (
+from src.research.validation.registry import (
     CARRY_DEFAULT_DAYS,
     DEFAULT_BARS,
     DEFAULT_LEVERAGE,

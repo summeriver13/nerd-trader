@@ -26,13 +26,13 @@ import pandas as pd
 
 from src.analytics.metrics import ANNUAL_DAYS
 from src.config.paths import crypto_bar_path
-from src.research.vol_target import (
+from src.research.trend.vol_target import (
     BASELINE_LABEL,
     VolTargetRun,
     build_grid,
     run_baseline,
 )
-from src.research.vol_target_report import (
+from src.research.trend.vol_target_report import (
     DEFAULT_COST_SPEC,
     VolTargetStudy,
     build_study,

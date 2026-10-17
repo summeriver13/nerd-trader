@@ -102,7 +102,7 @@ uv run python scripts/maker_conditional_study.py --offsets 0.5,2,5 --horizons 14
 ```
 
 落盘 `data/results/execution/maker_cells.parquet`（每个 组×偏移×持有 一行）。
-口径实现：`src/research/maker_conditional.py`；测试：`tests/research/test_maker_conditional.py`。
+口径实现：`src/research/liquidity/maker_conditional.py`；测试：`tests/research/test_maker_conditional.py`。
 
 ## 两腿被动挂单：把「空仓与成交联动」算进组合层
 
@@ -169,7 +169,7 @@ uv run python scripts/maker_spread_study.py --entry-fee-bp 10   # 对照：进�
 ```
 
 落盘 `data/results/execution/maker_spread.parquet`（汇总）与
-`maker_spread_daily.parquet`（逐日价差）。口径实现：`src/research/maker_spread.py`；
+`maker_spread_daily.parquet`（逐日价差）。口径实现：`src/research/liquidity/maker_spread.py`；
 测试：`tests/research/test_maker_spread.py`。
 
 ## 方向性信号扫描（1m 纯价格）

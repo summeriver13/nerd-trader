@@ -32,9 +32,9 @@ from src.research.factors.portfolio import (
     portfolio_stats,
 )
 from src.research.factors.sweep import SWEEP_FAMILIES
-from src.research.overfitting import build_overfitting_report
-from src.research.overlap import DEFAULT_EMBARGO_RATIO
-from src.research.trials import ResearchScope, Trial, TrialLedger
+from src.research.validation.overfitting import build_overfitting_report
+from src.research.validation.overlap import DEFAULT_EMBARGO_RATIO
+from src.research.validation.trials import ResearchScope, Trial, TrialLedger
 
 DEFAULT_QUANTILES: Final[int] = 5
 # 每个候选跑一遍分位组合，是分钟级的活，进度必须能看见
@@ -225,7 +225,7 @@ def verify(
     """候选列表 → 收益层读数 + 逐期限 PBO/DSR。
 
     `trials` 是 DSR 的试验次数 N。**给了 `scope` 就不必声明**：本批候选会被追加进
-    `src/research/trials.py` 的账本，N 取账本的累计数。不给 scope 也不声明 trials
+    `src/research/validation/trials.py` 的账本，N 取账本的累计数。不给 scope 也不声明 trials
     时退化成「本批候选数」——那是低估（de Prado 第 7 条 pitfall），所以会打印警告。
     """
     trial_count, added = _resolve_trials(picks, scope, trials)

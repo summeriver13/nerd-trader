@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.allocation import (
+from src.research.backtest.allocation import (
     correlation_distance,
     hrp_weights,
     inverse_variance_weights,

@@ -12,7 +12,7 @@ import pytest
 
 from src.research.factors.evaluation import spearman
 from src.research.factors.panel import UniverseRule, tradable_mask
-from src.research.synthetic import (
+from src.research.study.synthetic import (
     BED_ANCHOR,
     BEDS,
     IC_MIRROR,
@@ -20,7 +20,7 @@ from src.research.synthetic import (
     SyntheticSpec,
     synthetic_panel,
 )
-from src.research.synthetic_checks import run_bed, truth_checks
+from src.research.study.synthetic_checks import run_bed, truth_checks
 
 TEST_DAYS = 520
 TEST_KEYS = ("rev_3", "mom_7", "liq_30")

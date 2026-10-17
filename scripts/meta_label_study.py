@@ -19,7 +19,7 @@
 - 主模型用 rev_3（仓库 IC 最强的因子），side = sign(因子值)。
 - 元标签 = 主模型那一注赚没赚钱。
 - 特征 = 其余五个因子 + 上市天数 + SADF（不含 rev_3——它是主模型）。
-- 滚动训练，按日期切分，训练与测试之间留 embargo（**天数**，见 src/research/meta.py）。
+- 滚动训练，按日期切分，训练与测试之间留 embargo（**天数**，见 src/research/labeling/meta.py）。
 - **唯一性权重在标的内部算**：t1 是标的内的根序号，长表行号是另一套坐标，
   混用会静默错位（踩过）。
 
@@ -37,7 +37,8 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-from src.research import importance, meta, observations, sizing
+from src.research import importance
+from src.research.backtest import sizing
 from src.research.factors.library import FACTOR_LIBRARY
 from src.research.factors.panel import (
     Panel,
@@ -45,13 +46,15 @@ from src.research.factors.panel import (
     load_panel,
     tradable_mask,
 )
-from src.research.observations import (
+from src.research.labeling import meta
+from src.research.study import observations
+from src.research.study.observations import (
     AGE_COLUMN,
     FEATURE_FACTORS,
     PRIMARY_FACTOR,
     SADF_COLUMN,
 )
-from src.research.trials import Trial, TrialLedger
+from src.research.validation.trials import Trial, TrialLedger
 from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 SADF_CACHE = Path("data/results/breaks/sadf_swap_1d.parquet")

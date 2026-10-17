@@ -103,7 +103,7 @@
 0.875，门槛 0.95）。**标的是独立的样本维度**，所以唯一能提高统计功效的动作是把标的
 数从 2 扩到整个池子，而不是继续在时间维度上加参数。
 
-口径（`src/research/tsmom.py` + `scripts/tsmom_study.py`）：
+口径（`src/research/trend/tsmom.py` + `scripts/tsmom_study.py`）：
 
 - 信号：唐奇安突破，多速度 20/55/100 **取平均**（不挑窗口）；
 - 仓位：多速度信号 × 波动率缩放（目标 40%、上限 1、不加杠杆）；
@@ -365,7 +365,7 @@ uv run python scripts/tsmom_paper.py --verify   # 校验哈希链
 满 180 天后才值得看。▲ 2026-10-16 刷新日线后池子由 205 增到 207 只（≥365 根），
 同一口径重跑为 13.0%/1.09/−17.2%——差在池子不差在口径。
 
-**退役判据（预注册，写死在 `src/research/paper_status.py`）**：样本进来之后必须有事前写死
+**退役判据（预注册，写死在 `src/research/trend/paper_status.py`）**：样本进来之后必须有事前写死
 的裁决口径，否则「再观察观察」会一直拖到回撤发生、再用叙事解释。阈值先于证据固定：
 
 | 判据 | 阈值 | 判决 | 理由 |
@@ -429,7 +429,7 @@ diff <(grep -c kill logs/scheduled/paper-*.log) <(echo 0)   # 判据随账打印
 风控闸 → 下单。OKX 侧已有可用件：`src/config/settings.py` 的 `create_exchange()`（凭据/
 代理/模拟盘已就位）、`scripts/measure_maker_fill.py` 与 `scripts/reconcile_execution.py` 已在
 模拟盘下过真单（前者拒绝在非模拟盘执行）。风控闸必须写死：单标的名义额 ≤ 5% × 滞后 30 日
-ADV（`src/research/leverage_cap.py`）、总名义 ≤ 账本、日线缓存滞后超 2 天拒绝跑、
+ADV（`src/research/backtest/leverage_cap.py`）、总名义 ≤ 账本、日线缓存滞后超 2 天拒绝跑、
 `clOrdId` 幂等、`--flatten` 一键平仓。**记账链路已接计划任务**：`nerd-trader-bars-daily`
 （每日 16:20：刷新 OKX 现货日线 → 重建 manifest → 跑验收闸）与 `nerd-trader-paper-daily`
 （每日 16:45：追加纸面前向账），注册见 `scripts/register_tasks.sh`。

@@ -39,6 +39,7 @@ from typing import Final
 import pandas as pd
 
 from src.config.paths import RESULTS_ROOT
+from src.research.backtest.strategy_risk import strategy_failure_probability
 from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
 from src.research.factors.verification import (
     VerificationResult,
@@ -47,9 +48,8 @@ from src.research.factors.verification import (
     print_verification,
     verify,
 )
-from src.research.strategy_risk import strategy_failure_probability
-from src.research.track_record import MIN_TRACK_OBSERVATIONS, track_record
-from src.research.trials import ResearchScope
+from src.research.study.track_record import MIN_TRACK_OBSERVATIONS, track_record
+from src.research.validation.trials import ResearchScope
 from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "factors"

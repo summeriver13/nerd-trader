@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from src.research.polymarket_ladder import (
+from src.research.polymarket.polymarket_ladder import (
     PRICE_TYPE_BOTH,
     WINDOW_CREATION,
     WINDOW_UNBOUNDED,

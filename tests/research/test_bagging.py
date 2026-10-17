@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 from sklearn.tree import DecisionTreeClassifier
 
-from src.research import bagging, meta
+from src.research.labeling import bagging, meta
 
 OPTIONS = bagging.BaggingOptions(
     n_estimators=3, max_depth=3, min_samples_leaf=2, seed=1

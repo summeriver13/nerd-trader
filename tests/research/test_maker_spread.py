@@ -14,8 +14,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.research import maker_conditional as mc
-from src.research import maker_spread as ms
+from src.research.liquidity import maker_conditional as mc
+from src.research.liquidity import maker_spread as ms
 
 START = "2022-01-01"
 DAY = pd.Timestamp(START, tz="UTC")

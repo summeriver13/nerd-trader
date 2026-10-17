@@ -38,7 +38,8 @@ import pandas as pd
 
 from src.config.paths import crypto_dataset_dir
 from src.core.costs import PERP_FEES, SPOT_FEES, FeeSchedule
-from src.research.tsmom import (
+from src.research.study.universe import liquidity_order, load_bars_dir
+from src.research.trend.tsmom import (
     TsmomOptions,
     active_counts,
     book_scale,
@@ -49,8 +50,8 @@ from src.research.tsmom import (
     trailing_volatility,
     tsmom_signal,
 )
-from src.research.tsmom_audit import print_audit
-from src.research.tsmom_report import (
+from src.research.trend.tsmom_audit import print_audit
+from src.research.trend.tsmom_report import (
     ArmRow,
     ArmRun,
     hit_rate,
@@ -61,7 +62,6 @@ from src.research.tsmom_report import (
     summarize,
     summarize_stream,
 )
-from src.research.universe import liquidity_order, load_bars_dir
 
 SPOT_DIR = crypto_dataset_dir("okx", "spot", "1d")
 # OKX 不保留退市历史，退市标的由 Binance 回填（scripts/fetch_delisted_bars.py）

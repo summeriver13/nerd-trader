@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from src.research import provenance
+from src.research.validation import provenance
 
 BASE_CONFIG: dict[str, Any] = {"bars": 200, "strategy": "布林带均值回归 (Bollinger MR)"}
 BASE_DATA: dict[str, Any] = {

@@ -20,7 +20,8 @@ import pytest
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import log_loss
 
-from src.research import importance, meta
+from src.research import importance
+from src.research.labeling import meta
 
 FEATURES = ("informative", "redundant", "noise")
 LABEL = "label"

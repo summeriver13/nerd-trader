@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 from statsmodels.tsa.stattools import adfuller
 
-from src.research.breaks import (
+from src.research.validation.breaks import (
     MIN_ROWS,
     AdfSweep,
     SadfOptions,

@@ -21,9 +21,9 @@ from src.core.types import (
     OrderType,
     TickData,
 )
-from src.research.carry import ROUND_TRIP_COST
+from src.research.backtest.execution import MakerPolicy
 from src.research.domains.crypto import CryptoDomain
-from src.research.execution import MakerPolicy
+from src.research.funding.carry import ROUND_TRIP_COST
 from src.simulation.mock_gateway import MockGateway
 
 SYMBOL = "BTC-USDT"

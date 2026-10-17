@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.research.cpcv import CombinatorialPurgedCv, path_series
-from src.research.tuning import PurgedKFold
+from src.research.labeling.tuning import PurgedKFold
+from src.research.validation.cpcv import CombinatorialPurgedCv, path_series
 
 GROUPS = 6
 K_TEST = 2
