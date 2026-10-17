@@ -44,6 +44,7 @@ from src.research.factors.portfolio import (
     break_even_cost,
     portfolio_stats,
 )
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 RESULTS_DIR: Path = Path("data/results/breaks")
 DEFAULT_WINDOW: int = 250
@@ -77,8 +78,8 @@ COLUMNS: tuple[str, ...] = tuple(entry[2] for entry in ENTROPY_FACTORS)
 def parse_args() -> argparse.Namespace:
     """命令行参数。"""
     parser = argparse.ArgumentParser(description="Ch 18 熵特征实证")
-    parser.add_argument("--market", default="swap", help="市场")
-    parser.add_argument("--timeframe", default="1d", help="时间框架")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser)
     parser.add_argument("--window", type=int, default=DEFAULT_WINDOW, help="滚窗根数")
     parser.add_argument(
         "--surrogates", type=int, default=DEFAULT_SURROGATES, help="置换对照次数"
@@ -88,7 +89,7 @@ def parse_args() -> argparse.Namespace:
         "--limit-symbols", type=int, default=0, help="只跑前 N 只（冒烟）"
     )
     parser.add_argument("--refresh", action="store_true", help="重建熵面板缓存")
-    parser.add_argument("--no-save", action="store_true", help="不落盘")
+    add_no_save(parser)
     return parser.parse_args()
 
 

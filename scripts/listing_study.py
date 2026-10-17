@@ -19,6 +19,7 @@ from src.research.listing_report import (
     print_report,
     save_outputs,
 )
+from src.utils.study_cli import add_no_save
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,7 +31,7 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_HORIZON,
         help=f"入场扫描与年份分组的持有期（根），默认 {DEFAULT_HORIZON}",
     )
-    parser.add_argument("--no-save", action="store_true", help="只打印，不落盘")
+    add_no_save(parser)
     return parser.parse_args()
 
 

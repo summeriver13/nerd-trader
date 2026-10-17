@@ -44,6 +44,7 @@ from src.research.factors.smoothing import (
     verify_grid,
 )
 from src.research.factors.variants import resolve_interaction, resolve_smoothing
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "factors"
 KIND_BASE: Final[str] = "基准"
@@ -57,8 +58,8 @@ VERDICT_TOP: Final[int] = 12
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="因子平滑扫描（Alpha101 算子）")
-    parser.add_argument("--market", default="spot", help="市场层，默认 spot")
-    parser.add_argument("--timeframe", default="1d", help="周期，默认 1d")
+    add_market_argument(parser, default="spot")
+    add_timeframe_argument(parser)
     parser.add_argument(
         "--factors", default=None, help="基因子键（逗号分隔），省略取库内全部 8 个"
     )
@@ -103,7 +104,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="DSR 声明的试验次数 N（默认 = 候选数 × 调仓档数，即本次挑选空间的大小）",
     )
-    parser.add_argument("--no-save", action="store_true", help="不落盘，只打印")
+    add_no_save(parser)
     return parser.parse_args()
 
 
@@ -127,11 +128,13 @@ def print_table(summary: pd.DataFrame, cost_bp: float) -> None:
         f"{'净/期':>8}{'换手':>7}{'平衡成本':>10}{'只多净复利':>11}{'胜BTC':>6}"
     )
     for horizon in sorted({int(item) for item in summary["horizon"]}):
-        group = cast(
-            pd.DataFrame, summary[summary["horizon"] == horizon]
-        ).sort_values("break_even_bp", ascending=False)
+        group = cast(pd.DataFrame, summary[summary["horizon"] == horizon]).sort_values(
+            "break_even_bp", ascending=False
+        )
         btc = float(group["btc"].iloc[0])
-        print(f"=== 调仓 {horizon} 根（成本线 {cost_bp:.1f}bp/边，BTC 复利 {btc:.1%}）===")
+        print(
+            f"=== 调仓 {horizon} 根（成本线 {cost_bp:.1f}bp/边，BTC 复利 {btc:.1%}）==="
+        )
         print(header)
         for row in group.to_dict(orient="records"):
             flag = "是" if row["beats_all"] else ("部分" if row["beats"] else "-")
@@ -150,7 +153,10 @@ def _leg_range(row: dict[str, object]) -> str:
     median = float(cast(float, row["long_med"]))
     if int(cast(int, row["phases"])) == 1:
         return f"{median:.1%}"
-    low, high = float(cast(float, row["long_low"])), float(cast(float, row["long_high"]))
+    low, high = (
+        float(cast(float, row["long_low"])),
+        float(cast(float, row["long_high"])),
+    )
     return f"{median:.1%}（{low:.0%}~{high:.0%}）"
 
 
@@ -200,7 +206,9 @@ def print_verdicts(
             f" | PBO {pbo} {'PASS' if verdict.pbo_passed else 'FAIL'}"
             f" | 过 DSR {passed}/{len(verdict.rows)}"
         )
-        print(f"{'候选':<{KEY_WIDTH}}{'只多净复利':>11}{'夏普':>7}{'DSR':>7}{'裁决':>8}")
+        print(
+            f"{'候选':<{KEY_WIDTH}}{'只多净复利':>11}{'夏普':>7}{'DSR':>7}{'裁决':>8}"
+        )
         ordered = verdict.rows.sort_values("dsr", ascending=False)
         for row in ordered.head(VERDICT_TOP).to_dict(orient="records"):
             lookup[(int(cast(int, row["horizon"])), str(row["factor"]))] = row
@@ -238,9 +246,7 @@ def main() -> int:
     args = parse_args()
     warnings.filterwarnings("ignore", category=FutureWarning)
     warnings.filterwarnings("ignore", category=RuntimeWarning)
-    cost_one_way = (
-        DEFAULT_ONE_WAY_COST if args.cost_bp is None else args.cost_bp / 1e4
-    )
+    cost_one_way = DEFAULT_ONE_WAY_COST if args.cost_bp is None else args.cost_bp / 1e4
     anchor = None if str(args.anchor).lower() == "none" else int(args.anchor)
     config = ScanConfig(
         horizons=tuple(int(item) for item in str(args.horizons).split(",")),
@@ -268,7 +274,9 @@ def main() -> int:
     started = time.time()
     frame = scan(build_specs(args), panel, mask, config, anchor)
     summary = summarize(frame)
-    print(f"耗时 {time.time() - started:.1f}s，{len(summary)} 行候选 / {len(frame)} 条读数")
+    print(
+        f"耗时 {time.time() - started:.1f}s，{len(summary)} 行候选 / {len(frame)} 条读数"
+    )
     print_table(summary, cost_one_way * 1e4)
     print_summary(summary)
 

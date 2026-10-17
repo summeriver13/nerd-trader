@@ -41,6 +41,7 @@ from src.research.observations import (
     SADF_COLUMN,
 )
 from src.research.trials import Trial, TrialLedger
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 THRESHOLDS = (0.0, 0.55, 0.6, 0.7)
 SHARES = (0.05, 0.02)
@@ -173,8 +174,8 @@ def _report(combined: pd.DataFrame) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ch 6 袋化集成研究")
-    parser.add_argument("--market", default="swap")
-    parser.add_argument("--timeframe", default="1d")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser)
     parser.add_argument("--vertical", type=int, default=3)
     parser.add_argument("--min-train", type=int, default=20000)
     parser.add_argument("--test-span", type=int, default=250)
@@ -184,7 +185,7 @@ def main() -> int:
     parser.add_argument("--seeds", type=int, default=1, help="每个臂重复跑几颗种子")
     parser.add_argument("--arms", default="rf,uni,seq")
     parser.add_argument("--variants", default="B")
-    parser.add_argument("--no-save", action="store_true")
+    add_no_save(parser)
     args = parser.parse_args()
 
     frame = _span_frame(args.market, args.timeframe, vertical=args.vertical)

@@ -24,6 +24,7 @@ import pandas as pd
 
 from src.core.costs import PERP_FEES
 from src.research.factors.panel import Panel, load_panel
+from src.utils.study_cli import add_market_argument, add_timeframe_argument
 
 TAKER_FEE_BP: float = PERP_FEES.taker * 1e4
 DEFAULT_WINDOW_DAYS = 180
@@ -58,8 +59,8 @@ SIMPLE_COLUMNS: tuple[str, ...] = ("log_notional",)
 def parse_args() -> argparse.Namespace:
     """命令行参数。"""
     parser = argparse.ArgumentParser(description="池尾成本的日频代理标定")
-    parser.add_argument("--market", default="swap", help="市场")
-    parser.add_argument("--timeframe", default="1d", help="日频面板周期")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser, help_text="日频面板周期，默认 1d")
     parser.add_argument(
         "--window-days", type=int, default=DEFAULT_WINDOW_DAYS, help="窗口天数"
     )

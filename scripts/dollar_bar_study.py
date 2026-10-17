@@ -34,6 +34,7 @@ from src.research.bar_factors import (
 )
 from src.research.factors.evaluation import forward_returns
 from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 DEFAULT_WINDOWS = (1, 2, 3, 5, 10, 20, 30)
 DEFAULT_HORIZONS = (1, 3, 5, 10, 20, 30)
@@ -45,12 +46,12 @@ DOLLAR_TIMEFRAME = "dollar"
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="美元棒 vs 时间棒的反转尺度对比")
-    parser.add_argument("--market", default="swap")
-    parser.add_argument("--timeframe", default="1d")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser)
     parser.add_argument("--windows", default=",".join(map(str, DEFAULT_WINDOWS)))
     parser.add_argument("--horizons", default=",".join(map(str, DEFAULT_HORIZONS)))
     parser.add_argument("--min-notional", type=float, default=None)
-    parser.add_argument("--no-save", action="store_true")
+    add_no_save(parser)
     args = parser.parse_args()
 
     windows = [int(part) for part in args.windows.split(",") if part]

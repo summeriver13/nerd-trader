@@ -27,6 +27,7 @@ from src.research.maker_spread import (
     save_outputs,
     summary_frame,
 )
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 MINUTES_PER_DAY = 1440.0
 
@@ -42,8 +43,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--min-cross-section", type=int, default=10, help="截面宽度门槛，默认 10"
     )
-    parser.add_argument("--market", default="swap", help="市场层，默认 swap")
-    parser.add_argument("--timeframe", default="1m", help="日内周期，默认 1m")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser, default="1m", help_text="日内周期，默认 1m")
     parser.add_argument(
         "--entry-fee-bp",
         type=float,
@@ -56,7 +57,7 @@ def parse_args() -> argparse.Namespace:
         default=TAKER_FEE_BP,
         help=f"出场费率，默认 {TAKER_FEE_BP:.0f}bp（taker，不建模出场成交）",
     )
-    parser.add_argument("--no-save", action="store_true", help="不落盘，只打印")
+    add_no_save(parser)
     return parser.parse_args()
 
 

@@ -17,12 +17,13 @@ from src.research.meme_report import (
     print_report,
     save_outputs,
 )
+from src.utils.study_cli import add_no_save
 
 
 def parse_args() -> argparse.Namespace:
     """解析命令行参数。"""
     parser = argparse.ArgumentParser(description="meme 币行情体检")
-    parser.add_argument("--no-save", action="store_true", help="只打印，不落盘")
+    add_no_save(parser)
     return parser.parse_args()
 
 

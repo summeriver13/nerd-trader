@@ -38,6 +38,7 @@ from src.core.costs import PERP_FEES
 from src.research.factors.operators import correlation, decay_linear
 from src.research.factors.panel import Panel, load_panel
 from src.research.factors.portfolio import break_even_cost
+from src.utils.study_cli import add_market_argument, add_timeframe_argument
 
 BARS_PER_YEAR: Final[int] = 365
 MIN_BARS: Final[int] = 365
@@ -92,7 +93,10 @@ def load_probe_data(market: str, timeframe: str) -> ProbeData:
     root = crypto_dataset_dir("okx", market, timeframe)
     columns = {
         field: pd.DataFrame(
-            {path.stem: pd.read_parquet(path)[field] for path in sorted(root.glob("*.parquet"))}
+            {
+                path.stem: pd.read_parquet(path)[field]
+                for path in sorted(root.glob("*.parquet"))
+            }
         ).reindex(panel.index)
         for field in OHLCV_FIELDS
     }
@@ -123,7 +127,9 @@ def alpha_values(data: ProbeData) -> dict[str, pd.DataFrame]:
         "#54 −(low−close)·open^5/((low−high)·close^5)": -(low - close)
         * open_**5
         / ((low - high) * close**5),
-        "#6 −corr(open, volume, 10)": -correlation(open_, volume, INTERACTION_WINDOWS["#6"]),
+        "#6 −corr(open, volume, 10)": -correlation(
+            open_, volume, INTERACTION_WINDOWS["#6"]
+        ),
         "#44 −corr(high, rank(volume), 5)": -correlation(
             high, cross_rank(volume), INTERACTION_WINDOWS["#44"]
         ),
@@ -169,17 +175,26 @@ def read_grid(
     mean_gross, mean_turn = float(np.mean(gross)), float(np.mean(turnover))
     annual = mean_gross * (BARS_PER_YEAR / horizon)
     cost_drag = mean_turn * (BARS_PER_YEAR / horizon) * COST
-    return annual, mean_turn, break_even_cost(mean_gross, mean_turn) * 1e4, annual - cost_drag
+    return (
+        annual,
+        mean_turn,
+        break_even_cost(mean_gross, mean_turn) * 1e4,
+        annual - cost_drag,
+    )
 
 
 def probe_base(alphas: dict[str, pd.DataFrame], data: ProbeData) -> None:
     """探针一：日频全换手下，7 条的 IC 与成本线。"""
     forward = data.close.pct_change(fill_method=None).shift(-1)
-    print(f"{'alpha':<40}{'IC':>7}{'IC t':>7}{'毛年化':>9}{'日换手':>8}{'平衡成本':>10}{'净年化':>9}")
+    print(
+        f"{'alpha':<40}{'IC':>7}{'IC t':>7}{'毛年化':>9}{'日换手':>8}{'平衡成本':>10}{'净年化':>9}"
+    )
     best = ("", 0.0)
     for label, values in alphas.items():
         valid = values.notna() & forward.notna()
-        daily_ic = values.where(valid).corrwith(forward, axis=1, method="spearman").dropna()
+        daily_ic = (
+            values.where(valid).corrwith(forward, axis=1, method="spearman").dropna()
+        )
         annual, turn, be, net = read_grid(values, data.close, horizon=1)
         ic_t = float(daily_ic.mean()) / float(daily_ic.std()) * np.sqrt(len(daily_ic))
         print(
@@ -187,14 +202,18 @@ def probe_base(alphas: dict[str, pd.DataFrame], data: ProbeData) -> None:
             f"{turn:>8.2f}{be:>9.1f}bp{net:>8.1%}"
         )
         best = max(best, (label, be), key=lambda item: item[1])
-    print(f"\n平衡成本最高的一条：{best[0]} = {best[1]:.1f}bp/边（成本 {COST * 1e4:.0f}bp）")
+    print(
+        f"\n平衡成本最高的一条：{best[0]} = {best[1]:.1f}bp/边（成本 {COST * 1e4:.0f}bp）"
+    )
 
 
 def probe_horizon(
     alphas: dict[str, pd.DataFrame], data: ProbeData, horizons: tuple[int, ...]
 ) -> None:
     """探针二：每个 h 穷举全部相位，报中位与范围（单相位读数不作数）。"""
-    print(f"{'alpha':<8}{'h':>3}{'相位':>5}{'毛年化(中位)':>13}{'换手':>7}{'平衡中位':>9}{'平衡范围':>16}")
+    print(
+        f"{'alpha':<8}{'h':>3}{'相位':>5}{'毛年化(中位)':>13}{'换手':>7}{'平衡中位':>9}{'平衡范围':>16}"
+    )
     crossed = 0
     cells = 0
     for label, values in alphas.items():
@@ -222,7 +241,9 @@ def probe_horizon(
 
 def probe_phase(alphas: dict[str, pd.DataFrame], data: ProbeData) -> None:
     """探针三：h=30 单看相位散布（同一批数据换锚点，边际本身不应该跳）。"""
-    print(f"h={PHASE_HORIZON} ｜ 成本 {COST * 1e4:.1f}bp/边 ｜ 相位 = 0..{PHASE_HORIZON - 1}\n")
+    print(
+        f"h={PHASE_HORIZON} ｜ 成本 {COST * 1e4:.1f}bp/边 ｜ 相位 = 0..{PHASE_HORIZON - 1}\n"
+    )
     print(f"{'alpha':<8}{'相位':>5}{'平衡最低':>10}{'中位':>10}{'最高':>10}")
     for label, values in alphas.items():
         breaks = [
@@ -245,8 +266,12 @@ def probe_decay(data: ProbeData) -> None:
     variants: dict[str, pd.DataFrame] = {"rev_3 原始": reversal}
     for window in DECAY_WINDOWS:
         variants[f"rev_3 → decay_linear({window})"] = decay_linear(reversal, window)
-        variants[f"rev_3 → rank → decay({window})"] = decay_linear(cross_rank(reversal), window)
-    print(f"{'口径':<34}{'h=1 毛':>9}{'h=1 平衡':>10}{'h=1 净':>9}{'h=3 毛':>9}{'h=3 平衡':>10}{'h=3 净':>9}")
+        variants[f"rev_3 → rank → decay({window})"] = decay_linear(
+            cross_rank(reversal), window
+        )
+    print(
+        f"{'口径':<34}{'h=1 毛':>9}{'h=1 平衡':>10}{'h=1 净':>9}{'h=3 毛':>9}{'h=3 平衡':>10}{'h=3 净':>9}"
+    )
     for label, values in variants.items():
         cells = ""
         for horizon in (1, 3):
@@ -258,8 +283,10 @@ def probe_decay(data: ProbeData) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Alpha101 可行性探针")
-    parser.add_argument("--market", default="swap", help="市场层，默认 swap（探针原始口径）")
-    parser.add_argument("--timeframe", default="1d", help="周期，默认 1d")
+    add_market_argument(
+        parser, default="swap", help_text="市场层，默认 swap（探针原始口径）"
+    )
+    add_timeframe_argument(parser)
     parser.add_argument(
         "--probe",
         default="all",

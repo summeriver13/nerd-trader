@@ -42,6 +42,7 @@ from src.research.factors.sweep import (
     resolve_families,
     sweep_ic_table,
 )
+from src.utils.study_cli import add_no_save, add_timeframe_argument
 
 RESULTS_DIR: Path = Path("data/results/breaks")
 CACHE_DIR: Path = RESULTS_DIR / "corrections_cache"
@@ -71,9 +72,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="多重检验校正族实证")
     parser.add_argument("--stage", default="all", help="bed / factors / sweep / all")
     parser.add_argument("--market", default="swap,spot", help="市场（逗号分隔）")
-    parser.add_argument("--timeframe", default="1d", help="周期")
+    add_timeframe_argument(parser)
     parser.add_argument("--replications", type=int, default=499, help="bootstrap 次数")
-    parser.add_argument("--no-save", action="store_true", help="不落盘")
+    add_no_save(parser)
     return parser.parse_args()
 
 

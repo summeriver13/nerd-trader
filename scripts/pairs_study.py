@@ -37,6 +37,7 @@ from src.research.pairs.backtest import PairsOptions, PairsRun, run_pairs
 from src.research.pairs.output import print_report, save_outputs
 from src.research.pairs.report import build_report
 from src.utils.console import pad
+from src.utils.study_cli import add_no_save
 
 # 资金费代理源：OKX 只保留约 103 天，长历史只能用 Binance（跨源代理假设已由
 # docs/carry/ 的同期校验背书）
@@ -75,7 +76,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--controls", type=int, default=10, help="随机对照的重复次数（0 关闭）"
     )
-    parser.add_argument("--no-save", action="store_true", help="只打印，不落盘")
+    add_no_save(parser)
     return parser.parse_args()
 
 

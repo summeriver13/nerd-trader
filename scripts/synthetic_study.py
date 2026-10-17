@@ -28,6 +28,7 @@ from src.research.corrections import (
 )
 from src.research.synthetic import BEDS, SyntheticSpec
 from src.research.synthetic_checks import run_bed
+from src.utils.study_cli import add_no_save
 
 RESULTS_DIR: Final[Path] = Path("data/results/breaks")
 DEFAULT_SEEDS: Final[int] = 10
@@ -46,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--replications", type=int, default=DEFAULT_REPLICATIONS, help="bootstrap 次数"
     )
-    parser.add_argument("--no-save", action="store_true", help="不落盘")
+    add_no_save(parser)
     return parser.parse_args()
 
 

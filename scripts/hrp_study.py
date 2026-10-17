@@ -36,6 +36,7 @@ from src.research.factors.library import MAIN_POOL_KEYS
 from src.research.factors.panel import UniverseRule, load_panel, tradable_mask
 from src.research.observations import strategy_spreads
 from src.research.track_record import TrackRecord, track_record
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "breaks"
 # 参与组合的策略：成员永远是主池（启动时校验），但**报告顺序锁在这里**。
@@ -73,12 +74,12 @@ class SchemeResult:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="HRP 配权实证：策略层组合")
-    parser.add_argument("--market", default="swap", help="市场层，默认 swap")
-    parser.add_argument("--timeframe", default="1d", help="周期，默认 1d")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser)
     parser.add_argument("--horizon", type=int, default=1, help="统一期限，默认 1")
     parser.add_argument("--split", type=float, default=DEFAULT_SPLIT, help="训练段占比")
     parser.add_argument("--strategies", default=None, help="逗号分隔的因子键")
-    parser.add_argument("--no-save", action="store_true", help="不落盘，只打印")
+    add_no_save(parser)
     return parser.parse_args()
 
 

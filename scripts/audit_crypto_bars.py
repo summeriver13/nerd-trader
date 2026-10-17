@@ -23,6 +23,7 @@ from typing import cast
 import pandas as pd
 
 from src.config.paths import CRYPTO_ROOT
+from src.utils.study_cli import add_market_argument, add_timeframe_argument
 
 PRICE_COLUMNS = ("open", "high", "low", "close")
 SYMBOL_WIDTH = 16
@@ -95,8 +96,8 @@ def report(path: Path, result: AuditResult) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="K 线缓存验收闸")
     parser.add_argument("--exchange", default="okx")
-    parser.add_argument("--market", default="swap")
-    parser.add_argument("--timeframe", default="1m")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser, default="1m")
     parser.add_argument(
         "--irregular",
         action="store_true",

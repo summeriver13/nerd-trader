@@ -55,6 +55,7 @@ from src.research.imbalance_bars import (
     imbalance_bars,
     run_bars,
 )
+from src.utils.study_cli import add_market_argument, add_no_save
 
 DEFAULT_WINDOWS = (1, 3, 5, 10, 20)
 DOLLAR_DIR = "dollar"
@@ -211,10 +212,10 @@ def print_ic(rows: list[dict[str, object]]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="bar 类型对照（诊断 + 反转 IC）")
-    parser.add_argument("--market", default="swap")
+    add_market_argument(parser, default="swap")
     parser.add_argument("--windows", default=",".join(map(str, DEFAULT_WINDOWS)))
     parser.add_argument("--horizon", type=int, default=1, help="IC 的前向期限（日）")
-    parser.add_argument("--no-save", action="store_true")
+    add_no_save(parser)
     args = parser.parse_args()
     windows = [int(part) for part in args.windows.split(",") if part]
 

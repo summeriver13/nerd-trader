@@ -28,6 +28,7 @@ from src.core.costs import PERP_FEES
 from src.research.factors.library import FACTOR_LIBRARY, MAIN_POOL_KEYS
 from src.research.factors.panel import Panel, load_panel, tradable_mask
 from src.research.factors.portfolio import PortfolioOptions, portfolio_stats
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 RESULTS_DIR: Path = Path("data/results/breaks")
 HORIZONS: tuple[int, ...] = (1, 7)
@@ -44,9 +45,9 @@ GROUP_FACTORS: tuple[str, ...] = ("rev_3", "liq_30")
 def parse_args() -> argparse.Namespace:
     """命令行参数。"""
     parser = argparse.ArgumentParser(description="成本敏感度：实测成本 vs 假设成本")
-    parser.add_argument("--market", default="swap", help="市场（swap / spot）")
-    parser.add_argument("--timeframe", default="1d", help="周期")
-    parser.add_argument("--no-save", action="store_true", help="不落盘")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser)
+    add_no_save(parser)
     return parser.parse_args()
 
 

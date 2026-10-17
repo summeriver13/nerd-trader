@@ -32,6 +32,7 @@ import pandas as pd
 
 from src.research import bootstrap, labels
 from src.research.factors.panel import Panel, load_panel
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 OUTPUT_DIR = Path("data/results/breaks")
 MIN_BARS = 400
@@ -228,12 +229,12 @@ def report(frame: pd.DataFrame) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ch 4.5 顺序 bootstrap 的适用条件")
-    parser.add_argument("--market", default="swap")
-    parser.add_argument("--timeframe", default="1d")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser)
     parser.add_argument("--vertical", type=int, default=5)
     parser.add_argument("--seeds", type=int, default=12)
     parser.add_argument("--symbols", type=int, default=60)
-    parser.add_argument("--no-save", action="store_true")
+    add_no_save(parser)
     args = parser.parse_args(argv)
 
     panel = load_panel(args.timeframe, market=args.market)

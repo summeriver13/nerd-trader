@@ -28,14 +28,15 @@ from src.research.factors.report import (
     build_report,
     save_outputs,
 )
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 FACTOR_WIDTH = 12
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="截面因子统一测试台")
-    parser.add_argument("--timeframe", default="1d", help="周期，默认 1d")
-    parser.add_argument("--market", default="spot", help="市场层，默认 spot")
+    add_timeframe_argument(parser)
+    add_market_argument(parser, default="spot")
     parser.add_argument(
         "--horizons",
         default=",".join(str(h) for h in DEFAULT_HORIZONS),
@@ -65,7 +66,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=f"单边成本（bp），默认 {DEFAULT_ONE_WAY_COST * 1e4:.1f}",
     )
-    parser.add_argument("--no-save", action="store_true", help="不落盘，只打印")
+    add_no_save(parser)
     parser.add_argument(
         "--include-delisted",
         action="store_true",

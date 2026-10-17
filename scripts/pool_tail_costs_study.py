@@ -25,6 +25,7 @@ import pandas as pd
 from src.config.paths import CRYPTO_ROOT
 from src.core.costs import PERP_FEES
 from src.research.microstructure import corwin_schultz_spread_bp, roll_spread_bp
+from src.utils.study_cli import add_no_save
 
 RESULTS_DIR: Path = Path("data/results/breaks")
 MICRO_CACHE: Path = RESULTS_DIR / "microstructure_swap_1m_daily.parquet"
@@ -75,7 +76,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--contrast", nargs="+", default=list(CONTRAST_SYMBOLS), help="对照标的"
     )
-    parser.add_argument("--no-save", action="store_true", help="只打印不落盘")
+    add_no_save(parser)
     return parser.parse_args()
 
 

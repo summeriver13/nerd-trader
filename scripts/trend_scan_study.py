@@ -44,6 +44,7 @@ from src.research.observations import (
     SADF_COLUMN,
 )
 from src.research.trials import Trial, TrialLedger
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 UNIFORM_WEIGHT = "weight_uniform"
 OUTPUT_DIR = Path("data/results/breaks")
@@ -102,7 +103,10 @@ def label_layer(frame: pd.DataFrame) -> pd.DataFrame:
         f"{(trend[usable] == side[usable]).mean():.1%}"
     )
     rows: list[dict[str, object]] = []
-    for name, direction in ((f"primary_{PRIMARY_FACTOR}", side), ("trend_oracle", trend)):
+    for name, direction in (
+        (f"primary_{PRIMARY_FACTOR}", side),
+        ("trend_oracle", trend),
+    ):
         taken = direction[usable] * forward[usable]
         taken = taken[direction[usable] != 0.0]
         rows.append(
@@ -196,8 +200,8 @@ def run_arm(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="趋势扫描标签 + side/size 联合学习")
-    parser.add_argument("--market", default="swap")
-    parser.add_argument("--timeframe", default="1d")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser)
     parser.add_argument("--span", type=int, default=20, help="趋势扫描的最大窗口（根）")
     parser.add_argument(
         "--threshold", type=float, default=0.5, help="动态阈值分位（0 = 不设阈值）"
@@ -208,7 +212,7 @@ def main() -> int:
     parser.add_argument("--embargo", type=int, default=8)
     parser.add_argument("--trees", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--no-save", action="store_true")
+    add_no_save(parser)
     args = parser.parse_args()
 
     frame, _ = prepare(args)

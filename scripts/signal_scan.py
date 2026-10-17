@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 
 from src.config.paths import crypto_bar_path
+from src.utils.study_cli import add_timeframe_argument
 
 BP = 1e4
 DEFAULT_SYMBOL = "BTC/USDT:USDT"
@@ -182,7 +183,7 @@ def main() -> int:
         description="1m 尺度方向性信号扫描（只读本地缓存，不联网）"
     )
     parser.add_argument("--symbol", default=DEFAULT_SYMBOL, help="ccxt 符号")
-    parser.add_argument("--timeframe", default=DEFAULT_TIMEFRAME, help="K 线周期")
+    add_timeframe_argument(parser, default=DEFAULT_TIMEFRAME)
     parser.add_argument(
         "--bars", type=int, default=0, help="只用末尾 N 根，0 表示全部（默认）"
     )

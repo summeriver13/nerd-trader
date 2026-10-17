@@ -39,6 +39,7 @@ from src.research.factors.sweep import (
     resolve_families,
     sweep,
 )
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "factors"
 # 曲线抽样点：窗口 1..120 太宽，等距采点才看得见形状
@@ -49,8 +50,8 @@ WIDTH_HORIZON: Final[int] = 4
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="因子扫描器：按族扫窗口 + 平台判据")
-    parser.add_argument("--timeframe", default="1d", help="周期，默认 1d")
-    parser.add_argument("--market", default="spot", help="市场层，默认 spot")
+    add_timeframe_argument(parser)
+    add_market_argument(parser, default="spot")
     parser.add_argument(
         "--horizons",
         default=",".join(str(h) for h in DEFAULT_HORIZONS),
@@ -67,7 +68,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--alpha", type=float, default=DEFAULT_ALPHA, help="显著性水平")
     parser.add_argument("--min-listed-days", type=int, default=180)
     parser.add_argument("--min-notional", type=float, default=1e6)
-    parser.add_argument("--no-save", action="store_true", help="不落盘，只打印")
+    add_no_save(parser)
     return parser.parse_args()
 
 

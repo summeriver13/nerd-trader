@@ -50,6 +50,7 @@ from src.research.factors.verification import (
 from src.research.strategy_risk import strategy_failure_probability
 from src.research.track_record import MIN_TRACK_OBSERVATIONS, track_record
 from src.research.trials import ResearchScope
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "factors"
 POOL_PLATEAU: Final[str] = "plateau"
@@ -64,8 +65,8 @@ BARS_PER_YEAR: Final[float] = 365.0
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="收益层验证：分位组合 + PBO/DSR")
-    parser.add_argument("--timeframe", default="1d", help="周期，默认 1d")
-    parser.add_argument("--market", default="spot", help="市场层，默认 spot")
+    add_timeframe_argument(parser)
+    add_market_argument(parser, default="spot")
     parser.add_argument(
         "--pool",
         default=POOL_PLATEAU,
@@ -81,7 +82,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--min-listed-days", type=int, default=180)
     parser.add_argument("--min-notional", type=float, default=1e6)
-    parser.add_argument("--no-save", action="store_true", help="不落盘，只打印")
+    add_no_save(parser)
     return parser.parse_args()
 
 

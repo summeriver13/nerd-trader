@@ -29,6 +29,7 @@ from src.research.factors.portfolio import (
     portfolio_stats,
 )
 from src.research.microstructure import load_microstructure
+from src.utils.study_cli import add_no_save
 
 RESULTS_DIR: Path = Path("data/results/breaks")
 TRAILING_WINDOW: int = 30
@@ -52,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--horizon", type=int, default=1, help="组合调仓间隔（根）")
     parser.add_argument("--refresh", action="store_true", help="重建 1m 聚合缓存")
-    parser.add_argument("--no-save", action="store_true", help="不落盘")
+    add_no_save(parser)
     return parser.parse_args()
 
 

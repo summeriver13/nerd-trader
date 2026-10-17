@@ -29,6 +29,7 @@ from src.research.observations import (
     PRIMARY_FACTOR,
 )
 from src.research.trials import Trial, TrialLedger
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 LABEL_SOURCE: Final[str] = observations.BARRIER_LABEL_COLUMN
 OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "breaks"
@@ -43,8 +44,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Ch 9 遗留：分数能变成钱吗（CPCV 路径版）"
     )
-    parser.add_argument("--market", default="swap")
-    parser.add_argument("--timeframe", default="1d")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser)
     parser.add_argument("--vertical", type=int, default=3, help="三重障碍的垂直屏障")
     parser.add_argument("--groups", type=int, default=8, help="CPCV 组数 N")
     parser.add_argument("--test-groups", type=int, default=2, help="每次做测试的组数 k")
@@ -53,7 +54,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--n-iter", type=int, default=8, help="随机搜索抽几个配置")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--no-save", action="store_true")
+    add_no_save(parser)
     return parser.parse_args()
 
 

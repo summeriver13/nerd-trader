@@ -38,6 +38,7 @@ from src.research.vol_target_report import (
     build_study,
     save_outputs,
 )
+from src.utils.study_cli import add_no_save, add_timeframe_argument
 
 EXCHANGE = "okx"
 TIMEFRAME = "1d"
@@ -54,8 +55,8 @@ GAIN_COLUMNS = (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="波动率目标仓位统一测试台")
     parser.add_argument("--symbol", default="BTC/USDT", help="标的，默认 BTC/USDT")
-    parser.add_argument("--timeframe", default=TIMEFRAME, help="周期，默认 1d")
-    parser.add_argument("--no-save", action="store_true", help="只打印不落盘")
+    add_timeframe_argument(parser, default=TIMEFRAME)
+    add_no_save(parser)
     return parser.parse_args()
 
 

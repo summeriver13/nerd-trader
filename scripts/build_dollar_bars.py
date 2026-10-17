@@ -38,6 +38,7 @@ from src.research.bars import (
     threshold_for_daily_bars,
     volume_bars,
 )
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 KIND_DOLLAR = "dollar"
 KIND_VOLUME = "volume"
@@ -93,10 +94,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="构建等量棒（美元棒/量棒）")
     parser.add_argument("--kind", default=KIND_DOLLAR, choices=sorted(BUILDERS))
     parser.add_argument("--exchange", default="okx")
-    parser.add_argument("--market", default="swap")
-    parser.add_argument("--timeframe", default="1m", help="源周期")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser, default="1m", help_text="源周期，默认 1m")
     parser.add_argument("--symbols", default="", help="逗号分隔，缺省全量")
-    parser.add_argument("--no-save", action="store_true", help="只统计不落盘")
+    add_no_save(parser)
     args = parser.parse_args()
 
     wanted = [part for part in args.symbols.split(",") if part] or None

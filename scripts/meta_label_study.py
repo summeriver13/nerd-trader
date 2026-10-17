@@ -52,6 +52,7 @@ from src.research.observations import (
     SADF_COLUMN,
 )
 from src.research.trials import Trial, TrialLedger
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 SADF_CACHE = Path("data/results/breaks/sadf_swap_1d.parquet")
 OUTPUT_DIR = Path("data/results/breaks")
@@ -205,8 +206,8 @@ def _print_importance(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="三重障碍 + 元标签研究")
-    parser.add_argument("--market", default="swap")
-    parser.add_argument("--timeframe", default="1d")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser)
     parser.add_argument("--vertical", type=int, default=3)
     parser.add_argument("--min-train", type=int, default=20000)
     parser.add_argument("--test-span", type=int, default=60)
@@ -215,7 +216,7 @@ def main() -> int:
     )
     parser.add_argument("--trees", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--no-save", action="store_true")
+    add_no_save(parser)
     # 特征重要性要额外重训 7 倍（SFI 逐特征、MDA 逐簇），占九成耗时；
     # 只关心下注方案（比如扫折数/树数的预算敏感性）时关掉它。
     parser.add_argument("--no-importance", action="store_true")

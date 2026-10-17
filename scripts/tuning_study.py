@@ -38,6 +38,7 @@ from src.research.observations import (
     PRIMARY_FACTOR,
 )
 from src.research.trials import Trial, TrialLedger
+from src.utils.study_cli import add_market_argument, add_no_save, add_timeframe_argument
 
 LABEL_SOURCE: Final[str] = observations.BARRIER_LABEL_COLUMN
 WEIGHT_COLUMN: Final[str] = "weight_unique"
@@ -46,8 +47,8 @@ OUTPUT_DIR: Final[Path] = RESULTS_ROOT / "breaks"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Ch 9 超参调优实证")
-    parser.add_argument("--market", default="swap")
-    parser.add_argument("--timeframe", default="1d")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser)
     parser.add_argument("--vertical", type=int, default=3, help="三重障碍的垂直屏障")
     parser.add_argument("--min-train", type=int, default=20000)
     parser.add_argument("--test-span", type=int, default=240, help="每折测试窗天数")
@@ -60,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--n-iter", type=int, default=8, help="随机搜索抽几个配置")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--no-save", action="store_true")
+    add_no_save(parser)
     return parser.parse_args()
 
 

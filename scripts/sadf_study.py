@@ -39,6 +39,7 @@ from src.research.factors.library import DIRECTION_LONG, FactorSpec, momentum
 from src.research.factors.orthogonal import double_sort_ic
 from src.research.factors.panel import Panel, load_panel, tradable_mask
 from src.research.factors.portfolio import PortfolioOptions, portfolio_stats
+from src.utils.study_cli import add_market_argument, add_timeframe_argument
 
 HORIZONS: Final[tuple[int, ...]] = (1, 2, 3, 5, 7, 15, 30)
 CONTROL_WINDOW: Final[int] = 30
@@ -228,8 +229,8 @@ def report_portfolio(rows: list[dict[str, object]]) -> str:
 def main() -> None:
     """跑完整条链：SADF → 临界值 → 无条件 IC → 档内 IC → 组合层。"""
     parser = argparse.ArgumentParser(description="SADF 爆炸期研究")
-    parser.add_argument("--market", default="swap")
-    parser.add_argument("--timeframe", default="1d")
+    add_market_argument(parser, default="swap")
+    add_timeframe_argument(parser)
     args = parser.parse_args()
 
     panel = load_panel(args.timeframe, market=args.market)
