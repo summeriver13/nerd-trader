@@ -219,11 +219,15 @@ def test_hrp_weights_depend_on_column_order_but_inverse_variance_does_not() -> N
         (hrp_weights(shuffled).reindex(frame.columns) - hrp_weights(frame)).abs().max()
     )
     # 逆方差吃协方差矩阵、返回位置数组：换序后的第 i 位应对应原始第 order[i] 位
-    inverse_base = np.asarray(inverse_variance_weights(np.asarray(frame.cov())), dtype=float)
+    inverse_base = np.asarray(
+        inverse_variance_weights(np.asarray(frame.cov())), dtype=float
+    )
     inverse_perm = np.asarray(
         inverse_variance_weights(np.asarray(shuffled.cov())), dtype=float
     )
-    iv_gap = float(np.abs(inverse_perm - inverse_base[np.asarray(order, dtype=int)]).max())
+    iv_gap = float(
+        np.abs(inverse_perm - inverse_base[np.asarray(order, dtype=int)]).max()
+    )
 
     assert hrp_gap > 1e-3  # 列序真的在改权重，且远大于浮点噪声
     assert iv_gap < 1e-12  # 逆方差只看每列自己的方差，与列序无关

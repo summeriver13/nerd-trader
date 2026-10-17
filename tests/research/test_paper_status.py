@@ -122,7 +122,14 @@ def test_rolling_sharpe_uses_only_the_tail_window() -> None:
     old = np.full(MIN_BARS, 0.01)
     recent = np.full(BARS_PER_YEAR, -0.001)
 
-    assert rolling_sharpe(pd.Series(np.concatenate([[1.0], np.cumprod(1 + np.concatenate([old, recent]))]))) < 0
+    assert (
+        rolling_sharpe(
+            pd.Series(
+                np.concatenate([[1.0], np.cumprod(1 + np.concatenate([old, recent]))])
+            )
+        )
+        < 0
+    )
 
 
 def test_status_report_contains_thresholds_context() -> None:
@@ -133,7 +140,9 @@ def test_status_report_contains_thresholds_context() -> None:
     assert "滚动一年夏普" in text
 
 
-@pytest.mark.parametrize("verdict,expected", [(VERDICT_HEALTHY, 0), (VERDICT_WATCH, 1), (VERDICT_KILL, 2)])
+@pytest.mark.parametrize(
+    "verdict,expected", [(VERDICT_HEALTHY, 0), (VERDICT_WATCH, 1), (VERDICT_KILL, 2)]
+)
 def test_exit_codes(verdict: str, expected: int) -> None:
     from src.research.trend.paper_status import RetireStatus
 

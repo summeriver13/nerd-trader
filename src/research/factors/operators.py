@@ -41,7 +41,9 @@ def decay_linear(frame: pd.DataFrame, window: int) -> pd.DataFrame:
     total = lagged[0]
     for part in lagged[1:]:
         total = total + part
-    counted = cast(pd.DataFrame, frame.notna().rolling(window, min_periods=window).sum())
+    counted = cast(
+        pd.DataFrame, frame.notna().rolling(window, min_periods=window).sum()
+    )
     return cast(pd.DataFrame, total.div(float(weights.sum())).where(counted.eq(window)))
 
 

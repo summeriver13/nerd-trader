@@ -32,7 +32,9 @@ FETCHED_AT = "2026-10-17T15:40:00+00:00"
 DAY = "2026-10-17"
 
 
-def raw_rank(code: str, *, ratio: str = "5.5222", aum: str = "688066.06") -> dict[str, Any]:
+def raw_rank(
+    code: str, *, ratio: str = "5.5222", aum: str = "688066.06"
+) -> dict[str, Any]:
     """榜单行：上游把数字全写成字符串，history 是 3 个日度点（故意乱序）。"""
     return {
         "uniqueCode": code,
@@ -123,14 +125,19 @@ def test_append_snapshot_dedupes_same_version_and_keeps_new_one(tmp_path: Path) 
     # 平台刷新出 v2：同一个人再留一行（raw 只增不改）
     second = snapshot_rows(leaderboard("v2", "AAA", "BBB"), {}, fetched_at=FETCHED_AT)
     assert append_snapshot(second, day=DAY, root=root) == (2, 0)
-    keys = [tuple(record[field] for field in KEY_FIELDS) for record in read_jsonl(root / "lead_traders" / f"{DAY}.jsonl")]
+    keys = [
+        tuple(record[field] for field in KEY_FIELDS)
+        for record in read_jsonl(root / "lead_traders" / f"{DAY}.jsonl")
+    ]
     assert keys == [("AAA", "v1"), ("BBB", "v1"), ("AAA", "v2"), ("BBB", "v2")]
 
 
 def test_append_snapshot_partitions_by_day(tmp_path: Path) -> None:
     root = tmp_path / "raw"
     append_snapshot(
-        snapshot_rows(leaderboard("v1", "AAA"), {}, fetched_at=FETCHED_AT), day=DAY, root=root
+        snapshot_rows(leaderboard("v1", "AAA"), {}, fetched_at=FETCHED_AT),
+        day=DAY,
+        root=root,
     )
     append_snapshot(
         snapshot_rows(leaderboard("v2", "AAA"), {}, fetched_at=FETCHED_AT),

@@ -45,7 +45,10 @@ def chain(fetched: str) -> DeribitChain:
         currency="BTC",
         index_price=100_000.0,
         futures={"BTC-PERPETUAL": 100_100.0, "BTC-25DEC26": 105_000.0},
-        options=(quote(110_000.0, "C", 0.55, bid=0.02, ask=0.03), quote(90_000.0, "P", 0.6, bid=None, ask=None)),
+        options=(
+            quote(110_000.0, "C", 0.55, bid=0.02, ask=0.03),
+            quote(90_000.0, "P", 0.6, bid=None, ask=None),
+        ),
     )
 
 
@@ -95,13 +98,17 @@ def test_option_rows_drop_unquoted_strikes() -> None:
             ),
         ),
     )
-    assert [row["instrument"] for row in option_rows(subject)] == ["BTC-25DEC26-110000-C"]
+    assert [row["instrument"] for row in option_rows(subject)] == [
+        "BTC-25DEC26-110000-C"
+    ]
     assert [row["instrument"] for row in future_rows(subject)] == ["BTC-25DEC26"]
 
 
 def test_future_rows_mark_perpetual_without_expiry() -> None:
     """永续记空到期码：写成 PERPETUAL 会让 carry 外推时把 T 当有效期限。"""
-    rows = {row["instrument"]: row for row in future_rows(chain("2026-10-15T08:00:00Z"))}
+    rows = {
+        row["instrument"]: row for row in future_rows(chain("2026-10-15T08:00:00Z"))
+    }
     assert rows["BTC-PERPETUAL"]["expiry"] is None
     assert rows["BTC-25DEC26"]["expiry"] == "25DEC26"
 
@@ -120,7 +127,9 @@ def test_append_chain_dedupes_identical_snapshot(tmp_path: Path) -> None:
 def test_append_chain_keeps_second_snapshot_of_same_day(tmp_path: Path) -> None:
     """同一天第二轮快照要各留一行；否则日内多轮采集等于白采。"""
     append_chain(chain("2026-10-15T08:00:00Z"), root=tmp_path)
-    added = append_chain(chain("2026-10-15T20:00:00Z"), root=tmp_path)[DERIBIT_OPTIONS][0]
+    added = append_chain(chain("2026-10-15T20:00:00Z"), root=tmp_path)[DERIBIT_OPTIONS][
+        0
+    ]
     path = deribit_jsonl_path(DERIBIT_OPTIONS, "2026-10-15", root=tmp_path)
     stamps = {row["fetched_at"] for row in read_jsonl(path)}
     assert added == 2 and len(stamps) == 2
@@ -136,8 +145,12 @@ def test_manifest_counts_rows_and_coverage(tmp_path: Path) -> None:
     """manifest 是验收与下游对齐的唯一凭据：行数、覆盖区间、来源都要对。"""
     append_chain(chain("2026-10-15T08:00:00Z"), root=tmp_path)
     manifest_root = tmp_path / "manifests"
-    path = update_manifest(DERIBIT_OPTIONS, touched={"2026-10-15.jsonl"},
-                           raw_root=tmp_path, manifest_root=manifest_root)
+    path = update_manifest(
+        DERIBIT_OPTIONS,
+        touched={"2026-10-15.jsonl"},
+        raw_root=tmp_path,
+        manifest_root=manifest_root,
+    )
     manifest = json.loads(path.read_text(encoding="utf-8"))
     assert manifest["dataset"] == "deribit_raw_options"
     assert manifest["source"] == "www.deribit.com"

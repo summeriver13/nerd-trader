@@ -29,7 +29,12 @@ THOUSAND = 1000.0
 SLUG_PATTERN = re.compile(
     r"^will-(bitcoin|btc|ethereum|eth)-(reach|dip-to|hit)-(\d+)(k?)(?:-|$)"
 )
-ASSETS = {"bitcoin": "bitcoin", "btc": "bitcoin", "ethereum": "ethereum", "eth": "ethereum"}
+ASSETS = {
+    "bitcoin": "bitcoin",
+    "btc": "bitcoin",
+    "ethereum": "ethereum",
+    "eth": "ethereum",
+}
 UP_FAMILIES = frozenset({"reach", "hit"})
 WINDOW_CREATION = "creation"
 WINDOW_UNBOUNDED = "unbounded"
@@ -179,12 +184,16 @@ def rule_warnings(rows: Sequence[LadderRow]) -> list[str]:
             continue
         expected = "High" if row.direction == "up" else "Low"
         if row.rule.price_type not in (expected, PRICE_TYPE_BOTH):
-            warnings.append(f"{row.slug}: {row.direction} 档但文本写 {row.rule.price_type}")
+            warnings.append(
+                f"{row.slug}: {row.direction} 档但文本写 {row.rule.price_type}"
+            )
         if row.rule.granularity_minutes != EXPECTED_GRANULARITY_MINUTES:
             warnings.append(
                 f"{row.slug}: 监控粒度 {row.rule.granularity_minutes} 分钟，"
                 f"非 {EXPECTED_GRANULARITY_MINUTES} 分钟"
             )
         if not row.rule.immediate:
-            warnings.append(f"{row.slug}: 文本未见 immediately resolve，可能非触碰即结算")
+            warnings.append(
+                f"{row.slug}: 文本未见 immediately resolve，可能非触碰即结算"
+            )
     return warnings

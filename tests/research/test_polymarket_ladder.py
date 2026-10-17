@@ -18,7 +18,7 @@ from src.research.polymarket.polymarket_ladder import (
 
 STRAIGHT = (
     'This market will immediately resolve to "Yes" if any Binance 1 minute candle for Bitcoin '
-    '(BTC/USDT) between November 24, 2025, 14:00 and December 31, 2026, 23:59 in the ET timezone '
+    "(BTC/USDT) between November 24, 2025, 14:00 and December 31, 2026, 23:59 in the ET timezone "
     'has a final "High" price equal to or greater than the price specified in the title.'
 )
 CURLY = (
@@ -27,7 +27,7 @@ CURLY = (
     "specified in the title has a final “Low” price equal to or lower than the price specified."
 )
 BOTH = (
-    "This market will immediately resolve to \"Yes\" if any Binance 1 minute candle for Bitcoin "
+    'This market will immediately resolve to "Yes" if any Binance 1 minute candle for Bitcoin '
     "(BTC/USDT) between the creation of this market through 11:59 PM ET has a final "
     '"High" or "Low" price equal to the price specified in the title.'
 )
@@ -114,8 +114,12 @@ def test_load_ladders_keeps_largest_volume_per_strike() -> None:
     """同一档位有多次快照时只留成交额最大的那行，避免同价重复。"""
     ladders = load_ladders(
         [
-            snapshot("will-bitcoin-reach-90000-by-december-31-2026", price=0.4, volume=1.0),
-            snapshot("will-bitcoin-reach-90000-by-december-31-2026", price=0.5, volume=9.0),
+            snapshot(
+                "will-bitcoin-reach-90000-by-december-31-2026", price=0.4, volume=1.0
+            ),
+            snapshot(
+                "will-bitcoin-reach-90000-by-december-31-2026", price=0.5, volume=9.0
+            ),
         ]
     )
     rows = ladders["bitcoin/reach/2025-11-24"]
@@ -134,6 +138,8 @@ def test_rule_warnings_catch_direction_conflict_and_accept_both() -> None:
 
 
 def test_rule_warnings_flag_unknown_text() -> None:
-    row = ladder_row(snapshot("will-bitcoin-reach-90000-by-december-31-2026", text="nope"))
+    row = ladder_row(
+        snapshot("will-bitcoin-reach-90000-by-december-31-2026", text="nope")
+    )
     assert row is not None and row.window_from == WINDOW_UNBOUNDED
     assert any("认不出判定源" in warning for warning in rule_warnings([row]))

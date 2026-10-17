@@ -97,9 +97,7 @@ def _verify_panel() -> Panel:
         },
         index=index,
     )
-    volume = pd.DataFrame(
-        1.0e6, index=index, columns=pd.Index(columns, dtype="object")
-    )
+    volume = pd.DataFrame(1.0e6, index=index, columns=pd.Index(columns, dtype="object"))
     return Panel(timeframe="1d", close=close, volume=volume, notional=close * volume)
 
 

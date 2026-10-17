@@ -118,7 +118,8 @@ def smile_from_chain(chain: DeribitChain, expiry: str, forward: float) -> Smile:
     pairs = [
         (quote.strike, quote.mark_iv, quote.bid or 0.0, quote.ask or 0.0)
         for quote in chain.by_expiry(expiry)
-        if quote.mark_iv is not None and quote.kind == ("C" if quote.strike >= forward else "P")
+        if quote.mark_iv is not None
+        and quote.kind == ("C" if quote.strike >= forward else "P")
     ]
     ordered = sorted(pairs)
     return Smile(
@@ -130,7 +131,9 @@ def smile_from_chain(chain: DeribitChain, expiry: str, forward: float) -> Smile:
     )
 
 
-def drift_from_forward(spot: float, forward: float, horizon: float, sigma: float) -> float:
+def drift_from_forward(
+    spot: float, forward: float, horizon: float, sigma: float
+) -> float:
     """风险中性对数漂移：`ln(F/S0)/T − σ²/2`（与 `one_touch` 的约定配套）。"""
     return math.log(forward / spot) / horizon - 0.5 * sigma * sigma
 
@@ -140,7 +143,9 @@ def implied_touch_sigma(
 ) -> float:
     """由触碰价格反解隐含 σ；漂移本身依赖 σ，所以用不动点迭代（不迭代会差 2~3pp）。"""
     sigma = implied_sigma(
-        GbmContext(spot, drift_from_forward(spot, forward, horizon, INITIAL_DRIFT), horizon),
+        GbmContext(
+            spot, drift_from_forward(spot, forward, horizon, INITIAL_DRIFT), horizon
+        ),
         strike,
         price,
     )
@@ -157,7 +162,9 @@ def deribit_touch(
     *, spot: float, forward: float, horizon: float, strike: float, sigma: float
 ) -> float:
     """把该档 IV 喂给触碰公式（一阶近似：只用该档波动率水平，不含微笑形状）。"""
-    context = GbmContext(spot, drift_from_forward(spot, forward, horizon, sigma), horizon)
+    context = GbmContext(
+        spot, drift_from_forward(spot, forward, horizon, sigma), horizon
+    )
     return one_touch(context, strike, sigma)
 
 
@@ -230,7 +237,9 @@ def comparison_table(
                 deribit_iv=deribit.iv,
                 market_relative_spread=deribit.market_relative_spread,
                 deribit_option_spread=deribit.option_relative_spread,
-                bootstrap_zero_drift=_rate(stats.get("zero"), math.log(row.strike / spot)),
+                bootstrap_zero_drift=_rate(
+                    stats.get("zero"), math.log(row.strike / spot)
+                ),
                 bootstrap_historical_drift=_rate(
                     stats.get("history"), math.log(row.strike / spot)
                 ),
@@ -246,7 +255,11 @@ def _market_iv(
     if not 0.0 < row.price < 1.0:
         return None
     return implied_touch_sigma(
-        spot=spot, forward=smile.forward, horizon=horizon, strike=row.strike, price=row.price
+        spot=spot,
+        forward=smile.forward,
+        horizon=horizon,
+        strike=row.strike,
+        price=row.price,
     )
 
 

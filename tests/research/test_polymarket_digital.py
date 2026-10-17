@@ -38,7 +38,7 @@ from src.utils.data_sources.deribit import (
 
 RULE_TEXT = (
     'This market will immediately resolve to "Yes" if any Binance 1 minute candle for Bitcoin '
-    '(BTC/USDT) between November 24, 2025, 14:00 and December 31, 2026, 23:59 in the ET timezone '
+    "(BTC/USDT) between November 24, 2025, 14:00 and December 31, 2026, 23:59 in the ET timezone "
     'has a final "High" price equal to or greater than the price specified in the title.'
 )
 
@@ -68,7 +68,9 @@ def test_parse_option_reads_iv_as_fraction_and_zero_bid_as_none() -> None:
     assert parse_option({"instrument_name": "BTC-PERPETUAL"}) is None
 
 
-def chain(fetched: str, futures: dict[str, float], options: list[OptionQuote]) -> DeribitChain:
+def chain(
+    fetched: str, futures: dict[str, float], options: list[OptionQuote]
+) -> DeribitChain:
     """造一条链：指数固定 100,000，只关心期货与期权字段。"""
     return DeribitChain(
         fetched_at=parse_instant(fetched, "fetched_at"),
@@ -79,7 +81,9 @@ def chain(fetched: str, futures: dict[str, float], options: list[OptionQuote]) -
     )
 
 
-def quote(strike: float, kind: str, vol: float, *, bid: float = 0.009, ask: float = 0.011):
+def quote(
+    strike: float, kind: str, vol: float, *, bid: float = 0.009, ask: float = 0.011
+):
     return OptionQuote(
         instrument=f"BTC-25DEC26-{strike:.0f}-{kind}",
         expiry="25DEC26",
@@ -105,7 +109,9 @@ def test_forward_curve_skips_perpetual_and_extrapolates_carry() -> None:
     assert point.via == "BTC-25DEC26"
     expected_carry = math.log(105_000.0 / 100_000.0) / (358 / 365)
     assert point.carry == pytest.approx(expected_carry, rel=1e-9)
-    assert point.forward == pytest.approx(100_000.0 * math.exp(expected_carry), rel=1e-6)
+    assert point.forward == pytest.approx(
+        100_000.0 * math.exp(expected_carry), rel=1e-6
+    )
 
 
 def test_smile_uses_out_of_the_money_side_and_does_not_extrapolate() -> None:
@@ -180,9 +186,7 @@ def test_comparison_table_leaves_missing_deribit_quotes_empty() -> None:
         replace(loaded, strike=90_000.0),
         replace(loaded, strike=500_000.0, price=1.0),
     ]
-    inside, outside = comparison_table(
-        rows, spot=80_000.0, horizon=0.21, smile=smile
-    )
+    inside, outside = comparison_table(rows, spot=80_000.0, horizon=0.21, smile=smile)
     assert inside.deribit_touch is not None and inside.beyond_deribit_band is False
     assert inside.diff_vs_deribit is not None and inside.market_iv is not None
     assert inside.deribit_option_spread == pytest.approx(1 / 6)

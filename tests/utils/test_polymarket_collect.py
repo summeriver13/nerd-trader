@@ -50,9 +50,7 @@ def raw_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         return tmp_path / dataset / f"{name}.jsonl"
 
     monkeypatch.setattr(pc, "polymarket_jsonl_path", fake_path)
-    monkeypatch.setattr(
-        pc, "create_session", lambda: cast(requests.Session, object())
-    )
+    monkeypatch.setattr(pc, "create_session", lambda: cast(requests.Session, object()))
     monkeypatch.setattr(pc.time, "sleep", lambda _: None)
     return tmp_path
 

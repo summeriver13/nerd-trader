@@ -54,7 +54,9 @@ def latest_market_snapshot(
     for record in read_jsonl(path):
         key = str(record.get("conditionId") or record.get("slug"))
         known = latest.get(key)
-        if known is None or str(record.get("fetched_at")) > str(known.get("fetched_at")):
+        if known is None or str(record.get("fetched_at")) > str(
+            known.get("fetched_at")
+        ):
             latest[key] = record
     return list(latest.values())
 

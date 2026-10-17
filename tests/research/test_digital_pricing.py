@@ -46,7 +46,10 @@ def _quantlib_one_touch(strike: float, sigma: float, drift: float) -> float:
         ),
         QD.BlackVolTermStructureHandle(
             QD.BlackConstantVol(
-                TODAY, QD.NullCalendar(), QD.QuoteHandle(QD.SimpleQuote(sigma)), day_count
+                TODAY,
+                QD.NullCalendar(),
+                QD.QuoteHandle(QD.SimpleQuote(sigma)),
+                day_count,
             )
         ),
     )
@@ -88,13 +91,17 @@ def test_touch_is_above_terminal_digital() -> None:
     """触碰概率恒不低于同口径末次结算概率（事件包含），且近价档差近一半。"""
     context = GbmContext(spot=SPOT, drift=-0.003, horizon=HORIZON)
     for strike in (90000.0, 110000.0, 150000.0):
-        assert one_touch(context, strike, 0.38) > terminal_digital(context, strike, 0.38)
+        assert one_touch(context, strike, 0.38) > terminal_digital(
+            context, strike, 0.38
+        )
     for strike in (70000.0, 55000.0, 45000.0):
         assert one_touch(context, strike, 0.38) > terminal_digital(
             context, strike, 0.38, below=True
         )
     touch = one_touch(context, 90000.0, 0.38)
-    assert touch / terminal_digital(context, 90000.0, 0.38) == pytest.approx(1.99, abs=0.05)
+    assert touch / terminal_digital(context, 90000.0, 0.38) == pytest.approx(
+        1.99, abs=0.05
+    )
 
 
 def test_touch_is_monotone_decreasing_in_strike() -> None:
@@ -104,7 +111,9 @@ def test_touch_is_monotone_decreasing_in_strike() -> None:
     因此只能分别验单调：reach 阶梯随 K 降、dip 阶梯随 K 升（即随 K 降而降）。
     """
     context = GbmContext(spot=SPOT, drift=-0.1, horizon=HORIZON)
-    reach = [one_touch(context, float(k), 0.45) for k in (90000, 120000, 150000, 250000)]
+    reach = [
+        one_touch(context, float(k), 0.45) for k in (90000, 120000, 150000, 250000)
+    ]
     dip = [one_touch(context, float(k), 0.45) for k in (70000, 55000, 45000, 25000)]
     assert reach == sorted(reach, reverse=True)
     assert dip == sorted(dip, reverse=True)
@@ -118,7 +127,9 @@ def test_implied_sigma_roundtrips_price() -> None:
         for sigma in (0.25, 0.45, 0.9):
             price = one_touch(context, strike, sigma)
             recovered = implied_sigma(context, strike, price)
-            assert one_touch(context, strike, recovered) == pytest.approx(price, abs=1e-9)
+            assert one_touch(context, strike, recovered) == pytest.approx(
+                price, abs=1e-9
+            )
 
 
 def test_zero_volatility_limits() -> None:

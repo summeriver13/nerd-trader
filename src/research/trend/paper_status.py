@@ -95,7 +95,9 @@ def retire_status(panel: pd.DataFrame) -> RetireStatus:
     nav = panel["nav"].astype(float)
     bars = int(len(nav) - 1)  # 首行是起点，没有收益
     if bars <= 0:
-        return RetireStatus(0, VERDICT_ACCUMULATING, 0.0, 0.0, 0.0, ("账本只有起点，还没有收益行",))
+        return RetireStatus(
+            0, VERDICT_ACCUMULATING, 0.0, 0.0, 0.0, ("账本只有起点，还没有收益行",)
+        )
 
     exposure = float(panel["exposure"].astype(float).mean())
     sharpe = rolling_sharpe(cast(pd.Series, nav))
@@ -104,7 +106,9 @@ def retire_status(panel: pd.DataFrame) -> RetireStatus:
 
     if bars < MIN_BARS:
         reasons.append(f"样本不足：{bars}/{MIN_BARS} 根，未满一年不判定")
-        return RetireStatus(bars, VERDICT_ACCUMULATING, sharpe, drawdown, exposure, tuple(reasons))
+        return RetireStatus(
+            bars, VERDICT_ACCUMULATING, sharpe, drawdown, exposure, tuple(reasons)
+        )
 
     verdict = VERDICT_HEALTHY
     in_market = exposure >= EXPOSURE_FLOOR
@@ -114,17 +118,25 @@ def retire_status(panel: pd.DataFrame) -> RetireStatus:
         )
     if in_market and sharpe < SHARPE_KILL:
         verdict = VERDICT_KILL
-        reasons.append(f"滚动一年夏普 {sharpe:.2f} < {SHARPE_KILL:.2f} 且暴露 {exposure:.1%}：有仓位还在亏")
+        reasons.append(
+            f"滚动一年夏普 {sharpe:.2f} < {SHARPE_KILL:.2f} 且暴露 {exposure:.1%}：有仓位还在亏"
+        )
     elif in_market and sharpe < SHARPE_WATCH:
         verdict = VERDICT_WATCH
-        reasons.append(f"滚动一年夏普 {sharpe:.2f} < {SHARPE_WATCH:.2f}：研究期读数半衰，需找原因")
+        reasons.append(
+            f"滚动一年夏普 {sharpe:.2f} < {SHARPE_WATCH:.2f}：研究期读数半衰，需找原因"
+        )
 
     if drawdown <= DD_KILL:
         verdict = VERDICT_KILL
-        reasons.append(f"前向最大回撤 {drawdown:.1%} ≤ {DD_KILL:.1%}（研究期 1.5 倍）：风险模型错")
+        reasons.append(
+            f"前向最大回撤 {drawdown:.1%} ≤ {DD_KILL:.1%}（研究期 1.5 倍）：风险模型错"
+        )
     elif drawdown <= DD_WATCH and verdict != VERDICT_KILL:
         verdict = VERDICT_WATCH
-        reasons.append(f"前向最大回撤 {drawdown:.1%} ≤ {DD_WATCH:.1%}（研究期读数）：已超出回测口径")
+        reasons.append(
+            f"前向最大回撤 {drawdown:.1%} ≤ {DD_WATCH:.1%}（研究期读数）：已超出回测口径"
+        )
 
     if not reasons:
         reasons.append("全部判据在阈值内")
@@ -135,5 +147,7 @@ def status_report(status: RetireStatus) -> str:
     """多行判决文本（脚本打印用；逻辑仍在 ``retire_status`` 里）。"""
     lines = [status.summary(), f"判据：{'；'.join(status.reasons)}"]
     if status.verdict == VERDICT_ACCUMULATING:
-        lines.append(f"距首次裁决还差 {MIN_BARS - status.bars} 根（每日一根，约 {MIN_BARS - status.bars} 天）")
+        lines.append(
+            f"距首次裁决还差 {MIN_BARS - status.bars} 根（每日一根，约 {MIN_BARS - status.bars} 天）"
+        )
     return "\n".join(lines)

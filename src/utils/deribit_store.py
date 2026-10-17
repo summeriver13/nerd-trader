@@ -106,7 +106,9 @@ def append_chain(
         DERIBIT_FUTURES: future_rows(chain),
     }
     return {
-        dataset: append_jsonl(deribit_jsonl_path(dataset, name, root=root), rows, KEY_FIELDS[dataset])
+        dataset: append_jsonl(
+            deribit_jsonl_path(dataset, name, root=root), rows, KEY_FIELDS[dataset]
+        )
         for dataset, rows in payloads.items()
     }
 

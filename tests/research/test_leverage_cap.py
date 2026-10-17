@@ -75,9 +75,9 @@ def test_capacity_multiplier_never_exceeds_book_or_cap() -> None:
     assert capacity.mult["a"].max() == pytest.approx(1.0)
     assert capacity.constrained_share == pytest.approx(0.0)
     loose = CapacitySpec(notional=0.001, participation=0.05, window=2, lag=1, cap=0.25)
-    assert capacity_frame(bars_map, counts, book, loose).mult["a"].max() == pytest.approx(
-        0.25
-    )
+    assert capacity_frame(bars_map, counts, book, loose).mult[
+        "a"
+    ].max() == pytest.approx(0.25)
 
 
 def test_missing_volume_leaves_the_symbol_without_quota() -> None:

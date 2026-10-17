@@ -180,9 +180,7 @@ def verify_grid(
     verdicts: list[GridVerdict] = []
     for horizon in config.horizons:
         series, periods_per_year = long_net_series(specs, panel, mask, config, horizon)
-        report = build_overfitting_report(
-            series, trials, embargo=DEFAULT_EMBARGO_RATIO
-        )
+        report = build_overfitting_report(series, trials, embargo=DEFAULT_EMBARGO_RATIO)
         tests = {test.label: test for test in report.sharpe_tests}
         rows: list[dict[str, object]] = []
         for kind, spec in specs:
@@ -194,7 +192,9 @@ def verify_grid(
                     "kind": kind,
                     "factor": spec.key,
                     "periods": test.observations,
-                    "annual": leg_stats(series[label], periods_per_year).annual_compounded,
+                    "annual": leg_stats(
+                        series[label], periods_per_year
+                    ).annual_compounded,
                     "sharpe": test.sharpe,
                     "dsr": test.dsr,
                     "passed": test.passed,

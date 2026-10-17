@@ -200,7 +200,9 @@ def forward_curve(chain: DeribitChain, target: pd.Timestamp) -> ForwardPoint:
             continue
         if not is_expiry_code(parts[1]):
             continue
-        years = float((expiry_instant(parts[1]) - chain.fetched_at).days) / DAYS_PER_YEAR
+        years = (
+            float((expiry_instant(parts[1]) - chain.fetched_at).days) / DAYS_PER_YEAR
+        )
         if years <= 0.0:
             continue
         distance = abs(years - target_years)

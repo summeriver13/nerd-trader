@@ -77,7 +77,9 @@ def deribit_dataset_dir(dataset: str, *, root: Path = DERIBIT_RAW_ROOT) -> Path:
     return root / dataset
 
 
-def deribit_jsonl_path(dataset: str, name: str, *, root: Path = DERIBIT_RAW_ROOT) -> Path:
+def deribit_jsonl_path(
+    dataset: str, name: str, *, root: Path = DERIBIT_RAW_ROOT
+) -> Path:
     """JSONL 文件路径；name 为日期（YYYY-MM-DD）。"""
     if dataset not in DERIBIT_DATASETS:
         raise ValueError(f"未知数据集 {dataset!r}，可选 {DERIBIT_DATASETS}")

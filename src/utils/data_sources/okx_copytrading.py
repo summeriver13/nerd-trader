@@ -158,7 +158,9 @@ def fetch_leaderboard(
     data_ver = ""
     page = 1
     while page <= max_pages:
-        entry = _first(session, LEAD_TRADERS_PATH, {"instType": inst_type, "page": page})
+        entry = _first(
+            session, LEAD_TRADERS_PATH, {"instType": inst_type, "page": page}
+        )
         if entry is None:
             break
         data_ver = str(entry.get("dataVer") or data_ver)

@@ -101,7 +101,9 @@ def positions(signals: pd.DataFrame, counts: pd.Series) -> pd.DataFrame:
     return scaled.where(signals.notna())
 
 
-def coverage_ok(returns: pd.DataFrame, *, min_ratio: float = 0.8, window: int = 30) -> bool:
+def coverage_ok(
+    returns: pd.DataFrame, *, min_ratio: float = 0.8, window: int = 30
+) -> bool:
     """最新一根的标的数是否接近近期常态（数据滞后的日子不能记账）。
 
     只查最新一根：N_t 就是等权权重本身，若当日只有零星几只标的出数（本地缓存没
@@ -166,9 +168,7 @@ def nav_panel(
     frame["net_ret"] = frame["gross_ret"] - frame["cost_ret"]
     frame["nav"] = (1.0 + frame["net_ret"]).cumprod()
     frame["btc_nav"] = (
-        (1.0 + frame["btc_ret"]).cumprod()
-        if btc_returns is not None
-        else float("nan")
+        (1.0 + frame["btc_ret"]).cumprod() if btc_returns is not None else float("nan")
     )
     return frame
 
@@ -225,7 +225,9 @@ def _digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def chain_rows(rows: list[dict[str, Any]], prev_hash: str = GENESIS) -> list[dict[str, Any]]:
+def chain_rows(
+    rows: list[dict[str, Any]], prev_hash: str = GENESIS
+) -> list[dict[str, Any]]:
     """给行序列串上哈希链：每行写入 prev_hash 与自身 hash。"""
     out: list[dict[str, Any]] = []
     for row in rows:
@@ -258,9 +260,7 @@ def verify_ledger(rows: list[dict[str, Any]]) -> str | None:
     return None
 
 
-def append_ledger(
-    path: Path, rows: list[dict[str, Any]]
-) -> tuple[int, list[str]]:
+def append_ledger(path: Path, rows: list[dict[str, Any]]) -> tuple[int, list[str]]:
     """追加新日期行，返回（新增行数，内容不一致的日期）。
 
     已存在的日期绝不覆盖：同一日期重算结果不同意味着数据被修订过，这种情况必须
@@ -288,7 +288,9 @@ def append_ledger(
 
 def _comparable(row: dict[str, Any]) -> dict[str, Any]:
     """去掉链字段后的可比较内容（哈希与 prev_hash 由 append 时写入，不参与比较）。"""
-    return {key: value for key, value in row.items() if key not in {"hash", "prev_hash"}}
+    return {
+        key: value for key, value in row.items() if key not in {"hash", "prev_hash"}
+    }
 
 
 def _canonical(row: dict[str, Any]) -> str:

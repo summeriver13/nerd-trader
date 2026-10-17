@@ -125,8 +125,14 @@ def test_nco_two_clusters_matches_the_book_algorithm() -> None:
     cross = covariance[np.ix_(left, right)]
     reduced = np.array(
         [
-            [float(intra_left @ block_left @ intra_left), float(intra_left @ cross @ intra_right)],
-            [float(intra_right @ cross.T @ intra_left), float(intra_right @ block_right @ intra_right)],
+            [
+                float(intra_left @ block_left @ intra_left),
+                float(intra_left @ cross @ intra_right),
+            ],
+            [
+                float(intra_right @ cross.T @ intra_left),
+                float(intra_right @ block_right @ intra_right),
+            ],
         ]
     )
     inter = minimum_variance_weights(reduced)

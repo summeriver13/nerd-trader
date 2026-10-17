@@ -49,12 +49,16 @@ def make_bars(stem: str, *, trend: float = TREND, bars: int = BARS) -> pd.DataFr
     )
 
 
-def make_pool(stems: tuple[str, ...] = ("AAA-USDT", "BBB-USDT", "CCC-USDT")) -> dict[str, pd.DataFrame]:
+def make_pool(
+    stems: tuple[str, ...] = ("AAA-USDT", "BBB-USDT", "CCC-USDT"),
+) -> dict[str, pd.DataFrame]:
     return {stem: make_bars(stem) for stem in stems}
 
 
 def returns_of(bars_map: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    return pd.DataFrame({stem: bars["close"].pct_change() for stem, bars in bars_map.items()})
+    return pd.DataFrame(
+        {stem: bars["close"].pct_change() for stem, bars in bars_map.items()}
+    )
 
 
 def test_positions_lag_divide_and_missing_cells() -> None:

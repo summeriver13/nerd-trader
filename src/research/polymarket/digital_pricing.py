@@ -69,10 +69,14 @@ def one_touch(context: GbmContext, strike: float, sigma: float) -> float:
     exponent = 2.0 * context.drift * barrier / (sigma * sigma)
     # 反射项先算指数，再用正态项收敛掉它，避免小 sigma 下溢出
     reflected = math.exp(min(EXPONENT_CAP, exponent)) * normal_cdf(
-        (-barrier - drift_term) / scale if barrier > 0 else (barrier + drift_term) / scale
+        (-barrier - drift_term) / scale
+        if barrier > 0
+        else (barrier + drift_term) / scale
     )
     direct = normal_cdf(
-        (-barrier + drift_term) / scale if barrier > 0 else (barrier - drift_term) / scale
+        (-barrier + drift_term) / scale
+        if barrier > 0
+        else (barrier - drift_term) / scale
     )
     return min(1.0, max(0.0, direct + reflected))
 
