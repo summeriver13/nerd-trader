@@ -40,12 +40,15 @@ class SimulationEngine:
         data_path: str,
         symbols: str | list[str],
         initial_capital: float = DEFAULT_INITIAL_CAPITAL,
-        name: str = "BacktestEngine",
+        name: str = "SIM",
     ):
         """
         :param data_path: 数据文件路径 (单标的) 或 数据目录 (多标的)
         :param symbols: 标的代码 (字符串) 或 标的列表 (List)
         :param initial_capital: 初始资金，透传给仿真网关
+        :param name: 日志里的引擎标识——本引擎是事件驱动回放，与研究层的向量化
+            `BacktestEngine`（src/research/backtest/engine.py）不是同一个东西，
+            默认值刻意不叫 BacktestEngine
         """
         self.data_path = data_path
         self.engine_name = name
