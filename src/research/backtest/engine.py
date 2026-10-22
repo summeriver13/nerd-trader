@@ -328,7 +328,7 @@ class BacktestEngine:
             cols=1,
             shared_xaxes=True,
             vertical_spacing=0.05,
-            subplot_titles=("资金曲线 (Equity)", "标的价格 (Price)", "回撤 (Drawdown)"),
+            subplot_titles=("Equity", "Price", "Drawdown"),
             row_heights=[0.4, 0.4, 0.2],
         )
 
