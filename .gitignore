@@ -68,6 +68,7 @@ config/api_keys.yaml
 config/secrets.yaml
 *.env
 .env*
+!.env.example
 !example.env  # Keep an example env file if you have one
 
 # Test artifacts

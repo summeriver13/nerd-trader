@@ -5,6 +5,8 @@ description = "面向加密市场的量化研究与回测工作台"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "xia.jiang", email = "xia.jiang.work@outlook.com" }]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 
 dependencies = [
     "ccxt>=4.5.22,<5",
