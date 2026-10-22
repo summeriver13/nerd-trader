@@ -1,0 +1,240 @@
+# nerd-trader
+
+[English](README.md) · **中文**
+
+面向加密市场的量化研究工作台，两套引擎分工：
+
+- **向量化研究回测**（`src/research/`）：按市场规则（手续费/滑点/杠杆）快速验证信号。
+- **事件驱动模拟盘**（`src/simulation/`）：事件队列 + 撮合 + 账户回放，贴近实盘执行。
+
+行情统一经 `src/utils/data_loader.py` 调度：从交易所拉取缺失区间，落地为本地 Parquet 缓存。
+
+## 目录
+
+- [研究结论索引](#研究结论索引) — 十条研究线各一行判定，先看这个
+- [快速开始](#快速开始)
+- [环境变量](#环境变量)
+- [入口脚本](#入口脚本)
+- [稳健性检验](#稳健性检验)
+- [执行成本](#执行成本)
+- [绩效指标](#绩效指标)
+- [数据与配置](#数据与配置)
+- [目录结构](#目录结构)
+- [依赖与源](#依赖与源)
+- [Agent 工具](#agent-工具)
+- [文档索引](#文档索引)
+- [许可](#许可)
+
+## 研究结论索引
+
+十行摘要，每条判定都能在对应文档里核到；完整读数、口径与复现命令也都在那些文档里。
+**要找代码就去代码地图**：[`docs/研究线索引.md`](docs/研究线索引.md)（每条线的模块、CLI 入口、判据页、产物目录一次跳转到位）。
+贯穿全库的一条主线是**信号真、变现不成**——日线价量横截面上没有能同时穿过成本墙与 beta 墙的
+东西，唯一风险调整后胜过 BTC 的口径是时序动量。
+
+| 研究线 | 一行判定 | 文档 |
+| --- | --- | --- |
+| **截面因子** | `vol_30` 信号为真（IC t = 14.27、六项证伪全过），但六个因子**全部跑输 BTC 买入持有**——最优实现是不持山寨币、买 BTC；Alpha101 的 `decay_linear` 算子能把只多腿换手成本从 15~22pp/年 砍到 1/3（信号不变），但稳定的变体仍差 BTC 1.3~9pp | [`docs/factors/README.md`](docs/factors/README.md) |
+| **时序动量** | 简单赢：约 60 行唐奇安打赢 292 行自适应双均线；多标的 TSMOM 夏普 1.11、回撤 −17.1%，是唯一风险调整后胜过 BTC 的读数（代价是平均暴露只有 10%，杠杆版容量 $1M~$10M；纸面前向账本 2026-10-15 开线并已接每日计划任务、退役判据预注册）；组合层定位是**加 20~30% 净值当 overlay**（年化 23.17% → 24.56%、回撤 −77.4% → −63.3%），执行不敏感（成本 ×3 只掉 1pp）——但 DSR 只在最宽松档过（@6 = 0.977）、PBO 两池不过一池过、对 BTC 配对差区间含 0，是候选不是已验证策略 | [`docs/trend/README.md`](docs/trend/README.md) |
+| **组合** | 单策略冠军换标就换人（BTC 上趋势+反转、ETH 上唐奇安）；相关性实测最高 0.53，四个趋势策略不是「同一笔交易的四种写法」 | [`docs/portfolio/README.md`](docs/portfolio/README.md) |
+| **资金费率 carry** | 跨源替代只对大盘币成立；等权组合衰减到近 365 天 −2.08%（夏普 −7.86），29 只里只有 1 只过多重检验校正 | [`docs/carry/README.md`](docs/carry/README.md) |
+| **波动率目标** | 波动削减装置、不是收益改善装置：降波动可靠、提夏普不显著、2024-08 起两标的同步失效 | [`docs/vol_target/README.md`](docs/vol_target/README.md) |
+| **上新币效应** | 上市后持续下跌（206 只、1 年中位 −72.13%）是最干净的效应，但做不了且已量化：第 1 天有永续的只占 50.49%，接上通道掩码后做空组合 9 格**全部变差**——做空能赚的那一半正好是下不了注的那一半 | [`docs/listing/README.md`](docs/listing/README.md) |
+| **meme 币** | 彩票分布（中位 −69.7%、8/12 为负）与放大版 BTC（beta 1.62、R² 0.27），暴涨后偏反转、暴跌后不反弹 | [`docs/meme/README.md`](docs/meme/README.md) |
+| **协整配对** | 第一个 beta ≈ 0 的结构（0.012、相关 0.063），但边际几乎为零：主口径年化 −0.4%、最好变体 DSR 0.261 未通过 | [`docs/pairs/README.md`](docs/pairs/README.md) |
+| **被动挂单执行** | 纯被动挂单是负期望生意：加深挂单只降成交频率、不改善盈亏（成交后价格继续走的距离恒为 −1.1 ~ −1.4bp） | [`docs/execution/README.md`](docs/execution/README.md) |
+| **链上聪明钱** | 数据源侦察：链上数据免费拿得到、**标签层拿不到**；可行路径只剩跟踪公开已知地址 | [`docs/onchain/README.md`](docs/onchain/README.md) |
+| **预测市场** | 数据源侦察：**历史全封**（已结算市场无价格序列、subgraph 已关、`/trades` 无时间窗分页），只能前向采集；结算口径已核实（Binance 1 分钟 High/Low + 触碰即结算）；三口径对照面板：上行阶梯 8/8 档比 Deribit 贵 0.4~3.2¢ 且在误差带外，下行夹在 Deribit 与历史之间 | [`docs/polymarket/README.md`](docs/polymarket/README.md) |
+| **代币化股票** | 口径侦察：「代币化闪迪」是**两个产品**——链上代币现货 `XSNDK`（有股息，以 multiplier 再投资成份数；但 20 档卖盘累计仅 $10K）与 USDT 永续 `SNDK-USDT-SWAP`（无股息、75x 只对应 175 USDT 名义、24/7 但周末量占 2.3%、非交易时段指数不冻结即无外部锚）；流动性全在永续（140 个现货对 $29.0M vs 198 个永续 $994.3M，34 倍），缺失股息被资金费率定价回去（SNDK 年化 +6.40% 多头付、KO −5.26% 多头收） | [`docs/tokenized-stocks/README.md`](docs/tokenized-stocks/README.md) |
+| **跟单榜单** | 数据线侦察：榜上「收益率」是交易员**自有投入资金**的累计口径（`pnlRatio ≈ pnl / investAmt`），跟单者盈亏在另一个字段——AUM≥$1 万的 59 人自报中位 +19.2%，跟单者口径中位只有 +6.0%（汇总 +6.5%）；246 人里 113 人无跟单者、26% 累计亏损、正收益前 10 人占 47%，累计跟单 ≥100 人的现存/累计中位仅 4.5%，官方分润最高 30%（带单门槛 10 万 USDT）；榜单是幸存者快照，2026-10-17 起每日留档做前向验证（判据预注册） | [`docs/copy-trading/README.md`](docs/copy-trading/README.md) |
+
+## 快速开始
+
+依赖管理用 [uv](https://docs.astral.sh/uv/)，要求 Python >= 3.12。
+
+```bash
+uv sync                    # 创建 .venv 并安装依赖
+uv run python run.py       # 事件驱动模拟盘 demo（离线，自动生成测试数据）
+uv run python research.py  # 交互式研究回测
+```
+
+研究回测也支持非交互模式（参数省略则回落交互菜单），适合脚本与定时任务：
+
+```bash
+uv run python research.py --symbol BTC/USDT --strategy bollinger --bars 365 --timeframe 1d
+uv run python research.py --symbol ETH/USDT --strategy rsrs --bars 730 --leverage 2
+```
+
+`--strategy` 可填菜单序号 `1`-`5`，也可填别名 `dual-ma` / `trend-reversion` / `bollinger` / `rsrs` / `donchian`。
+每次回测都会把资金曲线图写到 `data/results/<SYMBOL>_<策略名>.png`，同时把净值/基准/回撤序列写成同名 `_equity.csv`（pi 扩展里的字符曲线读它），不需要额外确认。
+
+行情来自 OKX（ccxt 公共接口），国内网络需先配代理：
+
+```dotenv
+OKX_USE_PROXY=true
+OKX_PROXY_PORT=7890
+```
+
+## 环境变量
+
+`.env` 由 `src/config/settings.py` 读取（缺失时全部取默认值）。模板是 `.env.example`：`cp .env.example .env` 后按需填写。
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `OKX_API_KEY` / `OKX_SECRET` / `OKX_PASSPHRASE` | 空 | OKX 私有接口凭据，公共行情不需要 |
+| `OKX_USE_PROXY` | `false` | 是否走 HTTP 代理 |
+| `OKX_PROXY_PORT` | `7890` | 代理端口，地址固定 `http://127.0.0.1:<port>` |
+| `OKX_SANDBOX` | `false` | `true` = OKX 模拟盘 |
+
+## 入口脚本
+
+| 命令 | 用途 |
+| --- | --- |
+| `uv run python research.py [--symbol ... --strategy ...]` | 向量化回测：带参数进入非交互模式，不带参数进入交互菜单，自动落盘图表 |
+| `uv run python research.py --robust --bars 2900 --segments 4` | 稳健性检验：全样本 + 一年滚动窗口分布 + 分段稳定性 + 多重检验校正（默认 BTC/ETH） |
+| `uv run python research.py --carry --symbol c1,c2,SOL/USDT` | 资金费率 carry 研究：做多现货 + 做空等额永续的毛收益与净收益（Binance 历史，`--carry-days` 控研究窗口） |
+| `uv run python research.py --symbol c1 --maker` | 用 maker 挂单执行替代市价单：挂单价与成交明细见下文「执行成本」 |
+| `uv run python run.py` | 事件驱动模拟盘 demo（离线，自动生成测试数据）：落 `trades_*.parquet` 与 `<标的>_<策略>_equity.csv`，净值按每根收盘价 mark-to-market，成交按 `src/core/costs.py` 计费（**按是否吃价**：市价单与挂在市场同侧的限价单 taker+滑点，只有被动挂单才 maker） |
+| `uv run python scripts/crosscheck_crypto_bars.py --symbol BTC/USDT --bars 100` | 数据对账：同源复抓要求 OHLCV 逐根相等，跨源（Binance）只比差异分布 |
+| `uv run python scripts/reconcile_execution.py --market spot [--place-orders --side sell]` | 执行对账：拉回单逐笔比费率，可选在模拟盘下探针单（实盘拒绝） |
+
+回测类参数（`--robust` 与单次回测共用）：
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `--bars` | 单次 730 / 稳健 2900 | 评估区间根数（最近 N 根）；预热根数留在窗口之外，抓数深度按「评估+预热」换算成日历天 |
+| `--segments` | 4 | 稳健性检验的分段数 |
+| `--trials` | 本次候选数 | 多重检验校正的试验次数 N，历史试过的参数/窗口越多应越大 |
+| `--vol-target` | 关闭 | 波动率目标仓位，只给开关则用 40%；把 0/1 信号缩放成 0~100% 暴露 |
+| `--vol-lookback` / `--vol-rebalance` | 30 / 7 | 波动率回看根数与调仓间隔（控制换手成本） |
+| `--maker` | 关闭 | 用 maker 挂单执行替代市价单（详见「执行成本」） |
+| `--maker-patience` | 1 | 挂单耐心根数，超时回退市价（默认挂市价外 1bp，需等 1 根） |
+| `--carry-days` | 2900 | `--carry` 的研究窗口（日历天，资金费率历史），与 `--bars` 无关；窗口外数据不参与统计 |
+
+## 稳健性检验
+
+`--robust` 输出四段：
+
+| 段落 | 回答的问题 |
+| --- | --- |
+| 全样本 + 一年滚动窗口分布 | 持有任意一年的收益/回撤分布如何（窗口最差、正收益窗占比、窗口回撤中位） |
+| 分段稳定性 | 收益是否只在某一段成立（正收益段、跑赢基准段、最差段） |
+| 多重检验校正 | 在试过 N 个候选后夏普是否还算技能：DSR ≥ 0.95 且 PBO < 50% 才算过关 |
+| 资金费率 carry | carry 扣掉保证金占用与换手成本后还剩多少 |
+
+DSR（Deflated Sharpe Ratio）与 PBO（CSCV）实现见 `src/research/validation/overfitting.py`；波动率目标仓位见 `src/research/backtest/position_sizing.py`，其实测口径与证伪见 `src/research/trend/vol_target.py`。
+
+## 执行成本
+
+费率只有一个出处：`src/core/costs.py`，现货与永续分开（`SPOT_FEES` / `PERP_FEES`），且
+**按「这笔有没有吃价」判定而不是按订单类型**：市价单、以及挂在市场同侧的限价单
+（买单 ≥ 卖一）都算吃价，按 taker + 滑点计；只有挂到市价之外、被 `low`/`high` 触及的
+挂单才算被动成交，按 maker 计。
+
+`--maker` 把下单从市价单换成挂单，实现在 `src/research/backtest/execution.py`。默认挂在市价外
+1bp（`offset=1bp`、耐心 1 根）——**挂在市价（`offset=0`）当根就以市价成交，本质是吃价、
+必须按 taker 计费**，拿 maker 费率是错误口径。
+
+挂单价差与触价率来自 1m 数据实测（BTCUSDT 12.9 万根）：
+
+| 挂单价差 | 触价率 | 净优势 | 说明 |
+| --- | --- | --- | --- |
+| 0bp（挂在市价） | 100% | 0（按 taker） | 当根即成，拿不到 maker 费率 |
+| **1bp（默认）** | 86.6% | **约 +6.1bp/边** | 已扣掉挂不上时回退市价的成本 |
+| 5bp | 61.9% | +4.6bp/边 | 挂不上比例更高 |
+
+**maker 与市价不是「同样交易只换费率」**：挂单要等一根才生效，仓位生效时点不同，所以
+结果永远打印 maker − market 差额。实测布林带均值回归 `--bars 200`（4 笔交易）：maker
+5.13% 对市价 5.24%，即 −0.10%——费率上限只值 +0.36%（4 笔 × 0.09%/边），延迟一根入场
+就把它吃掉了。另一面是择时偏差：跨 139 标的 × 4 策略，挂 1bp 的仓位偏离标准差 25–37pp
+（突破型 RSRS 净效应 −13.82pp），挂在市价则偏离为 0、代价是全额 taker。急涨（前 15 根
+> +50bp）时挂单会被吃穿，此时买单按吃价计。
+
+### 对账：模型 vs 交易所真实回单
+
+`scripts/reconcile_execution.py` 在 OKX 模拟盘下三笔最小单，把回单费率与模型逐笔比对
+（判据：单边误差 < 1bp）：
+
+| 探针单 | OKX 标记 | 实际 | 模型 | 差 |
+| --- | --- | --- | --- | --- |
+| 市价卖 | taker | 10.000bp | 10.000bp | +0.000 |
+| 限价卖@买一（挂在市场同侧） | taker | 10.000bp | 10.000bp | +0.000 |
+| 限价卖@卖一外 1bp（被动） | maker | 8.000bp | 8.000bp | −0.000 |
+
+滑点：市价单实测 +0.01bp（$20 名义额）而模型常数是 5bp，**对小单偏保守**；真实滑点与
+规模相关，那个常数应读作「按打算下的规模」。`--place-orders` 只在 `OKX_SANDBOX=true`
+时允许，实盘直接拒绝。
+
+## 绩效指标
+
+回测摘要与图表标题统一输出下列指标（均由 `src/research/backtest/engine.py` 计算）：
+
+| 指标 | 定义 |
+| --- | --- |
+| 总收益 / 年化 | 资金曲线首尾变化；年化按 365 天复利折算 |
+| 基准 | 同区间买入持有收益 |
+| 卡尔玛 (Calmar) | 年化收益 / \|最大回撤\|，衡量单位回撤换来的收益 |
+| 夏普 (Sharpe) | 净收益均值 / 标准差 × √年化根数 |
+| 索提诺 (Sortino) | 净收益均值 / 下行偏差（MAR=0 口径）× √年化根数 |
+| 最大回撤 | 资金曲线相对历史峰值的最大跌幅 |
+| 交易回合 / 胜率 / 盈亏比 | 按连续非零持仓段聚合，一进一出算一个回合 |
+| 平均持仓 / 费用 | 回合平均持有 K 线根数；含手续费与滑点的总成本 |
+
+## 数据与配置
+
+- 缓存路径：`data/storage/crypto/<exchange_id>/<market>/<timeframe>/<SYMBOL>.parquet`（`market` = `spot` | `swap`），`data/` 不入版本库。
+- 研究/回测产物：数值表格一律落 parquet（`compression="snappy"`），不写 CSV；唯一例外是 `data/results/<策略>_equity.csv`，它是 pi 扩展字符曲线的数据源（零依赖 TS 解析）。
+- 复现指纹：每次成功运行写 `data/results/provenance/<run_id>.json`，`repro_hash` = sha256(配置快照 + 数据指纹 + git HEAD/脏标记)，同一命令必得同一 hash（`src/research/validation/provenance.py`）。
+- 资金费率缓存：`data/storage/crypto/binance/funding/8h/<SYMBOL>.parquet`（OKX 只保留约 100 天，长历史取 Binance，回溯至 2019-09）。
+- 数据源：ccxt，交易所实例由调用方注入（行情为 OKX，资金费率为 Binance 公共接口）。
+- 定时采集：五个数据集/任务已接 Windows 计划任务（`nerd-trader-polymarket-hourly` 每小时第 7 分、`nerd-trader-deribit-daily` 每日 16:05、`nerd-trader-bars-daily` 每日 16:20 刷新 OKX 现货日线 + 重建 manifest + 验收、`nerd-trader-paper-daily` 每日 16:45 追加趋势线纸面前向账、`nerd-trader-copy-daily` 每日 23:40 抓 OKX 跟单榜单快照 + 验收），任务只调 `scripts/scheduled_run.sh <数据集>`，注册/查询/移除用 `scripts/register_tasks.sh`，日志按天落 `logs/scheduled/<数据集>-<日期>.log`。
+- 预测市场（Polymarket）自持：`data/storage/polymarket/raw/<events|markets|prices|trades>/<name>.jsonl`（raw 只增不改，去重追加），manifest 落 `data/manifests/polymarket_raw_*.json`；只能前向采集（历史已被实测封死，容器 ADR-0007），验收闸 `scripts/audit_polymarket.py`，细节见 [`docs/polymarket/README.md`](docs/polymarket/README.md)。
+- Deribit 期权链自持：`data/storage/deribit/raw/<options|futures>/<YYYY-MM-DD>.jsonl`（业务键 `(instrument, fetched_at)`，一日可多轮），manifest 落 `data/manifests/deribit_raw_*.json`；它是阈值阶梯的风险中性定价锚与将来的对冲腿来源，采集 `scripts/fetch_deribit.py`、验收闸 `scripts/audit_deribit.py`（容器 ADR-0006 自持），细节见 [`docs/deribit/README.md`](docs/deribit/README.md)。
+- OKX 跟单榜单自持：`data/storage/okx_copy/raw/lead_traders/<YYYY-MM-DD>.jsonl`（业务键 `(uniqueCode, dataVer)`，同版本重跑不写重复行），manifest 落 `data/manifests/okx_copy_raw_lead_traders.json`；采集 `scripts/fetch_okx_copy.py`、验收闸 `scripts/audit_okx_copy.py`，榜上收益率是交易员自有资金口径、跟单者盈亏另算，细节见 [`docs/copy-trading/README.md`](docs/copy-trading/README.md)。
+
+## 目录结构
+
+```text
+data/              数据湖（不入版本库）：storage/ 行情与资金费率缓存、results/ 回测产物与复现指纹
+scripts/           数据与执行对账：批量回填（fetch_crypto_bars）、验收闸（audit_crypto_bars）、manifest 生成、行情交叉校验、成本/滑点对账、挂单成交率研究（maker_edge_study）、信号扫描（signal_scan）、趋势对比（trend_duel）、单策略统一测试（strategy_suite）、重合度与组合（strategy_correlation）、资金费率抓取（fetch_funding_history）、carry 排名（carry_ranking）、截面因子测试（factor_suite）、波动率目标测试（vol_target_study）、上新币效应（listing_study）、前向纸面账本（tsmom_paper）与执行敏感性/组合层扫描（tsmom_overlay_study）；预测市场前向采集（fetch_polymarket）、验收闸（audit_polymarket）与三口径对照（polymarket_digital_study）、期权链快照（fetch_deribit）与其验收闸（audit_deribit）、计划任务入口与注册（scheduled_run、register_tasks）
+src/analytics/     绩效指标（单一出处）
+src/cli/           研究回测的命令行与交互菜单
+src/config/        环境配置读取、路径常量、实盘参数表
+src/core/          事件引擎、数据类型、BarGenerator/ArrayManager、成本模型
+src/research/      向量化回测：engine、domains（市场规则）、strategies、robustness、overfitting、position_sizing、carry、factors（截面因子）、vol_target（波动率目标）、listing（上新币效应）、execution（maker 挂单执行）、provenance（复现指纹）
+src/simulation/    事件驱动：engine、mock_gateway、replay_loader
+src/strategies/    事件驱动策略（dual_ma）
+src/utils/         数据调度与数据源
+run.py / research.py  两个薄壳入口（逻辑在 src/cli/ 与 src/simulation/）
+docs/              因子/模型/书目/交易者笔记/执行与信号研究/趋势研究/组合研究/carry 研究/链上研究/预测市场
+```
+
+## 依赖与源
+
+- 依赖锁定在 `uv.lock`。
+- 默认 PyPI 源配成清华镜像（`pyproject.toml` 的 `[[tool.uv.index]]`）；换回官方源改这段后重新 `uv lock`。
+
+## Agent 工具
+
+`.pi/extensions/backtest/` 是把 `research.py` 接进 **pi**（终端 coding agent）的扩展：结构化参数发起回测、流式进度、结果卡片、运行历史与两次运行对比。不装 pi 时它不参与任何运行路径，整目录删掉也不影响任何命令；单独说明见该目录的 `README.md`。
+
+## 文档索引
+
+十条研究线与两条数据线侦察的判定见上面的[研究结论索引](#研究结论索引)；其余文档目录：
+
+| 目录 | 内容 |
+| --- | --- |
+| [`docs/研究线索引.md`](docs/研究线索引.md) | **代码地图**：每条研究线的模块 / CLI 入口 / 判据页 / 产物目录，新增一条线的六件套清单 |
+| `docs/wisdom/` | 交易者思想摘录与方法论笔记（de Prado 各章与仓库的对照审计、每章一条「对仓库做了什么」） |
+| `docs/polymarket/` | 预测市场：端点实测、前向采集契约与验收口径（容器 ADR-0007） |
+| `docs/deribit/` | 期权链数据集：契约、采集/验收命令与已踩的坑（容器 ADR-0006） |
+| `docs/copy-trading/` | OKX 跟单榜单：字段口径、采集/验收作业与预注册的前向跟踪判据 |
+| `docs/models/` | 模型笔记 |
+| `docs/library/` | 书籍与视频剪藏 |
+| `docs/src.md/` | 策略源码说明 |
+
+## 许可
+
+[Apache-2.0](LICENSE)：可商用、可修改、可再分发，附带专利授权条款，保留版权与免责声明即可。
+
+Copyright 2026 Xia Jiang
